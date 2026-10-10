@@ -1,0 +1,29 @@
+# Binaries
+bin/
+relaygate
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Database
+*.db
+*.db-wal
+*.db-shm
+data/
+
+# Go
+vendor/
+
+# Node & UI
+ui/node_modules/
+ui/dist/
+ui/.env.local
+.eslintcache
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
