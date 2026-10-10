@@ -1,0 +1,163 @@
+package test
+
+import (
+	"bytes"
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/rootless-sec/relaygate/internal/ingest"
+	"github.com/rootless-sec/relaygate/internal/model"
+	"github.com/rootless-sec/relaygate/internal/storage"
+	"github.com/rootless-sec/relaygate/internal/verifier"
+	"github.com/rootless-sec/relaygate/internal/worker"
+)
+
+func TestEndToEnd_IngestToDelivery(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "relaygate-e2e-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dbPath := filepath.Join(tempDir, "relaygate.db")
+	db, err := storage.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open storage db: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+
+	// 1. Mock downstream target service
+	var receivedPayload []byte
+	var receivedHeaders http.Header
+	var deliveryCount atomic.Int32
+
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		deliveryCount.Add(1)
+		receivedHeaders = r.Header.Clone()
+		receivedPayload, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"success"}`))
+	}))
+	defer targetServer.Close()
+
+	// 2. Configure endpoint
+	secretKey := "whsec_e2e_test_key"
+	endpoint := &model.Endpoint{
+		ID:        "ep-e2e-stripe",
+		Name:      "E2E Stripe Webhook",
+		SecretKey: secretKey,
+		TargetURL: targetServer.URL,
+		Provider:  model.ProviderStripe,
+		IsActive:  true,
+	}
+	if err := db.SaveEndpoint(ctx, endpoint); err != nil {
+		t.Fatalf("SaveEndpoint failed: %v", err)
+	}
+
+	// 3. Initialize Verifier, Worker Pool, and Ingest Handler
+	v := verifier.NewEngine()
+	workerCfg := worker.DefaultConfig()
+	workerCfg.Concurrency = 2
+	workerCfg.HTTPClient = targetServer.Client()
+	pool := worker.NewPool(db, v, workerCfg)
+	pool.Start()
+	defer pool.Stop()
+
+	ingestHandler := ingest.NewHandler(db, pool)
+
+	// 4. Construct webhook request with Stripe signature
+	nowUnix := time.Now().Unix()
+	rawBody := []byte(`{"id":"evt_payment_1001","type":"payment_intent.succeeded","amount":250000}`)
+
+	mac := hmac.New(sha256.New, []byte(secretKey))
+	mac.Write([]byte(fmt.Sprintf("%d.", nowUnix)))
+	mac.Write(rawBody)
+	stripeSig := fmt.Sprintf("t=%d,v1=%s", nowUnix, hex.EncodeToString(mac.Sum(nil)))
+
+	req := httptest.NewRequest(http.MethodPost, "/ingest/"+endpoint.ID, bytes.NewReader(rawBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Stripe-Signature", stripeSig)
+	req.Header.Set("User-Agent", "Stripe/1.0 (+https://stripe.com/docs/webhooks)")
+	req.Header.Set("X-Forwarded-For", "54.187.174.169")
+
+	// 5. Execute ingest request
+	rec := httptest.NewRecorder()
+	start := time.Now()
+	ingestHandler.ServeHTTP(rec, req)
+	ingestDuration := time.Since(start)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Ingest expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if ingestDuration > 15*time.Millisecond {
+		t.Logf("Notice: Ingest completed in %v", ingestDuration)
+	}
+
+	var ingestResp ingest.Response
+	if err := json.Unmarshal(rec.Body.Bytes(), &ingestResp); err != nil {
+		t.Fatalf("failed to decode ingest response: %v", err)
+	}
+	if ingestResp.ID == "" || ingestResp.Status != "queued" {
+		t.Fatalf("unexpected ingest response: %+v", ingestResp)
+	}
+
+	// 6. Wait for async worker dispatch
+	deadline := time.Now().Add(3 * time.Second)
+	for deliveryCount.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if deliveryCount.Load() != 1 {
+		t.Fatalf("expected 1 delivery to target, got %d", deliveryCount.Load())
+	}
+
+	// 7. Verify payload & headers delivered to target
+	if string(receivedPayload) != string(rawBody) {
+		t.Errorf("payload mismatch: expected %s, got %s", string(rawBody), string(receivedPayload))
+	}
+	if receivedHeaders.Get("X-RelayGate-Delivery") != ingestResp.ID {
+		t.Errorf("missing delivery header: %s", receivedHeaders.Get("X-RelayGate-Delivery"))
+	}
+	if receivedHeaders.Get("X-RelayGate-Verified") != "1" {
+		t.Errorf("expected X-RelayGate-Verified=1, got %s", receivedHeaders.Get("X-RelayGate-Verified"))
+	}
+
+	// 8. Verify database final state
+	event, err := db.GetEventByID(ctx, ingestResp.ID)
+	if err != nil {
+		t.Fatalf("GetEventByID failed: %v", err)
+	}
+
+	if event.Status != model.StatusDelivered {
+		t.Errorf("expected final status DELIVERED, got %s", event.Status)
+	}
+	if event.HTTPStatusCode != 200 {
+		t.Errorf("expected HTTP 200, got %d", event.HTTPStatusCode)
+	}
+	if event.IsVerified != 1 {
+		t.Errorf("expected is_verified = 1, got %d", event.IsVerified)
+	}
+
+	// 9. Verify stats
+	stats, err := db.GetStats(ctx)
+	if err != nil {
+		t.Fatalf("GetStats failed: %v", err)
+	}
+	if stats.TotalEvents != 1 || stats.DeliveredEvents != 1 {
+		t.Errorf("unexpected stats: %+v", stats)
+	}
+}
