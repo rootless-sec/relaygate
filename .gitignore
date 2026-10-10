@@ -1,6 +1,6 @@
 # Binaries
 bin/
-relaygate
+/relaygate
 *.exe
 *.exe~
 *.dll
