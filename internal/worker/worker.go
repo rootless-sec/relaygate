@@ -63,6 +63,7 @@ type Pool struct {
 	client   *http.Client
 	rnd      *rand.Rand
 	rndMu    sync.Mutex
+	inFlight sync.Map
 
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -136,7 +137,6 @@ func (p *Pool) Stop() {
 	}
 
 	p.cancel()
-	close(p.queue)
 	p.wg.Wait()
 }
 
@@ -149,14 +149,12 @@ func (p *Pool) Enqueue(eventID string) bool {
 	select {
 	case p.queue <- eventID:
 		return true
+	case <-p.ctx.Done():
+		return false
 	default:
-		// Queue full: spawn a detached goroutine to deliver without blocking ingest
-		go func() {
-			select {
-			case p.queue <- eventID:
-			case <-p.ctx.Done():
-			}
-		}()
+		// Queue full: do not block or leak unmanaged goroutines.
+		// The event is already durable in SQLite WAL as PENDING.
+		// The retrySchedulerLoop will safely pick it up from the database.
 		return true
 	}
 }
@@ -168,10 +166,7 @@ func (p *Pool) workerLoop(workerID int) {
 		select {
 		case <-p.ctx.Done():
 			return
-		case eventID, ok := <-p.queue:
-			if !ok {
-				return
-			}
+		case eventID := <-p.queue:
 			p.processEvent(eventID)
 		}
 	}
@@ -197,11 +192,16 @@ func (p *Pool) scheduleRetries() {
 	ctx, cancel := context.WithTimeout(p.ctx, 5*time.Second)
 	defer cancel()
 
+	// Periodic WAL checkpoint maintenance
+	_ = p.repo.Checkpoint(ctx)
+
 	// 1. Fetch pending retries
 	retries, err := p.repo.GetPendingRetries(ctx, 100)
 	if err == nil {
 		for _, ev := range retries {
-			p.Enqueue(ev.ID)
+			if _, inFlight := p.inFlight.Load(ev.ID); !inFlight {
+				p.Enqueue(ev.ID)
+			}
 		}
 	}
 
@@ -209,7 +209,9 @@ func (p *Pool) scheduleRetries() {
 	pending, err := p.repo.GetPendingEvents(ctx, 100)
 	if err == nil {
 		for _, ev := range pending {
-			p.Enqueue(ev.ID)
+			if _, inFlight := p.inFlight.Load(ev.ID); !inFlight {
+				p.Enqueue(ev.ID)
+			}
 		}
 	}
 }
@@ -227,6 +229,11 @@ func (p *Pool) processEvent(eventID string) {
 }
 
 func (p *Pool) processEventWithContext(ctx context.Context, eventID string) error {
+	if _, loaded := p.inFlight.LoadOrStore(eventID, time.Now()); loaded {
+		return nil
+	}
+	defer p.inFlight.Delete(eventID)
+
 	event, err := p.repo.GetEventByID(ctx, eventID)
 	if err != nil {
 		return fmt.Errorf("failed to load event %s: %w", eventID, err)
@@ -249,10 +256,21 @@ func (p *Pool) processEventWithContext(ctx context.Context, eventID string) erro
 	}
 
 	// Cryptographic verification check
-	if p.verifier != nil && event.IsVerified == 0 && endpoint.SecretKey != "" {
-		verificationStatus, _ := p.verifier.Verify(endpoint, event.Headers, event.Payload)
-		_ = p.repo.UpdateEventVerification(ctx, event.ID, verificationStatus)
-		event.IsVerified = verificationStatus
+	if p.verifier != nil && endpoint.SecretKey != "" {
+		if event.IsVerified == 0 {
+			verificationStatus, vErr := p.verifier.Verify(endpoint, event.Headers, event.Payload)
+			_ = p.repo.UpdateEventVerification(ctx, event.ID, verificationStatus)
+			event.IsVerified = verificationStatus
+			if verificationStatus == verifier.VerificationInvalid {
+				errMsg := "cryptographic signature verification failed"
+				if vErr != nil {
+					errMsg = fmt.Sprintf("cryptographic signature verification failed: %v", vErr)
+				}
+				return p.repo.UpdateEventStatus(ctx, event.ID, model.StatusFailed, 0, errMsg)
+			}
+		} else if event.IsVerified == verifier.VerificationInvalid {
+			return p.repo.UpdateEventStatus(ctx, event.ID, model.StatusFailed, 0, "cryptographic signature verification failed")
+		}
 	}
 
 	// Prepare downstream HTTP request
@@ -304,14 +322,14 @@ func (p *Pool) handleFailure(ctx context.Context, event *model.WebhookEvent, sta
 	}
 
 	// Calculate exponential backoff with jitter
-	backoff := p.calculateBackoff(event.Attempts)
+	backoff := p.CalculateBackoff(event.Attempts)
 	nextRetryAt := time.Now().UTC().Add(backoff)
 
 	return p.repo.IncrementAttempts(ctx, event.ID, &nextRetryAt, errMsg, statusCode)
 }
 
 // CalculateBackoff computes: base * 2^attempt +/- jitter
-func (p *Pool) calculateBackoff(attempt int) time.Duration {
+func (p *Pool) CalculateBackoff(attempt int) time.Duration {
 	base := p.config.BaseBackoff
 	maxBackoff := p.config.MaxBackoff
 	jitterFraction := p.config.JitterFraction
@@ -337,8 +355,9 @@ func (p *Pool) calculateBackoff(attempt int) time.Duration {
 	p.rndMu.Unlock()
 
 	jitteredSec := backoffSec * (1 + randomFraction)
-	if jitteredSec < base.Seconds() {
-		jitteredSec = base.Seconds()
+	// Lower bound of 1 second
+	if jitteredSec < 1.0 {
+		jitteredSec = 1.0
 	}
 	if jitteredSec > maxBackoff.Seconds() {
 		jitteredSec = maxBackoff.Seconds()

@@ -50,6 +50,7 @@ type Repository interface {
 	GetPendingEvents(ctx context.Context, limit int) ([]*model.WebhookEvent, error)
 	IncrementAttempts(ctx context.Context, id string, nextRetryAt *time.Time, lastError string, httpStatusCode int) error
 	GetStats(ctx context.Context) (*model.StatsSummary, error)
+	Checkpoint(ctx context.Context) error
 }
 
 // DB represents a SQLite database connection wrapper
@@ -74,9 +75,10 @@ func Open(dbPath string) (*DB, error) {
 		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
 	}
 
-	// SQLite WAL mode supports concurrent readers; serialize writes
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+	// SQLite WAL mode supports concurrent readers; serialize writes with Go mutex
+	maxConns := 10
+	db.SetMaxOpenConns(maxConns)
+	db.SetMaxIdleConns(maxConns)
 
 	storageDB := &DB{db: db}
 
@@ -91,11 +93,26 @@ func Open(dbPath string) (*DB, error) {
 	return storageDB, nil
 }
 
-// Close closes the database connection
+// Close flushes the WAL checkpoint and closes the database connection
 func (d *DB) Close() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+
+	// Truncate and consolidate WAL back into the main database file on shutdown
+	_, _ = d.db.Exec("PRAGMA wal_checkpoint(TRUNCATE);")
 	return d.db.Close()
+}
+
+// Checkpoint flushes SQLite WAL pages to the main database file
+func (d *DB) Checkpoint(ctx context.Context) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	_, err := d.db.ExecContext(ctx, "PRAGMA wal_checkpoint(PASSIVE);")
+	if err != nil {
+		return fmt.Errorf("wal checkpoint failed: %w", err)
+	}
+	return nil
 }
 
 // Migrate executes schema.sql against the SQLite database
@@ -277,6 +294,12 @@ func (d *DB) SaveEvent(ctx context.Context, ev *model.WebhookEvent) error {
 	if ev.Provider == "" {
 		ev.Provider = model.ProviderGeneric
 	}
+	if ev.Payload == nil {
+		ev.Payload = []byte{}
+	}
+	if ev.Headers == nil {
+		ev.Headers = make(map[string]string)
+	}
 
 	headersJSON, err := json.Marshal(ev.Headers)
 	if err != nil {
@@ -436,13 +459,21 @@ func (d *DB) UpdateEventStatus(ctx context.Context, id string, status model.Even
 	defer d.mu.Unlock()
 
 	nowStr := time.Now().UTC().Format("2006-01-02 15:04:05")
+	if len(lastError) > 4096 {
+		lastError = lastError[:4096]
+	}
+
 	query := `
 		UPDATE webhook_events
-		SET status = ?, http_status_code = ?, last_error = ?, updated_at = ?
+		SET status = ?,
+		    http_status_code = ?,
+		    last_error = ?,
+		    next_retry_at = CASE WHEN ? IN ('DELIVERED', 'FAILED', 'PENDING') THEN NULL ELSE next_retry_at END,
+		    updated_at = ?
 		WHERE id = ?;
 	`
 
-	res, err := d.db.ExecContext(ctx, query, string(status), httpStatusCode, lastError, nowStr, id)
+	res, err := d.db.ExecContext(ctx, query, string(status), httpStatusCode, lastError, string(status), nowStr, id)
 	if err != nil {
 		return fmt.Errorf("failed to update event status: %w", err)
 	}
@@ -587,6 +618,10 @@ func (d *DB) IncrementAttempts(ctx context.Context, id string, nextRetryAt *time
 			s := nextRetryAt.UTC().Format("2006-01-02 15:04:05")
 			nextRetryStr = &s
 		}
+	}
+
+	if len(lastError) > 4096 {
+		lastError = lastError[:4096]
 	}
 
 	nowStr := time.Now().UTC().Format("2006-01-02 15:04:05")

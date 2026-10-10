@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net"
@@ -90,8 +91,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Extract signature
-	signature := extractSignature(headers)
+	// Extract signature (from headers or body)
+	signature := extractSignature(headers, payload)
 
 	// Extract source IP
 	sourceIP := extractSourceIP(r)
@@ -169,7 +170,7 @@ func extractSourceIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
-func extractSignature(headers map[string]string) string {
+func extractSignature(headers map[string]string, payload []byte) string {
 	keys := []string{
 		"Stripe-Signature",
 		"X-Signature-SHA256",
@@ -187,6 +188,20 @@ func extractSignature(headers map[string]string) string {
 			}
 		}
 	}
+
+	// For Midtrans or JSON webhooks: check signature_key in payload if not found in headers
+	if len(payload) > 0 && len(payload) < 65536 {
+		trimmed := bytes.TrimSpace(payload)
+		if len(trimmed) > 0 && trimmed[0] == '{' {
+			var bodyMap map[string]any
+			if err := json.Unmarshal(trimmed, &bodyMap); err == nil {
+				if sig, ok := bodyMap["signature_key"].(string); ok && strings.TrimSpace(sig) != "" {
+					return strings.TrimSpace(sig)
+				}
+			}
+		}
+	}
+
 	return ""
 }
 

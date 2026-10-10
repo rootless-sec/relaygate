@@ -85,6 +85,7 @@ func main() {
 	mux.Handle("POST /ingest/{endpoint_id}", ingestHandler)
 	// Fallback route for subpaths if router needs it
 	mux.Handle("/ingest/", ingestHandler)
+	mux.Handle("/ingest", ingestHandler)
 
 	server := &http.Server{
 		Addr:         *addr,

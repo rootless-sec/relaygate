@@ -45,6 +45,14 @@ func TestVerifier_GenericHMAC(t *testing.T) {
 		t.Fatalf("expected valid verification with prefix, got status=%d, err=%v", status, err)
 	}
 
+	// 2b. Valid with sha256: prefix
+	status, err = engine.Verify(ep, map[string]string{
+		"X-Signature": "sha256:" + validSig,
+	}, payload)
+	if err != nil || status != verifier.VerificationValid {
+		t.Fatalf("expected valid verification with colon prefix, got status=%d, err=%v", status, err)
+	}
+
 	// 3. Invalid signature
 	status, err = engine.Verify(ep, map[string]string{
 		"X-Signature-SHA256": "bad-signature",
@@ -116,6 +124,32 @@ func TestVerifier_MidtransSHA512(t *testing.T) {
 	}, payloadNoSig)
 	if err != nil || status != verifier.VerificationValid {
 		t.Fatalf("expected valid Midtrans verification via header, got status=%d, err=%v", status, err)
+	}
+
+	// 2b. Valid with gross_amount as integer 150000 matching signature computed with 150000.00
+	payloadIntAmount := []byte(fmt.Sprintf(`{
+		"order_id": "%s",
+		"status_code": "%s",
+		"gross_amount": 150000,
+		"signature_key": "%s"
+	}`, orderID, statusCode, expectedSignature))
+
+	status, err = engine.Verify(ep, map[string]string{}, payloadIntAmount)
+	if err != nil || status != verifier.VerificationValid {
+		t.Fatalf("expected valid Midtrans verification for numeric gross_amount, got status=%d, err=%v", status, err)
+	}
+
+	// 2c. Valid with gross_amount as string without decimals "150000"
+	payloadStringNoDecimal := []byte(fmt.Sprintf(`{
+		"order_id": "%s",
+		"status_code": "%s",
+		"gross_amount": "150000",
+		"signature_key": "%s"
+	}`, orderID, statusCode, expectedSignature))
+
+	status, err = engine.Verify(ep, map[string]string{}, payloadStringNoDecimal)
+	if err != nil || status != verifier.VerificationValid {
+		t.Fatalf("expected valid Midtrans verification for gross_amount '150000', got status=%d, err=%v", status, err)
 	}
 
 	// 3. Tampered payload

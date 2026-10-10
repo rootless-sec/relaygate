@@ -119,8 +119,11 @@ func (e *Engine) VerifyGeneric(secretKey string, headers map[string]string, payl
 
 	// Remove common prefixes
 	cleanSig := strings.TrimSpace(sigHeader)
-	if strings.HasPrefix(strings.ToLower(cleanSig), "sha256=") {
-		cleanSig = cleanSig[7:]
+	lowerClean := strings.ToLower(cleanSig)
+	if strings.HasPrefix(lowerClean, "sha256=") {
+		cleanSig = strings.TrimSpace(cleanSig[7:])
+	} else if strings.HasPrefix(lowerClean, "sha256:") {
+		cleanSig = strings.TrimSpace(cleanSig[7:])
 	}
 
 	mac := hmac.New(sha256.New, []byte(secretKey))
@@ -170,12 +173,22 @@ func (e *Engine) VerifyMidtrans(serverKey string, headers map[string]string, pay
 		return false, fmt.Errorf("midtrans missing required fields (order_id, status_code, or gross_amount)")
 	}
 
-	combined := orderID + statusCode + grossAmount + serverKey
-	hash := sha512.Sum512([]byte(combined))
-	expectedHex := hex.EncodeToString(hash[:])
+	candidates := []string{grossAmount}
+	if !strings.Contains(grossAmount, ".") {
+		candidates = append(candidates, grossAmount+".00")
+	} else if strings.HasSuffix(grossAmount, ".00") {
+		candidates = append(candidates, strings.TrimSuffix(grossAmount, ".00"))
+	}
 
-	if subtle.ConstantTimeCompare([]byte(strings.ToLower(signatureKey)), []byte(strings.ToLower(expectedHex))) == 1 {
-		return true, nil
+	cleanSig := strings.TrimSpace(strings.ToLower(signatureKey))
+	for _, ga := range candidates {
+		combined := orderID + statusCode + ga + serverKey
+		hash := sha512.Sum512([]byte(combined))
+		expectedHex := hex.EncodeToString(hash[:])
+
+		if subtle.ConstantTimeCompare([]byte(cleanSig), []byte(expectedHex)) == 1 {
+			return true, nil
+		}
 	}
 
 	return false, fmt.Errorf("midtrans signature hash mismatch")

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -301,10 +302,152 @@ func TestWorker_BackoffCalculation(t *testing.T) {
 	// Attempt 2: ~40s +/- 20% (32s to 48s)
 	// Attempt 3: ~80s +/- 20% (64s to 96s)
 	for attempt := 0; attempt < 5; attempt++ {
-		for run := 0; run < 10; run++ {
-			// Access internal calculateBackoff through Dispatch or by testing bounds
-			// We can verify that high attempts stay <= MaxBackoff
+		multiplier := float64(int64(1) << attempt)
+		expectedBase := 10.0 * multiplier
+		minExpected := time.Duration(expectedBase * 0.79 * float64(time.Second))
+		maxExpected := time.Duration(expectedBase * 1.21 * float64(time.Second))
+
+		for run := 0; run < 20; run++ {
+			b := pool.CalculateBackoff(attempt)
+			if b < minExpected || b > maxExpected {
+				t.Fatalf("attempt %d run %d: backoff %v outside expected window [%v, %v]", attempt, run, b, minExpected, maxExpected)
+			}
 		}
 	}
-	_ = pool
+
+	// Verify capping at MaxBackoff
+	for run := 0; run < 10; run++ {
+		b := pool.CalculateBackoff(20)
+		if b > cfg.MaxBackoff {
+			t.Fatalf("backoff for large attempt %v exceeded MaxBackoff %v", b, cfg.MaxBackoff)
+		}
+	}
+}
+
+func TestWorker_InvalidSignatureRejected(t *testing.T) {
+	db, v, cleanup := createTestEnv(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	var targetHitCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		targetHitCount.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	ep := &model.Endpoint{
+		ID:        "ep-strict-verif",
+		Name:      "Strict Verif Endpoint",
+		SecretKey: "secret-key-xyz",
+		TargetURL: server.URL,
+		Provider:  model.ProviderGeneric,
+		IsActive:  true,
+	}
+	if err := db.SaveEndpoint(ctx, ep); err != nil {
+		t.Fatalf("SaveEndpoint failed: %v", err)
+	}
+
+	ev := &model.WebhookEvent{
+		ID:         "evt-forged",
+		EndpointID: ep.ID,
+		Provider:   model.ProviderGeneric,
+		SourceIP:   "10.0.0.99",
+		Headers: map[string]string{
+			"Content-Type":       "application/json",
+			"X-Signature-SHA256": "completely_invalid_forged_signature",
+		},
+		Payload:     []byte(`{"hacked": true}`),
+		Status:      model.StatusPending,
+		MaxAttempts: 3,
+	}
+	if err := db.SaveEvent(ctx, ev); err != nil {
+		t.Fatalf("SaveEvent failed: %v", err)
+	}
+
+	cfg := worker.DefaultConfig()
+	cfg.HTTPClient = server.Client()
+	pool := worker.NewPool(db, v, cfg)
+
+	// Attempt dispatch
+	_ = pool.Dispatch(ctx, ev.ID)
+
+	// Downstream target MUST NOT have been called!
+	if targetHitCount.Load() != 0 {
+		t.Fatalf("SECURITY VIOLATION: downstream target was called %d times for forged signature!", targetHitCount.Load())
+	}
+
+	// Event in database must be marked FAILED with IsVerified = -1
+	updated, err := db.GetEventByID(ctx, ev.ID)
+	if err != nil {
+		t.Fatalf("GetEventByID failed: %v", err)
+	}
+	if updated.Status != model.StatusFailed {
+		t.Errorf("expected status FAILED, got %s", updated.Status)
+	}
+	if updated.IsVerified != -1 {
+		t.Errorf("expected is_verified = -1, got %d", updated.IsVerified)
+	}
+	if updated.LastError == "" {
+		t.Errorf("expected last_error to record signature verification failure")
+	}
+}
+
+func TestWorker_InFlightDeduplication(t *testing.T) {
+	db, v, cleanup := createTestEnv(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	var requestCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount.Add(1)
+		time.Sleep(50 * time.Millisecond) // Slow downstream
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	ep := &model.Endpoint{
+		ID:        "ep-slow",
+		Name:      "Slow Endpoint",
+		TargetURL: server.URL,
+		Provider:  model.ProviderGeneric,
+		IsActive:  true,
+	}
+	_ = db.SaveEndpoint(ctx, ep)
+
+	ev := &model.WebhookEvent{
+		ID:          "evt-slow",
+		EndpointID:  ep.ID,
+		Provider:    model.ProviderGeneric,
+		SourceIP:    "127.0.0.1",
+		Headers:     map[string]string{},
+		Payload:     []byte(`{}`),
+		Status:      model.StatusPending,
+		MaxAttempts: 3,
+	}
+	_ = db.SaveEvent(ctx, ev)
+
+	cfg := worker.DefaultConfig()
+	cfg.HTTPClient = server.Client()
+	pool := worker.NewPool(db, v, cfg)
+
+	// Launch two simultaneous dispatches of the same event
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_ = pool.Dispatch(ctx, ev.ID)
+	}()
+	go func() {
+		defer wg.Done()
+		_ = pool.Dispatch(ctx, ev.ID)
+	}()
+	wg.Wait()
+
+	// Exactly 1 request must have hit the downstream server!
+	if requestCount.Load() != 1 {
+		t.Fatalf("expected exactly 1 dispatch, but received %d duplicate requests", requestCount.Load())
+	}
 }

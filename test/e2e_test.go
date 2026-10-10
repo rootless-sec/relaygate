@@ -161,3 +161,90 @@ func TestEndToEnd_IngestToDelivery(t *testing.T) {
 		t.Errorf("unexpected stats: %+v", stats)
 	}
 }
+
+func TestEndToEnd_ForgedSignatureRejected(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "relaygate-e2e-forged-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dbPath := filepath.Join(tempDir, "relaygate.db")
+	db, err := storage.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open storage db: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+
+	// Downstream target service
+	var deliveryCount atomic.Int32
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		deliveryCount.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer targetServer.Close()
+
+	secretKey := "whsec_strict_key"
+	endpoint := &model.Endpoint{
+		ID:        "ep-forged-stripe",
+		Name:      "Strict Stripe",
+		SecretKey: secretKey,
+		TargetURL: targetServer.URL,
+		Provider:  model.ProviderStripe,
+		IsActive:  true,
+	}
+	if err := db.SaveEndpoint(ctx, endpoint); err != nil {
+		t.Fatalf("SaveEndpoint failed: %v", err)
+	}
+
+	v := verifier.NewEngine()
+	workerCfg := worker.DefaultConfig()
+	workerCfg.Concurrency = 2
+	workerCfg.HTTPClient = targetServer.Client()
+	pool := worker.NewPool(db, v, workerCfg)
+	pool.Start()
+	defer pool.Stop()
+
+	ingestHandler := ingest.NewHandler(db, pool)
+
+	// Send webhook with invalid/forged Stripe signature
+	nowUnix := time.Now().Unix()
+	rawBody := []byte(`{"id":"evt_fraud_999","type":"charge.refunded"}`)
+	forgedSig := fmt.Sprintf("t=%d,v1=0000000000000000000000000000000000000000000000000000000000000000", nowUnix)
+
+	req := httptest.NewRequest(http.MethodPost, "/ingest/"+endpoint.ID, bytes.NewReader(rawBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Stripe-Signature", forgedSig)
+
+	rec := httptest.NewRecorder()
+	ingestHandler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Ingest expected 200 OK, got %d", rec.Code)
+	}
+
+	var ingestResp ingest.Response
+	_ = json.Unmarshal(rec.Body.Bytes(), &ingestResp)
+
+	// Wait for worker processing
+	time.Sleep(300 * time.Millisecond)
+
+	// Target must NOT have received any request
+	if deliveryCount.Load() != 0 {
+		t.Fatalf("expected 0 deliveries to target for forged webhook, got %d", deliveryCount.Load())
+	}
+
+	// Verify database record: status FAILED, is_verified = -1
+	event, err := db.GetEventByID(ctx, ingestResp.ID)
+	if err != nil {
+		t.Fatalf("GetEventByID failed: %v", err)
+	}
+	if event.Status != model.StatusFailed {
+		t.Errorf("expected status FAILED, got %s", event.Status)
+	}
+	if event.IsVerified != -1 {
+		t.Errorf("expected is_verified = -1, got %d", event.IsVerified)
+	}
+}

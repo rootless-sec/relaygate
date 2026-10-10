@@ -181,7 +181,17 @@ func TestStorage_EventLifecycle(t *testing.T) {
 		t.Errorf("expected is_verified = 1, got %d", fetched.IsVerified)
 	}
 
-	// 4. Update Event Status to DELIVERED
+	// 3b. Simulate retrying state with next_retry_at
+	nextRetryTime := time.Now().UTC().Add(30 * time.Second)
+	if err := db.IncrementAttempts(ctx, event.ID, &nextRetryTime, "temp error", 500); err != nil {
+		t.Fatalf("IncrementAttempts failed: %v", err)
+	}
+	fetched, _ = db.GetEventByID(ctx, event.ID)
+	if fetched.NextRetryAt == nil {
+		t.Errorf("expected next_retry_at to be set during RETRYING")
+	}
+
+	// 4. Update Event Status to DELIVERED (should clear next_retry_at)
 	if err := db.UpdateEventStatus(ctx, event.ID, model.StatusDelivered, 200, ""); err != nil {
 		t.Fatalf("UpdateEventStatus failed: %v", err)
 	}
@@ -191,6 +201,9 @@ func TestStorage_EventLifecycle(t *testing.T) {
 	}
 	if fetched.HTTPStatusCode != 200 {
 		t.Errorf("expected HTTP status 200, got %d", fetched.HTTPStatusCode)
+	}
+	if fetched.NextRetryAt != nil {
+		t.Errorf("expected next_retry_at to be cleared (nil) upon DELIVERED, got %v", fetched.NextRetryAt)
 	}
 }
 
@@ -509,5 +522,42 @@ func TestStorage_ConcurrentWritesAndReads(t *testing.T) {
 	expectedTotal := int64(goroutines * eventsPerGoroutine)
 	if stats.TotalEvents != expectedTotal {
 		t.Fatalf("expected total events %d, got %d", expectedTotal, stats.TotalEvents)
+	}
+}
+
+func TestStorage_Checkpoint(t *testing.T) {
+	db, cleanup := createTempDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	ep := &model.Endpoint{
+		ID:        "ep-ckpt",
+		Name:      "Checkpoint Endpoint",
+		SecretKey: "key",
+		TargetURL: "https://ckpt.example.com",
+		Provider:  model.ProviderGeneric,
+		IsActive:  true,
+	}
+	if err := db.SaveEndpoint(ctx, ep); err != nil {
+		t.Fatalf("SaveEndpoint failed: %v", err)
+	}
+
+	ev := &model.WebhookEvent{
+		ID:         "evt-ckpt-1",
+		EndpointID: ep.ID,
+		Provider:   model.ProviderGeneric,
+		SourceIP:   "127.0.0.1",
+		Headers:    map[string]string{},
+		Payload:    []byte(`{"test":"checkpoint"}`),
+		Status:     model.StatusPending,
+	}
+	if err := db.SaveEvent(ctx, ev); err != nil {
+		t.Fatalf("SaveEvent failed: %v", err)
+	}
+
+	// Trigger Checkpoint
+	if err := db.Checkpoint(ctx); err != nil {
+		t.Fatalf("Checkpoint failed: %v", err)
 	}
 }
