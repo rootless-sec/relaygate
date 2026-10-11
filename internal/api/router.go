@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 
+	"github.com/rootless-sec/relaygate/internal/mailer"
 	"github.com/rootless-sec/relaygate/internal/storage"
 	"github.com/rootless-sec/relaygate/internal/worker"
 )
@@ -14,8 +15,8 @@ type Router struct {
 }
 
 // NewRouter registers all control plane API endpoints
-func NewRouter(repo storage.Repository, pool *worker.Pool, hub *Hub) *Router {
-	api := NewAPI(repo, pool, hub)
+func NewRouter(repo storage.Repository, pool *worker.Pool, hub *Hub, mailerOpt ...*mailer.Mailer) *Router {
+	api := NewAPI(repo, pool, hub, mailerOpt...)
 	mux := http.NewServeMux()
 
 	// REST Endpoints (Go 1.22+ pattern matching)
@@ -34,6 +35,9 @@ func NewRouter(repo storage.Repository, pool *worker.Pool, hub *Hub) *Router {
 
 	// Auth Endpoints
 	mux.HandleFunc("POST /api/v1/auth/register", api.Register)
+	mux.HandleFunc("POST /api/v1/auth/verify", api.VerifyCode)
+	mux.HandleFunc("POST /api/v1/auth/verify-code", api.VerifyCode)
+	mux.HandleFunc("POST /api/v1/auth/resend-code", api.ResendCode)
 	mux.HandleFunc("POST /api/v1/auth/login", api.Login)
 
 	return &Router{

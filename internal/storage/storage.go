@@ -46,6 +46,12 @@ type Repository interface {
 	GetUserByEmail(ctx context.Context, email string) (*model.User, error)
 	GetUserByID(ctx context.Context, id string) (*model.User, error)
 
+	// Verification methods
+	SaveEmailVerification(ctx context.Context, v *model.EmailVerification) error
+	GetEmailVerification(ctx context.Context, email string) (*model.EmailVerification, error)
+	IncrementVerificationAttempts(ctx context.Context, email string) (int, error)
+	DeleteEmailVerification(ctx context.Context, email string) error
+
 	// Event methods
 	SaveEvent(ctx context.Context, event *model.WebhookEvent) error
 	GetEventByID(ctx context.Context, id string) (*model.WebhookEvent, error)
@@ -398,7 +404,150 @@ func (d *DB) GetUserByID(ctx context.Context, id string) (*model.User, error) {
 	return &u, nil
 }
 
+// SaveEmailVerification persists or updates an email verification record
+func (d *DB) SaveEmailVerification(ctx context.Context, v *model.EmailVerification) error {
+	if v == nil {
+		return fmt.Errorf("verification cannot be nil")
+	}
+
+	v.Email = strings.ToLower(strings.TrimSpace(v.Email))
+	if v.MaxAttempts <= 0 {
+		v.MaxAttempts = 5
+	}
+	now := time.Now().UTC()
+	if v.CreatedAt.IsZero() {
+		v.CreatedAt = now
+	}
+	if v.LastSentAt.IsZero() {
+		v.LastSentAt = now
+	}
+	if v.ExpiresAt.IsZero() {
+		v.ExpiresAt = now.Add(15 * time.Minute)
+	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	query := `
+		INSERT INTO email_verifications (email, name, password_hash, code, attempts, max_attempts, last_sent_at, expires_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(email) DO UPDATE SET
+			name = excluded.name,
+			password_hash = excluded.password_hash,
+			code = excluded.code,
+			attempts = excluded.attempts,
+			max_attempts = excluded.max_attempts,
+			last_sent_at = excluded.last_sent_at,
+			expires_at = excluded.expires_at;
+	`
+
+	lastSentStr := v.LastSentAt.UTC().Format("2006-01-02 15:04:05")
+	expiresStr := v.ExpiresAt.UTC().Format("2006-01-02 15:04:05")
+	createdAtStr := v.CreatedAt.UTC().Format("2006-01-02 15:04:05")
+
+	_, err := d.db.ExecContext(ctx, query,
+		v.Email,
+		v.Name,
+		v.PasswordHash,
+		v.Code,
+		v.Attempts,
+		v.MaxAttempts,
+		lastSentStr,
+		expiresStr,
+		createdAtStr,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to save email verification: %w", err)
+	}
+
+	return nil
+}
+
+// GetEmailVerification fetches an email verification by email address
+func (d *DB) GetEmailVerification(ctx context.Context, email string) (*model.EmailVerification, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	normEmail := strings.ToLower(strings.TrimSpace(email))
+	query := `
+		SELECT email, name, password_hash, code, attempts, max_attempts, last_sent_at, expires_at, created_at
+		FROM email_verifications
+		WHERE LOWER(email) = LOWER(?);
+	`
+
+	var v model.EmailVerification
+	var lastSentRaw, expiresRaw, createdRaw any
+
+	row := d.db.QueryRowContext(ctx, query, normEmail)
+	err := row.Scan(
+		&v.Email,
+		&v.Name,
+		&v.PasswordHash,
+		&v.Code,
+		&v.Attempts,
+		&v.MaxAttempts,
+		&lastSentRaw,
+		&expiresRaw,
+		&createdRaw,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("email verification not found: %w", err)
+		}
+		return nil, fmt.Errorf("failed to get email verification: %w", err)
+	}
+
+	v.LastSentAt = parseSQLTime(lastSentRaw)
+	v.ExpiresAt = parseSQLTime(expiresRaw)
+	v.CreatedAt = parseSQLTime(createdRaw)
+
+	return &v, nil
+}
+
+// IncrementVerificationAttempts increments the failed attempt count for an email verification
+func (d *DB) IncrementVerificationAttempts(ctx context.Context, email string) (int, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	normEmail := strings.ToLower(strings.TrimSpace(email))
+	query := `
+		UPDATE email_verifications
+		SET attempts = attempts + 1
+		WHERE LOWER(email) = LOWER(?);
+	`
+
+	_, err := d.db.ExecContext(ctx, query, normEmail)
+	if err != nil {
+		return 0, fmt.Errorf("failed to increment verification attempts: %w", err)
+	}
+
+	var attempts int
+	err = d.db.QueryRowContext(ctx, `SELECT attempts FROM email_verifications WHERE LOWER(email) = LOWER(?);`, normEmail).Scan(&attempts)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read updated attempts: %w", err)
+	}
+
+	return attempts, nil
+}
+
+// DeleteEmailVerification removes a completed or expired verification record
+func (d *DB) DeleteEmailVerification(ctx context.Context, email string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	normEmail := strings.ToLower(strings.TrimSpace(email))
+	query := `DELETE FROM email_verifications WHERE LOWER(email) = LOWER(?);`
+
+	_, err := d.db.ExecContext(ctx, query, normEmail)
+	if err != nil {
+		return fmt.Errorf("failed to delete email verification: %w", err)
+	}
+
+	return nil
+}
+
 // SaveEvent persists a new webhook event into SQLite queue in WAL mode
+
 func (d *DB) SaveEvent(ctx context.Context, ev *model.WebhookEvent) error {
 	if ev == nil {
 		return fmt.Errorf("event cannot be nil")

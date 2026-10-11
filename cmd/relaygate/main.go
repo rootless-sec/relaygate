@@ -14,6 +14,7 @@ import (
 
 	"github.com/rootless-sec/relaygate/internal/api"
 	"github.com/rootless-sec/relaygate/internal/ingest"
+	"github.com/rootless-sec/relaygate/internal/mailer"
 	"github.com/rootless-sec/relaygate/internal/storage"
 	"github.com/rootless-sec/relaygate/internal/verifier"
 	"github.com/rootless-sec/relaygate/internal/worker"
@@ -76,8 +77,16 @@ func main() {
 	ingestHandler := ingest.NewHandler(repo, pool)
 	ingestHandler.SetBroadcaster(hub)
 
+	// Initialize transactional mailer
+	emailSender := mailer.NewMailerFromEnv()
+	if emailSender.IsDev() {
+		log.Printf("[RelayGate] SMTP not configured (SMTP_HOST is empty). Running in local dev email preview mode.")
+	} else {
+		log.Printf("[RelayGate] SMTP configured with host: %s:%d", emailSender.Host, emailSender.Port)
+	}
+
 	// Initialize API Router
-	apiRouter := api.NewRouter(repo, pool, hub)
+	apiRouter := api.NewRouter(repo, pool, hub, emailSender)
 
 	// Router setup
 	mux := http.NewServeMux()

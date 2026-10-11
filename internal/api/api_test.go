@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -306,25 +307,63 @@ func TestAPI_AuthRegisterAndLogin(t *testing.T) {
 		t.Errorf("expected admin email, got %s", adminRes.User.Email)
 	}
 
-	// 2. Test register new account
+	// 2. Test register new account (initiates OTP verification)
 	regBody := []byte(`{"name":"Dev User","email":"dev@company.com","password":"securepassword"}`)
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(regBody))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("expected registration 201 Created, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected registration 200 OK, got %d: %s", rec.Code, rec.Body.String())
 	}
-	var regRes api.AuthResponse
+	var regRes api.RegisterResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &regRes); err != nil {
 		t.Fatalf("failed to decode register response: %v", err)
 	}
-	if regRes.User.Email != "dev@company.com" || regRes.User.Name != "Dev User" {
-		t.Errorf("unexpected registered user: %+v", regRes.User)
+	if regRes.Email != "dev@company.com" || regRes.DevCode == "" || regRes.Status != "pending_verification" {
+		t.Errorf("unexpected register response: %+v", regRes)
 	}
 
-	// 3. Test register duplicate email
+	// 3. User should NOT be able to login before completing verification
+	loginEarlyBody := []byte(`{"email":"dev@company.com","password":"securepassword"}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(loginEarlyBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unverified user login 401 Unauthorized, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 4. Test verify with incorrect code
+	badVerifyBody := []byte(`{"email":"dev@company.com","code":"000000"}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/verify", bytes.NewReader(badVerifyBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected wrong code 400 Bad Request, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 5. Test verify with correct dev code
+	verifyBody := []byte(`{"email":"dev@company.com","code":"` + regRes.DevCode + `"}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/verify", bytes.NewReader(verifyBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected verify 201 Created, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var authRes api.AuthResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &authRes); err != nil {
+		t.Fatalf("failed to decode verify response: %v", err)
+	}
+	if authRes.User == nil || authRes.User.Email != "dev@company.com" || authRes.User.Name != "Dev User" {
+		t.Errorf("unexpected verified user response: %+v", authRes)
+	}
+
+	// 6. Test register duplicate email
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(regBody))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
@@ -333,7 +372,7 @@ func TestAPI_AuthRegisterAndLogin(t *testing.T) {
 		t.Fatalf("expected duplicate registration 409 Conflict, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// 4. Test login with newly registered user
+	// 7. Test login with newly registered user
 	loginNewBody := []byte(`{"email":"dev@company.com","password":"securepassword"}`)
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(loginNewBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -343,7 +382,7 @@ func TestAPI_AuthRegisterAndLogin(t *testing.T) {
 		t.Fatalf("expected user login 200 OK, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// 5. Test invalid password
+	// 8. Test invalid password
 	badLoginBody := []byte(`{"email":"dev@company.com","password":"wrongpassword"}`)
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(badLoginBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -353,7 +392,7 @@ func TestAPI_AuthRegisterAndLogin(t *testing.T) {
 		t.Fatalf("expected bad login 401 Unauthorized, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// 6. Test short password validation
+	// 9. Test short password validation
 	shortRegBody := []byte(`{"name":"Dev User","email":"test@company.com","password":"123"}`)
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(shortRegBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -363,4 +402,81 @@ func TestAPI_AuthRegisterAndLogin(t *testing.T) {
 		t.Fatalf("expected short password 400 Bad Request, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestAPI_EmailVerificationEdgeCases(t *testing.T) {
+	db, _, _, router, cleanup := setupTestAPI(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// 1. Register pending user
+	regBody := []byte(`{"name":"Brute Tester","email":"brute@example.com","password":"mypassword123"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(regBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK register, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 2. Resend code immediately should trigger cooldown rate limit (30s)
+	resendBody := []byte(`{"email":"brute@example.com"}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/resend-code", bytes.NewReader(resendBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 Too Many Requests for quick resend, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 3. Brute force attempts (max 5)
+	for i := 1; i <= 5; i++ {
+		badBody := []byte(`{"email":"brute@example.com","code":"000000"}`)
+		req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/verify", bytes.NewReader(badBody))
+		req.Header.Set("Content-Type", "application/json")
+		rec = httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("attempt %d: expected 400 Bad Request, got %d: %s", i, rec.Code, rec.Body.String())
+		}
+	}
+
+	// 6th attempt should be blocked due to max attempts exceeded
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/verify", bytes.NewReader([]byte(`{"email":"brute@example.com","code":"000000"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 Too Many Requests after max attempts, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 4. Test expired verification
+	expired := &model.EmailVerification{
+		Email:        "expired@example.com",
+		Name:         "Expired User",
+		PasswordHash: "somehash",
+		Code:         "111222",
+		Attempts:     0,
+		MaxAttempts:  5,
+		LastSentAt:   time.Now().UTC().Add(-20 * time.Minute),
+		ExpiresAt:    time.Now().UTC().Add(-5 * time.Minute),
+		CreatedAt:    time.Now().UTC().Add(-20 * time.Minute),
+	}
+	if err := db.SaveEmailVerification(ctx, expired); err != nil {
+		t.Fatalf("failed to seed expired verification: %v", err)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/verify", bytes.NewReader([]byte(`{"email":"expired@example.com","code":"111222"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for expired code, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "kedaluwarsa") {
+		t.Errorf("expected expired message, got: %s", rec.Body.String())
+	}
+}
+
 

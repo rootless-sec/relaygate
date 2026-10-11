@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/rootless-sec/relaygate/internal/mailer"
 	"github.com/rootless-sec/relaygate/internal/model"
 	"github.com/rootless-sec/relaygate/internal/storage"
 	"github.com/rootless-sec/relaygate/internal/worker"
@@ -103,6 +104,32 @@ type RegisterRequest struct {
 	Password string `json:"password"`
 }
 
+// RegisterResponse represents response when user requests registration OTP
+type RegisterResponse struct {
+	Status  string `json:"status"` // "pending_verification"
+	Message string `json:"message"`
+	Email   string `json:"email"`
+	DevCode string `json:"dev_code,omitempty"`
+}
+
+// VerifyCodeRequest represents payload to verify email OTP
+type VerifyCodeRequest struct {
+	Email string `json:"email"`
+	Code  string `json:"code"`
+}
+
+// ResendCodeRequest represents payload to request a new OTP code
+type ResendCodeRequest struct {
+	Email string `json:"email"`
+}
+
+// ResendCodeResponse represents response when a new OTP code is resent
+type ResendCodeResponse struct {
+	Message string `json:"message"`
+	Email   string `json:"email"`
+	DevCode string `json:"dev_code,omitempty"`
+}
+
 // LoginRequest represents request body for user authentication
 type LoginRequest struct {
 	Email    string `json:"email"`
@@ -117,17 +144,25 @@ type AuthResponse struct {
 
 // API handles control plane REST requests
 type API struct {
-	repo storage.Repository
-	pool *worker.Pool
-	hub  *Hub
+	repo   storage.Repository
+	pool   *worker.Pool
+	hub    *Hub
+	mailer *mailer.Mailer
 }
 
 // NewAPI initializes control plane API handlers
-func NewAPI(repo storage.Repository, pool *worker.Pool, hub *Hub) *API {
+func NewAPI(repo storage.Repository, pool *worker.Pool, hub *Hub, mailerOpt ...*mailer.Mailer) *API {
+	var m *mailer.Mailer
+	if len(mailerOpt) > 0 && mailerOpt[0] != nil {
+		m = mailerOpt[0]
+	} else {
+		m = mailer.NewMailerFromEnv()
+	}
 	return &API{
-		repo: repo,
-		pool: pool,
-		hub:  hub,
+		repo:   repo,
+		pool:   pool,
+		hub:    hub,
+		mailer: m,
 	}
 }
 
@@ -602,30 +637,198 @@ func (a *API) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Generate secure 6-digit verification code
+	code, err := mailer.GenerateOTP()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Gagal membuat kode verifikasi", err)
+		return
+	}
+
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Gagal memproses password", err)
 		return
 	}
 
+	now := time.Now().UTC()
+	verif := &model.EmailVerification{
+		Email:        req.Email,
+		Name:         req.Name,
+		PasswordHash: string(hash),
+		Code:         code,
+		Attempts:     0,
+		MaxAttempts:  5,
+		LastSentAt:   now,
+		ExpiresAt:    now.Add(15 * time.Minute),
+		CreatedAt:    now,
+	}
+
+	if err := a.repo.SaveEmailVerification(r.Context(), verif); err != nil {
+		writeError(w, http.StatusInternalServerError, "Gagal menyimpan data verifikasi", err)
+		return
+	}
+
+	// Dispatch verification email
+	if err := a.mailer.SendVerificationCode(req.Email, req.Name, code); err != nil {
+		writeError(w, http.StatusInternalServerError, "Gagal mengirimkan kode verifikasi: "+err.Error(), err)
+		return
+	}
+
+	devCode := ""
+	if a.mailer.IsDev() {
+		devCode = code
+	}
+
+	writeJSON(w, http.StatusOK, RegisterResponse{
+		Status:  "pending_verification",
+		Message: "Kode verifikasi telah dikirimkan ke email Anda.",
+		Email:   req.Email,
+		DevCode: devCode,
+	})
+}
+
+// VerifyCode handles POST /api/v1/auth/verify and /api/v1/auth/verify-code
+func (a *API) VerifyCode(w http.ResponseWriter, r *http.Request) {
+	var req VerifyCodeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json payload", err)
+		return
+	}
+
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+	req.Code = strings.TrimSpace(req.Code)
+
+	if req.Email == "" || req.Code == "" {
+		writeError(w, http.StatusBadRequest, "Email dan kode verifikasi wajib diisi", nil)
+		return
+	}
+
+	verif, err := a.repo.GetEmailVerification(r.Context(), req.Email)
+	if err != nil || verif == nil {
+		writeError(w, http.StatusBadRequest, "Kode verifikasi tidak ditemukan atau pendaftaran telah kedaluwarsa. Silakan daftar ulang.", nil)
+		return
+	}
+
+	// Expiration check
+	if time.Now().UTC().After(verif.ExpiresAt) {
+		_ = a.repo.DeleteEmailVerification(r.Context(), verif.Email)
+		writeError(w, http.StatusBadRequest, "Kode verifikasi telah kedaluwarsa. Silakan kirim ulang kode baru.", nil)
+		return
+	}
+
+	// Max attempts check
+	if verif.Attempts >= verif.MaxAttempts {
+		writeError(w, http.StatusTooManyRequests, "Terlalu banyak percobaan gagal. Silakan kirim ulang kode verifikasi baru.", nil)
+		return
+	}
+
+	// Code match check
+	if verif.Code != req.Code {
+		newAttempts, _ := a.repo.IncrementVerificationAttempts(r.Context(), verif.Email)
+		remaining := verif.MaxAttempts - newAttempts
+		if remaining <= 0 {
+			writeError(w, http.StatusBadRequest, "Kode verifikasi salah. Batas percobaan habis. Silakan kirim ulang kode verifikasi.", nil)
+			return
+		}
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("Kode verifikasi salah. Sisa percobaan: %d.", remaining), nil)
+		return
+	}
+
+	// Check if already registered
+	existing, err := a.repo.GetUserByEmail(r.Context(), verif.Email)
+	if err == nil && existing != nil {
+		_ = a.repo.DeleteEmailVerification(r.Context(), verif.Email)
+		writeError(w, http.StatusConflict, "Email sudah terdaftar. Silakan masuk.", nil)
+		return
+	}
+
 	user := &model.User{
 		ID:           "usr_" + strings.ToLower(uuid.NewString()[:8]),
-		Name:         req.Name,
-		Email:        req.Email,
-		PasswordHash: string(hash),
+		Name:         verif.Name,
+		Email:        verif.Email,
+		PasswordHash: verif.PasswordHash,
 		CreatedAt:    time.Now().UTC(),
 	}
 
 	if err := a.repo.SaveUser(r.Context(), user); err != nil {
-		writeError(w, http.StatusInternalServerError, "Gagal mendaftarkan akun", err)
+		writeError(w, http.StatusInternalServerError, "Gagal mengaktifkan akun pengguna", err)
 		return
 	}
 
+	_ = a.repo.DeleteEmailVerification(r.Context(), verif.Email)
+
 	writeJSON(w, http.StatusCreated, AuthResponse{
 		User:    user,
-		Message: "Registrasi berhasil",
+		Message: "Verifikasi berhasil. Akun Anda telah aktif.",
 	})
 }
+
+// ResendCode handles POST /api/v1/auth/resend-code
+func (a *API) ResendCode(w http.ResponseWriter, r *http.Request) {
+	var req ResendCodeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json payload", err)
+		return
+	}
+
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+	if req.Email == "" {
+		writeError(w, http.StatusBadRequest, "Alamat email wajib diisi", nil)
+		return
+	}
+
+	verif, err := a.repo.GetEmailVerification(r.Context(), req.Email)
+	if err != nil || verif == nil {
+		writeError(w, http.StatusNotFound, "Sesi pendaftaran tidak ditemukan. Silakan lakukan pendaftaran baru.", nil)
+		return
+	}
+
+	// 30 seconds rate-limit cooldown
+	cooldownDuration := 30 * time.Second
+	elapsed := time.Since(verif.LastSentAt)
+	if elapsed < cooldownDuration {
+		remaining := int((cooldownDuration - elapsed).Seconds())
+		if remaining <= 0 {
+			remaining = 1
+		}
+		writeError(w, http.StatusTooManyRequests, fmt.Sprintf("Harap tunggu %d detik sebelum meminta kode baru.", remaining), nil)
+		return
+	}
+
+	newCode, err := mailer.GenerateOTP()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Gagal membuat kode verifikasi baru", err)
+		return
+	}
+
+	now := time.Now().UTC()
+	verif.Code = newCode
+	verif.Attempts = 0
+	verif.LastSentAt = now
+	verif.ExpiresAt = now.Add(15 * time.Minute)
+
+	if err := a.repo.SaveEmailVerification(r.Context(), verif); err != nil {
+		writeError(w, http.StatusInternalServerError, "Gagal memperbarui kode verifikasi", err)
+		return
+	}
+
+	if err := a.mailer.SendVerificationCode(verif.Email, verif.Name, newCode); err != nil {
+		writeError(w, http.StatusInternalServerError, "Gagal mengirimkan kode verifikasi baru: "+err.Error(), err)
+		return
+	}
+
+	devCode := ""
+	if a.mailer.IsDev() {
+		devCode = newCode
+	}
+
+	writeJSON(w, http.StatusOK, ResendCodeResponse{
+		Message: "Kode verifikasi baru telah dikirimkan ke email Anda.",
+		Email:   verif.Email,
+		DevCode: devCode,
+	})
+}
+
 
 // Login handles POST /api/v1/auth/login
 func (a *API) Login(w http.ResponseWriter, r *http.Request) {

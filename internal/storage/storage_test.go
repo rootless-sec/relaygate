@@ -617,3 +617,78 @@ func TestStorage_UserOperations(t *testing.T) {
 	}
 }
 
+func TestStorage_EmailVerificationOperations(t *testing.T) {
+	db, cleanup := createTempDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// 1. Save email verification
+	v := &model.EmailVerification{
+		Email:        "user@example.com",
+		Name:         "John Doe",
+		PasswordHash: "hashedpass",
+		Code:         "123456",
+		Attempts:     0,
+		MaxAttempts:  5,
+		LastSentAt:   time.Now().UTC(),
+		ExpiresAt:    time.Now().UTC().Add(15 * time.Minute),
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := db.SaveEmailVerification(ctx, v); err != nil {
+		t.Fatalf("SaveEmailVerification failed: %v", err)
+	}
+
+	// 2. Fetch email verification (case insensitive)
+	fetched, err := db.GetEmailVerification(ctx, "USER@example.COM")
+	if err != nil {
+		t.Fatalf("GetEmailVerification failed: %v", err)
+	}
+	if fetched.Email != "user@example.com" || fetched.Code != "123456" || fetched.Name != "John Doe" {
+		t.Errorf("unexpected fetched verification: %+v", fetched)
+	}
+
+	// 3. Increment attempts
+	attempts, err := db.IncrementVerificationAttempts(ctx, "user@example.com")
+	if err != nil {
+		t.Fatalf("IncrementVerificationAttempts failed: %v", err)
+	}
+	if attempts != 1 {
+		t.Errorf("expected 1 attempt, got %d", attempts)
+	}
+
+	attempts, err = db.IncrementVerificationAttempts(ctx, "user@example.com")
+	if err != nil {
+		t.Fatalf("second increment failed: %v", err)
+	}
+	if attempts != 2 {
+		t.Errorf("expected 2 attempts, got %d", attempts)
+	}
+
+	// 4. Upsert (e.g. resend code)
+	v.Code = "654321"
+	v.Attempts = 0
+	if err := db.SaveEmailVerification(ctx, v); err != nil {
+		t.Fatalf("SaveEmailVerification upsert failed: %v", err)
+	}
+
+	fetched2, err := db.GetEmailVerification(ctx, "user@example.com")
+	if err != nil {
+		t.Fatalf("GetEmailVerification after upsert failed: %v", err)
+	}
+	if fetched2.Code != "654321" || fetched2.Attempts != 0 {
+		t.Errorf("expected updated code 654321 and 0 attempts, got code=%s attempts=%d", fetched2.Code, fetched2.Attempts)
+	}
+
+	// 5. Delete verification
+	if err := db.DeleteEmailVerification(ctx, "user@example.com"); err != nil {
+		t.Fatalf("DeleteEmailVerification failed: %v", err)
+	}
+
+	_, err = db.GetEmailVerification(ctx, "user@example.com")
+	if err == nil {
+		t.Errorf("expected error after deleting verification, got nil")
+	}
+}
+
+

@@ -128,6 +128,13 @@ export interface UserProfile {
   created_at?: string;
 }
 
+export interface RegisterResult {
+  status: string;
+  message: string;
+  email: string;
+  dev_code?: string;
+}
+
 export async function loginUser(email: string, password: string): Promise<{ user: UserProfile; message?: string }> {
   const res = await fetch(`${BASE_URL}/auth/login`, {
     method: 'POST',
@@ -141,7 +148,7 @@ export async function loginUser(email: string, password: string): Promise<{ user
   return res.json();
 }
 
-export async function registerUser(name: string, email: string, password: string): Promise<{ user: UserProfile; message?: string }> {
+export async function registerUser(name: string, email: string, password: string): Promise<RegisterResult> {
   const res = await fetch(`${BASE_URL}/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -153,4 +160,36 @@ export async function registerUser(name: string, email: string, password: string
   }
   return res.json();
 }
+
+export async function verifyRegistrationCode(
+  email: string,
+  code: string
+): Promise<{ user: UserProfile; message?: string }> {
+  const res = await fetch(`${BASE_URL}/auth/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, code }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: 'Verifikasi kode gagal' }));
+    throw new Error(data.error || 'Kode verifikasi tidak valid.');
+  }
+  return res.json();
+}
+
+export async function resendVerificationCode(
+  email: string
+): Promise<{ message: string; dev_code?: string }> {
+  const res = await fetch(`${BASE_URL}/auth/resend-code`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: 'Gagal mengirim ulang kode' }));
+    throw new Error(data.error || 'Gagal mengirim ulang kode verifikasi.');
+  }
+  return res.json();
+}
+
 
