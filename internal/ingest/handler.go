@@ -37,8 +37,9 @@ type ErrorResponse struct {
 
 // Handler handles high-speed webhook ingestion
 type Handler struct {
-	repo storage.Repository
-	pool *worker.Pool
+	repo        storage.Repository
+	pool        *worker.Pool
+	broadcaster model.Broadcaster
 }
 
 // NewHandler creates a new Ingest HTTP handler
@@ -47,6 +48,11 @@ func NewHandler(repo storage.Repository, pool *worker.Pool) *Handler {
 		repo: repo,
 		pool: pool,
 	}
+}
+
+// SetBroadcaster configures a real-time event broadcaster
+func (h *Handler) SetBroadcaster(b model.Broadcaster) {
+	h.broadcaster = b
 }
 
 // ServeHTTP handles POST /ingest/{endpoint_id}
@@ -134,6 +140,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Asynchronously push to internal dispatcher channel
 	if h.pool != nil {
 		h.pool.Enqueue(event.ID)
+	}
+
+	// Broadcast live event creation to SSE listeners
+	if h.broadcaster != nil {
+		h.broadcaster.Broadcast("event_created", event)
 	}
 }
 

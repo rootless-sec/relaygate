@@ -65,10 +65,11 @@ type Pool struct {
 	rndMu    sync.Mutex
 	inFlight sync.Map
 
-	ctx     context.Context
-	cancel  context.CancelFunc
-	wg      sync.WaitGroup
-	running atomic.Bool
+	ctx         context.Context
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
+	running     atomic.Bool
+	broadcaster model.Broadcaster
 }
 
 // NewPool initializes a new worker pool
@@ -138,6 +139,17 @@ func (p *Pool) Stop() {
 
 	p.cancel()
 	p.wg.Wait()
+}
+
+// SetBroadcaster configures a real-time event broadcaster for dispatch updates
+func (p *Pool) SetBroadcaster(b model.Broadcaster) {
+	p.broadcaster = b
+}
+
+func (p *Pool) notifyUpdate(event *model.WebhookEvent) {
+	if p.broadcaster != nil && event != nil {
+		p.broadcaster.Broadcast("event_updated", event)
+	}
 }
 
 // Enqueue adds an event ID to the dispatch queue
@@ -247,12 +259,20 @@ func (p *Pool) processEventWithContext(ctx context.Context, eventID string) erro
 	endpoint, err := p.repo.GetEndpointByID(ctx, event.EndpointID)
 	if err != nil {
 		errMsg := fmt.Sprintf("endpoint %s not found: %v", event.EndpointID, err)
-		return p.repo.UpdateEventStatus(ctx, event.ID, model.StatusFailed, 0, errMsg)
+		_ = p.repo.UpdateEventStatus(ctx, event.ID, model.StatusFailed, 0, errMsg)
+		event.Status = model.StatusFailed
+		event.LastError = errMsg
+		p.notifyUpdate(event)
+		return fmt.Errorf("%s", errMsg)
 	}
 
 	if !endpoint.IsActive {
 		errMsg := fmt.Sprintf("endpoint %s is disabled", endpoint.ID)
-		return p.repo.UpdateEventStatus(ctx, event.ID, model.StatusFailed, 0, errMsg)
+		_ = p.repo.UpdateEventStatus(ctx, event.ID, model.StatusFailed, 0, errMsg)
+		event.Status = model.StatusFailed
+		event.LastError = errMsg
+		p.notifyUpdate(event)
+		return fmt.Errorf("%s", errMsg)
 	}
 
 	// Cryptographic verification check
@@ -266,10 +286,18 @@ func (p *Pool) processEventWithContext(ctx context.Context, eventID string) erro
 				if vErr != nil {
 					errMsg = fmt.Sprintf("cryptographic signature verification failed: %v", vErr)
 				}
-				return p.repo.UpdateEventStatus(ctx, event.ID, model.StatusFailed, 0, errMsg)
+				_ = p.repo.UpdateEventStatus(ctx, event.ID, model.StatusFailed, 0, errMsg)
+				event.Status = model.StatusFailed
+				event.LastError = errMsg
+				p.notifyUpdate(event)
+				return fmt.Errorf("%s", errMsg)
 			}
 		} else if event.IsVerified == verifier.VerificationInvalid {
-			return p.repo.UpdateEventStatus(ctx, event.ID, model.StatusFailed, 0, "cryptographic signature verification failed")
+			_ = p.repo.UpdateEventStatus(ctx, event.ID, model.StatusFailed, 0, "cryptographic signature verification failed")
+			event.Status = model.StatusFailed
+			event.LastError = "cryptographic signature verification failed"
+			p.notifyUpdate(event)
+			return fmt.Errorf("cryptographic signature verification failed")
 		}
 	}
 
@@ -306,7 +334,15 @@ func (p *Pool) processEventWithContext(ctx context.Context, eventID string) erro
 
 	// Success response: 2xx
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return p.repo.UpdateEventStatus(ctx, event.ID, model.StatusDelivered, resp.StatusCode, "")
+		err := p.repo.UpdateEventStatus(ctx, event.ID, model.StatusDelivered, resp.StatusCode, "")
+		if err == nil {
+			event.Status = model.StatusDelivered
+			event.HTTPStatusCode = resp.StatusCode
+			event.Attempts++
+			event.LastError = ""
+			p.notifyUpdate(event)
+		}
+		return err
 	}
 
 	// Failure response: 4xx, 5xx
@@ -316,16 +352,35 @@ func (p *Pool) processEventWithContext(ctx context.Context, eventID string) erro
 
 func (p *Pool) handleFailure(ctx context.Context, event *model.WebhookEvent, statusCode int, errMsg string) error {
 	nextAttempt := event.Attempts + 1
+	var err error
 	if nextAttempt >= event.MaxAttempts {
 		// Dead-letter queue transition
-		return p.repo.IncrementAttempts(ctx, event.ID, nil, errMsg, statusCode)
+		err = p.repo.IncrementAttempts(ctx, event.ID, nil, errMsg, statusCode)
+		if err == nil {
+			event.Status = model.StatusFailed
+			event.Attempts = nextAttempt
+			event.HTTPStatusCode = statusCode
+			event.LastError = errMsg
+			event.NextRetryAt = nil
+			p.notifyUpdate(event)
+		}
+		return err
 	}
 
 	// Calculate exponential backoff with jitter
 	backoff := p.CalculateBackoff(event.Attempts)
 	nextRetryAt := time.Now().UTC().Add(backoff)
 
-	return p.repo.IncrementAttempts(ctx, event.ID, &nextRetryAt, errMsg, statusCode)
+	err = p.repo.IncrementAttempts(ctx, event.ID, &nextRetryAt, errMsg, statusCode)
+	if err == nil {
+		event.Status = model.StatusRetrying
+		event.Attempts = nextAttempt
+		event.HTTPStatusCode = statusCode
+		event.LastError = errMsg
+		event.NextRetryAt = &nextRetryAt
+		p.notifyUpdate(event)
+	}
+	return err
 }
 
 // CalculateBackoff computes: base * 2^attempt +/- jitter

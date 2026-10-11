@@ -12,10 +12,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rootless-sec/relaygate/internal/api"
 	"github.com/rootless-sec/relaygate/internal/ingest"
 	"github.com/rootless-sec/relaygate/internal/storage"
 	"github.com/rootless-sec/relaygate/internal/verifier"
 	"github.com/rootless-sec/relaygate/internal/worker"
+	"github.com/rootless-sec/relaygate/ui"
 )
 
 func main() {
@@ -64,8 +66,18 @@ func main() {
 		log.Printf("[RelayGate] Worker pool stopped cleanly.")
 	}()
 
+	// Initialize SSE broadcasting Hub
+	hub := api.NewHub()
+
+	// Connect Hub to Worker Pool and Ingest Handler
+	pool.SetBroadcaster(hub)
+
 	// Initialize HTTP Ingest handler
 	ingestHandler := ingest.NewHandler(repo, pool)
+	ingestHandler.SetBroadcaster(hub)
+
+	// Initialize API Router
+	apiRouter := api.NewRouter(repo, pool, hub)
 
 	// Router setup
 	mux := http.NewServeMux()
@@ -86,6 +98,12 @@ func main() {
 	// Fallback route for subpaths if router needs it
 	mux.Handle("/ingest/", ingestHandler)
 	mux.Handle("/ingest", ingestHandler)
+
+	// Mount REST and SSE API control plane routes
+	mux.Handle("/api/v1/", apiRouter)
+
+	// Embedded Vite SPA dashboard handler
+	mux.Handle("/", ui.Handler())
 
 	server := &http.Server{
 		Addr:         *addr,
