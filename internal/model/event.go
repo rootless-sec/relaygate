@@ -68,3 +68,18 @@ type StatsSummary struct {
 	RetryingEvents  int64 `json:"retrying_events"`
 	FailedEvents    int64 `json:"failed_events"`
 }
+
+// DeliveryLogEntry represents a delivery attempt log in the timeline
+type DeliveryLogEntry struct {
+	Attempt    int       `json:"attempt"`
+	StatusCode int       `json:"code"`
+	DurationMs int64     `json:"ms"`
+	Error      string    `json:"err,omitempty"`
+	CreatedAt  time.Time `json:"t"`
+}
+
+// Broadcaster defines a real-time event notification sink
+type Broadcaster interface {
+	Broadcast(eventType string, data any)
+}
+

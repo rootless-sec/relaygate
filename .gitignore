@@ -18,7 +18,7 @@ vendor/
 
 # Node & UI
 ui/node_modules/
-ui/dist/
+# ui/dist is tracked so Go build works out-of-the-box without Node.js
 ui/.env.local
 .eslintcache
 
