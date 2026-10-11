@@ -26,4 +26,7 @@ ui/.env.local
 .DS_Store
 Thumbs.db
 .vscode/
-.idea/
+# Test & verification artifacts
+*.mjs
+*.png
+.edge_*

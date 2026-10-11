@@ -40,7 +40,26 @@ export const App: React.FC = () => {
   });
 
   // Navigation State
-  const [currentTab, setCurrentTab] = useState<NavTab>('events');
+  const [currentTab, setCurrentTab] = useState<NavTab>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get('tab');
+      if (tab === 'dead' || tab === 'events' || tab === 'overview' || tab === 'endpoints') {
+        return tab;
+      }
+    } catch {}
+    return 'events';
+  });
+
+  const handleTabChange = (tab: NavTab) => {
+    setCurrentTab(tab);
+    setSelectedEvent(null);
+    try {
+      const params = new URLSearchParams(window.location.search);
+      params.set('tab', tab);
+      window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+    } catch {}
+  };
 
   // Data States
   const [events, setEvents] = useState<WebhookEvent[]>([]);
@@ -304,10 +323,7 @@ export const App: React.FC = () => {
       {/* Sidebar Navigation */}
       <Sidebar
         currentTab={currentTab}
-        onTabChange={(tab) => {
-          setCurrentTab(tab);
-          setSelectedEvent(null);
-        }}
+        onTabChange={handleTabChange}
         totalEventsCount={totalEventsCount}
         failedEventsCount={failedEventsCount}
         userEmail={userEmail}
@@ -315,58 +331,70 @@ export const App: React.FC = () => {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col min-w-0 relative overflow-hidden bg-[#fafafa]">
-        {currentTab === 'overview' && (
-          <OverviewView
-            data={overviewData}
-            onSelectEvent={(ev) => setSelectedEvent(ev)}
-          />
-        )}
+      <main className="flex-1 flex flex-row min-w-0 min-h-0 relative overflow-hidden bg-[#fafafa]">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
+          {currentTab === 'overview' && (
+            <OverviewView
+              data={overviewData}
+              onSelectEvent={(ev) => setSelectedEvent(ev)}
+            />
+          )}
 
-        {currentTab === 'events' && (
-          <EventsView
-            events={events}
-            stats={stats}
-            endpoints={endpoints}
-            selectedEventId={selectedEvent?.id || null}
-            onSelectEvent={(ev) => setSelectedEvent(ev)}
-            onReplayEvent={handleReplaySingle}
-            onBulkReplayFailed={() => handleBulkReplay([], true)}
-            isLive={isLive}
-            onToggleLive={() => setIsLive(!isLive)}
-            bufferedCount={bufferedEvents.length}
-            onFlushBuffer={handleFlushBuffer}
-            searchInputRef={searchInputRef}
-          />
-        )}
+          {currentTab === 'events' && (
+            <EventsView
+              events={events}
+              stats={stats}
+              endpoints={endpoints}
+              selectedEventId={selectedEvent?.id || null}
+              onSelectEvent={(ev) => setSelectedEvent(ev)}
+              onReplayEvent={handleReplaySingle}
+              onBulkReplayFailed={() => handleBulkReplay([], true)}
+              isLive={isLive}
+              onToggleLive={() => setIsLive(!isLive)}
+              bufferedCount={bufferedEvents.length}
+              onFlushBuffer={handleFlushBuffer}
+              searchInputRef={searchInputRef}
+            />
+          )}
 
-        {currentTab === 'dead' && (
-          <DeadLetterView
-            events={events}
-            endpoints={endpoints}
-            onSelectEvent={(ev) => setSelectedEvent(ev)}
-            onReplaySingle={handleReplaySingle}
-            onBulkReplay={(targetIds, allFailed) => handleBulkReplay(targetIds, allFailed)}
-          />
-        )}
+          {currentTab === 'dead' && (
+            <DeadLetterView
+              events={events}
+              endpoints={endpoints}
+              selectedEventId={selectedEvent?.id || null}
+              onSelectEvent={(ev) => setSelectedEvent(ev)}
+              onReplaySingle={handleReplaySingle}
+              onBulkReplay={(targetIds, allFailed) => handleBulkReplay(targetIds, allFailed)}
+              onNavigateToEndpoint={() => {
+                handleTabChange('endpoints');
+              }}
+            />
+          )}
 
-        {currentTab === 'endpoints' && (
-          <EndpointsView
+          {currentTab === 'endpoints' && (
+            <EndpointsView
+              endpoints={endpoints}
+              onAddEndpoint={handleAddEndpoint}
+              onToggleActive={handleToggleEndpointActive}
+              onToast={(msg) => showToast(msg, 'info')}
+            />
+          )}
+        </div>
+
+        {/* Inspector Slide-over / Split Panel */}
+        {selectedEvent && (
+          <InspectorDrawer
+            event={selectedEvent}
             endpoints={endpoints}
-            onAddEndpoint={handleAddEndpoint}
-            onToggleActive={handleToggleEndpointActive}
+            onClose={() => setSelectedEvent(null)}
+            onReplay={handleReplaySingle}
             onToast={(msg) => showToast(msg, 'info')}
+            onNavigateToEndpoint={() => {
+              handleTabChange('endpoints');
+            }}
+            isSplitView={true}
           />
         )}
-
-        {/* Inspector Slide-over Drawer */}
-        <InspectorDrawer
-          event={selectedEvent}
-          endpoints={endpoints}
-          onClose={() => setSelectedEvent(null)}
-          onReplay={handleReplaySingle}
-          onToast={(msg) => showToast(msg, 'info')}
-        />
       </main>
 
       {/* Toast Feedback */}
