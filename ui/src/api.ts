@@ -120,3 +120,37 @@ export async function fetchOverview(): Promise<OverviewData> {
   }
   return res.json();
 }
+
+export interface UserProfile {
+  id: string;
+  name: string;
+  email: string;
+  created_at?: string;
+}
+
+export async function loginUser(email: string, password: string): Promise<{ user: UserProfile; message?: string }> {
+  const res = await fetch(`${BASE_URL}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: 'Autentikasi gagal' }));
+    throw new Error(data.error || 'Email atau password tidak sesuai.');
+  }
+  return res.json();
+}
+
+export async function registerUser(name: string, email: string, password: string): Promise<{ user: UserProfile; message?: string }> {
+  const res = await fetch(`${BASE_URL}/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, email, password }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: 'Registrasi gagal' }));
+    throw new Error(data.error || 'Gagal mendaftarkan akun.');
+  }
+  return res.json();
+}
+

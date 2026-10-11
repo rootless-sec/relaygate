@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 
 	"github.com/rootless-sec/relaygate/internal/model"
@@ -39,6 +40,11 @@ type Repository interface {
 	SaveEndpoint(ctx context.Context, endpoint *model.Endpoint) error
 	GetEndpointByID(ctx context.Context, id string) (*model.Endpoint, error)
 	ListEndpoints(ctx context.Context) ([]*model.Endpoint, error)
+
+	// User methods
+	SaveUser(ctx context.Context, user *model.User) error
+	GetUserByEmail(ctx context.Context, email string) (*model.User, error)
+	GetUserByID(ctx context.Context, id string) (*model.User, error)
 
 	// Event methods
 	SaveEvent(ctx context.Context, event *model.WebhookEvent) error
@@ -124,6 +130,21 @@ func (d *DB) Migrate(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("migration execution error: %w", err)
 	}
+
+	// Ensure default administrator account is seeded for backward compatibility
+	var count int
+	row := d.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE email = 'admin@relaygate.local';")
+	if err := row.Scan(&count); err == nil && count == 0 {
+		hash, err := bcrypt.GenerateFromPassword([]byte("relaygate123"), bcrypt.DefaultCost)
+		if err == nil {
+			nowStr := time.Now().UTC().Format("2006-01-02 15:04:05")
+			_, _ = d.db.ExecContext(ctx, `
+				INSERT INTO users (id, name, email, password_hash, created_at)
+				VALUES (?, ?, ?, ?, ?)
+			`, "usr_admin", "Administrator", "admin@relaygate.local", string(hash), nowStr)
+		}
+	}
+
 	return nil
 }
 
@@ -267,6 +288,114 @@ func (d *DB) ListEndpoints(ctx context.Context) ([]*model.Endpoint, error) {
 	}
 
 	return endpoints, nil
+}
+
+// SaveUser creates or updates a user account
+func (d *DB) SaveUser(ctx context.Context, user *model.User) error {
+	if user == nil {
+		return fmt.Errorf("user cannot be nil")
+	}
+
+	if user.ID == "" {
+		user.ID = "usr_" + strings.ToLower(uuid.NewString()[:8])
+	}
+	if user.CreatedAt.IsZero() {
+		user.CreatedAt = time.Now().UTC()
+	}
+	user.Email = strings.ToLower(strings.TrimSpace(user.Email))
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	query := `
+		INSERT INTO users (id, name, email, password_hash, created_at)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			name = excluded.name,
+			email = excluded.email,
+			password_hash = excluded.password_hash;
+	`
+
+	createdAtStr := user.CreatedAt.UTC().Format("2006-01-02 15:04:05")
+	_, err := d.db.ExecContext(ctx, query,
+		user.ID,
+		user.Name,
+		user.Email,
+		user.PasswordHash,
+		createdAtStr,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to save user: %w", err)
+	}
+
+	return nil
+}
+
+// GetUserByEmail retrieves a user by their email address
+func (d *DB) GetUserByEmail(ctx context.Context, email string) (*model.User, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	normEmail := strings.ToLower(strings.TrimSpace(email))
+	query := `
+		SELECT id, name, email, password_hash, created_at
+		FROM users
+		WHERE LOWER(email) = LOWER(?);
+	`
+
+	var u model.User
+	var createdAtRaw any
+
+	row := d.db.QueryRowContext(ctx, query, normEmail)
+	err := row.Scan(
+		&u.ID,
+		&u.Name,
+		&u.Email,
+		&u.PasswordHash,
+		&createdAtRaw,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("user not found: %w", err)
+		}
+		return nil, fmt.Errorf("failed to get user by email: %w", err)
+	}
+
+	u.CreatedAt = parseSQLTime(createdAtRaw)
+	return &u, nil
+}
+
+// GetUserByID retrieves a user by their unique ID
+func (d *DB) GetUserByID(ctx context.Context, id string) (*model.User, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	query := `
+		SELECT id, name, email, password_hash, created_at
+		FROM users
+		WHERE id = ?;
+	`
+
+	var u model.User
+	var createdAtRaw any
+
+	row := d.db.QueryRowContext(ctx, query, id)
+	err := row.Scan(
+		&u.ID,
+		&u.Name,
+		&u.Email,
+		&u.PasswordHash,
+		&createdAtRaw,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("user not found: %w", err)
+		}
+		return nil, fmt.Errorf("failed to get user by id: %w", err)
+	}
+
+	u.CreatedAt = parseSQLTime(createdAtRaw)
+	return &u, nil
 }
 
 // SaveEvent persists a new webhook event into SQLite queue in WAL mode

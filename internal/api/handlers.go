@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/rootless-sec/relaygate/internal/model"
 	"github.com/rootless-sec/relaygate/internal/storage"
@@ -93,6 +94,25 @@ type OverviewResponse struct {
 	Throughput        []ThroughputBucket  `json:"throughput"`
 	EndpointBreakdown []EndpointBreakdown `json:"endpoint_breakdown"`
 	RecentFailed      []EventResponse     `json:"recent_failed"`
+}
+
+// RegisterRequest represents request body for user registration
+type RegisterRequest struct {
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+// LoginRequest represents request body for user authentication
+type LoginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+// AuthResponse represents the authentication response payload
+type AuthResponse struct {
+	User    *model.User `json:"user"`
+	Message string      `json:"message,omitempty"`
 }
 
 // API handles control plane REST requests
@@ -548,6 +568,96 @@ func (a *API) StreamSSE(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+// Register handles POST /api/v1/auth/register
+func (a *API) Register(w http.ResponseWriter, r *http.Request) {
+	var req RegisterRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json payload", err)
+		return
+	}
+
+	req.Name = strings.TrimSpace(req.Name)
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+	req.Password = strings.TrimSpace(req.Password)
+
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "Nama lengkap atau username wajib diisi", nil)
+		return
+	}
+	if req.Email == "" || !strings.Contains(req.Email, "@") || !strings.Contains(req.Email, ".") {
+		writeError(w, http.StatusBadRequest, "Format alamat email tidak valid", nil)
+		return
+	}
+	if len(req.Password) < 6 {
+		writeError(w, http.StatusBadRequest, "Password minimal 6 karakter", nil)
+		return
+	}
+
+	// Check if email is already registered
+	existing, err := a.repo.GetUserByEmail(r.Context(), req.Email)
+	if err == nil && existing != nil {
+		writeError(w, http.StatusConflict, "Email sudah terdaftar. Silakan gunakan email lain atau masuk.", nil)
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Gagal memproses password", err)
+		return
+	}
+
+	user := &model.User{
+		ID:           "usr_" + strings.ToLower(uuid.NewString()[:8]),
+		Name:         req.Name,
+		Email:        req.Email,
+		PasswordHash: string(hash),
+		CreatedAt:    time.Now().UTC(),
+	}
+
+	if err := a.repo.SaveUser(r.Context(), user); err != nil {
+		writeError(w, http.StatusInternalServerError, "Gagal mendaftarkan akun", err)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, AuthResponse{
+		User:    user,
+		Message: "Registrasi berhasil",
+	})
+}
+
+// Login handles POST /api/v1/auth/login
+func (a *API) Login(w http.ResponseWriter, r *http.Request) {
+	var req LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json payload", err)
+		return
+	}
+
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+	req.Password = strings.TrimSpace(req.Password)
+
+	if req.Email == "" || req.Password == "" {
+		writeError(w, http.StatusBadRequest, "Email dan password wajib diisi", nil)
+		return
+	}
+
+	user, err := a.repo.GetUserByEmail(r.Context(), req.Email)
+	if err != nil || user == nil {
+		writeError(w, http.StatusUnauthorized, "Email atau password tidak sesuai.", nil)
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+		writeError(w, http.StatusUnauthorized, "Email atau password tidak sesuai.", nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, AuthResponse{
+		User:    user,
+		Message: "Autentikasi berhasil",
+	})
 }
 
 func formatEventResponse(ev *model.WebhookEvent) EventResponse {

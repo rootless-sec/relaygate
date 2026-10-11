@@ -37,3 +37,14 @@ CREATE INDEX IF NOT EXISTS idx_events_status ON webhook_events(status);
 CREATE INDEX IF NOT EXISTS idx_events_next_retry ON webhook_events(next_retry_at) WHERE status = 'RETRYING';
 CREATE INDEX IF NOT EXISTS idx_events_created ON webhook_events(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_events_endpoint ON webhook_events(endpoint_id);
+
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+

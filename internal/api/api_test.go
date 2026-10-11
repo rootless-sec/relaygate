@@ -283,3 +283,84 @@ func TestAPI_SSEStream(t *testing.T) {
 		t.Errorf("expected SSE event to contain unmarshaled payload text ord_999, got: %s", body)
 	}
 }
+
+func TestAPI_AuthRegisterAndLogin(t *testing.T) {
+	_, _, _, router, cleanup := setupTestAPI(t)
+	defer cleanup()
+
+	// 1. Test seeded admin login
+	loginBody := []byte(`{"email":"admin@relaygate.local","password":"relaygate123"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(loginBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected admin login 200 OK, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var adminRes api.AuthResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &adminRes); err != nil {
+		t.Fatalf("failed to decode admin login response: %v", err)
+	}
+	if adminRes.User.Email != "admin@relaygate.local" {
+		t.Errorf("expected admin email, got %s", adminRes.User.Email)
+	}
+
+	// 2. Test register new account
+	regBody := []byte(`{"name":"Dev User","email":"dev@company.com","password":"securepassword"}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(regBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected registration 201 Created, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var regRes api.AuthResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &regRes); err != nil {
+		t.Fatalf("failed to decode register response: %v", err)
+	}
+	if regRes.User.Email != "dev@company.com" || regRes.User.Name != "Dev User" {
+		t.Errorf("unexpected registered user: %+v", regRes.User)
+	}
+
+	// 3. Test register duplicate email
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(regBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected duplicate registration 409 Conflict, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 4. Test login with newly registered user
+	loginNewBody := []byte(`{"email":"dev@company.com","password":"securepassword"}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(loginNewBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected user login 200 OK, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 5. Test invalid password
+	badLoginBody := []byte(`{"email":"dev@company.com","password":"wrongpassword"}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(badLoginBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected bad login 401 Unauthorized, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 6. Test short password validation
+	shortRegBody := []byte(`{"name":"Dev User","email":"test@company.com","password":"123"}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(shortRegBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected short password 400 Bad Request, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+

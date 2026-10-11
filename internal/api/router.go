@@ -32,6 +32,10 @@ func NewRouter(repo storage.Repository, pool *worker.Pool, hub *Hub) *Router {
 	mux.HandleFunc("GET /api/v1/overview", api.GetOverview)
 	mux.HandleFunc("GET /api/v1/stream", api.StreamSSE)
 
+	// Auth Endpoints
+	mux.HandleFunc("POST /api/v1/auth/register", api.Register)
+	mux.HandleFunc("POST /api/v1/auth/login", api.Login)
+
 	return &Router{
 		api: api,
 		mux: mux,

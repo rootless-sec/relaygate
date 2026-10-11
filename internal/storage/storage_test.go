@@ -561,3 +561,59 @@ func TestStorage_Checkpoint(t *testing.T) {
 		t.Fatalf("Checkpoint failed: %v", err)
 	}
 }
+
+func TestStorage_UserOperations(t *testing.T) {
+	db, cleanup := createTempDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// 1. Verify default admin account seeded by Migrate
+	admin, err := db.GetUserByEmail(ctx, "admin@relaygate.local")
+	if err != nil {
+		t.Fatalf("expected admin@relaygate.local to be seeded, got err: %v", err)
+	}
+	if admin.Name != "Administrator" {
+		t.Errorf("expected admin name 'Administrator', got %s", admin.Name)
+	}
+	if admin.PasswordHash == "" {
+		t.Errorf("expected admin password hash to be populated")
+	}
+
+	// 2. Create new user
+	newUser := &model.User{
+		ID:           "usr_alice",
+		Name:         "Alice Operator",
+		Email:        "Alice@example.com",
+		PasswordHash: "hashedpassword123",
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := db.SaveUser(ctx, newUser); err != nil {
+		t.Fatalf("SaveUser failed: %v", err)
+	}
+
+	// 3. Retrieve user by email (case insensitive)
+	fetched, err := db.GetUserByEmail(ctx, "alice@example.com")
+	if err != nil {
+		t.Fatalf("GetUserByEmail failed: %v", err)
+	}
+	if fetched.ID != "usr_alice" || fetched.Name != "Alice Operator" {
+		t.Errorf("unexpected fetched user: %+v", fetched)
+	}
+
+	// 4. Retrieve by ID
+	byID, err := db.GetUserByID(ctx, "usr_alice")
+	if err != nil {
+		t.Fatalf("GetUserByID failed: %v", err)
+	}
+	if byID.Email != "alice@example.com" {
+		t.Errorf("expected email alice@example.com, got %s", byID.Email)
+	}
+
+	// 5. Non-existent user
+	_, err = db.GetUserByEmail(ctx, "nonexistent@example.com")
+	if err == nil {
+		t.Errorf("expected error for nonexistent user, got nil")
+	}
+}
+
