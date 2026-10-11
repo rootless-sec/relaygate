@@ -11,10 +11,11 @@ import {
   ShieldOff,
   ArrowRight
 } from 'lucide-react';
-import { WebhookEvent } from '../types';
+import { Endpoint, WebhookEvent } from '../types';
 
 interface InspectorDrawerProps {
   event: WebhookEvent | null;
+  endpoints?: Endpoint[];
   onClose: () => void;
   onReplay: (event: WebhookEvent) => void;
   onToast: (message: string) => void;
@@ -22,6 +23,7 @@ interface InspectorDrawerProps {
 
 export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
   event,
+  endpoints = [],
   onClose,
   onReplay,
   onToast,
@@ -47,24 +49,40 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
     }
   };
 
+  const getRawPayloadString = (): string => {
+    if (event.payload_raw) return event.payload_raw;
+    if (event.payload_json) return JSON.stringify(event.payload_json);
+    if (typeof event.payload === 'string') {
+      try {
+        return atob(event.payload);
+      } catch {
+        return event.payload;
+      }
+    }
+    return '{}';
+  };
+
   const formattedPayload = () => {
     if (event.payload_json) {
       return JSON.stringify(event.payload_json, null, 2);
     }
+    const raw = getRawPayloadString();
     try {
-      const parsed = JSON.parse(event.payload_raw);
+      const parsed = JSON.parse(raw);
       return JSON.stringify(parsed, null, 2);
     } catch {
-      return event.payload_raw || '{}';
+      return raw || '{}';
     }
   };
 
   const curlCommand = () => {
+    const ep = endpoints.find((e) => e.id === event.endpoint_id);
+    const targetUrl = ep?.target_url || `${window.location.origin}/ingest/${event.endpoint_id}`;
     const headersStr = Object.entries(event.headers || {})
       .map(([k, v]) => `-H '${k}: ${v}'`)
       .join(' ');
-    const raw = event.payload_raw || JSON.stringify(event.payload_json || {});
-    return `curl -X POST 'https://example.com/target' ${headersStr} -d '${raw}'`;
+    const raw = getRawPayloadString();
+    return `curl -X POST '${targetUrl}' ${headersStr ? headersStr + ' ' : ''}-d '${raw}'`;
   };
 
   const getStatusBadge = (status: string) => {

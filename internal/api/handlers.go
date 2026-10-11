@@ -202,6 +202,7 @@ func (a *API) ReplayEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	event.Status = model.StatusPending
+	event.Attempts = 0
 	event.HTTPStatusCode = 0
 	event.LastError = ""
 
@@ -512,9 +513,14 @@ func (a *API) StreamSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Disable response write timeout for SSE connection
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Time{})
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	clientCh := a.hub.Subscribe()
@@ -576,6 +582,10 @@ func formatEventResponse(ev *model.WebhookEvent) EventResponse {
 				}
 				durationMs = 95
 				errMsg = ""
+			} else if ev.Status == model.StatusPending {
+				code = 0
+				durationMs = 0
+				errMsg = "Awaiting replay dispatch"
 			} else {
 				code = ev.HTTPStatusCode
 				errMsg = ev.LastError

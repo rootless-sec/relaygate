@@ -13,7 +13,7 @@ import { Endpoint, ProviderType } from '../types';
 
 interface EndpointsViewProps {
   endpoints: Endpoint[];
-  onAddEndpoint: (data: { name: string; provider: ProviderType; target_url: string }) => Promise<void>;
+  onAddEndpoint: (data: { name: string; provider: ProviderType; target_url: string; secret_key?: string }) => Promise<void>;
   onToggleActive: (endpoint: Endpoint) => Promise<void>;
   onToast: (message: string) => void;
 }
@@ -28,6 +28,7 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
   const [name, setName] = useState('');
   const [provider, setProvider] = useState<ProviderType>('generic');
   const [targetUrl, setTargetUrl] = useState('');
+  const [secretKey, setSecretKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -73,9 +74,11 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
         name: name.trim(),
         provider,
         target_url: targetUrl.trim(),
+        secret_key: secretKey.trim() || undefined,
       });
       setName('');
       setTargetUrl('');
+      setSecretKey('');
       setProvider('generic');
       setShowAddModal(false);
       onToast('Endpoint baru berhasil didaftarkan');
@@ -177,9 +180,17 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                         </span>
                         <button
                           onClick={() => toggleShowSecret(ep.id)}
+                          title={isSecretVisible ? 'Sembunyikan secret' : 'Lihat secret'}
                           className="p-1 text-[#71717a] hover:text-[#18181b] hover:bg-[#f4f4f5] rounded transition-colors"
                         >
                           {isSecretVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                        <button
+                          onClick={() => copyText(ep.secret_key, 'Secret Key')}
+                          title="Salin Secret Key"
+                          className="p-1 text-[#71717a] hover:text-[#18181b] hover:bg-[#f4f4f5] rounded transition-colors"
+                        >
+                          {copiedKey === 'Secret Key' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                         </button>
                       </div>
                     </td>
@@ -277,6 +288,22 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                 />
                 <p className="text-[11px] text-[#71717a] mt-1">
                   RelayGate akan meneruskan request webhook asli ke target URL ini.
+                </p>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-[#18181b] mb-1">
+                  Secret Key HMAC (Opsional)
+                </label>
+                <input
+                  type="text"
+                  value={secretKey}
+                  onChange={(e) => setSecretKey(e.target.value)}
+                  placeholder="whsec_... (kosongkan untuk digenerate otomatis)"
+                  className="w-full px-3 py-2 bg-white border border-[#e4e4e7] rounded-lg text-[#18181b] font-mono focus:outline-none focus:border-[#18181b]"
+                />
+                <p className="text-[11px] text-[#71717a] mt-1">
+                  Masukkan secret key dari dashboard provider Anda atau kosongkan untuk auto-generate.
                 </p>
               </div>
 

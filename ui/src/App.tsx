@@ -110,6 +110,11 @@ export const App: React.FC = () => {
     }
   }, [userEmail, loadInitialData]);
 
+  const isLiveRef = useRef(isLive);
+  useEffect(() => {
+    isLiveRef.current = isLive;
+  }, [isLive]);
+
   // 2. Server-Sent Events (SSE) Stream
   useEffect(() => {
     if (!userEmail) return;
@@ -126,10 +131,10 @@ export const App: React.FC = () => {
           const newEvent: WebhookEvent = payload.event;
           if (!newEvent) return;
 
-          if (isLive) {
+          if (isLiveRef.current) {
             setEvents((prev) => [newEvent, ...prev.filter((x) => x.id !== newEvent.id)]);
           } else {
-            setBufferedEvents((prev) => [newEvent, ...prev]);
+            setBufferedEvents((prev) => [newEvent, ...prev.filter((x) => x.id !== newEvent.id)]);
           }
           refreshStats();
         } catch (err) {
@@ -168,7 +173,7 @@ export const App: React.FC = () => {
       if (eventSource) eventSource.close();
       if (reconnectTimer) clearTimeout(reconnectTimer);
     };
-  }, [userEmail, isLive]);
+  }, [userEmail]);
 
   const refreshStats = async () => {
     try {
@@ -179,7 +184,10 @@ export const App: React.FC = () => {
   };
 
   const handleFlushBuffer = () => {
-    setEvents((prev) => [...bufferedEvents, ...prev]);
+    setEvents((prev) => {
+      const bufferedIds = new Set(bufferedEvents.map((e) => e.id));
+      return [...bufferedEvents, ...prev.filter((e) => !bufferedIds.has(e.id))];
+    });
     setBufferedEvents([]);
   };
 
@@ -213,7 +221,7 @@ export const App: React.FC = () => {
   };
 
   // 4. Endpoint Actions
-  const handleAddEndpoint = async (data: { name: string; provider: ProviderType; target_url: string }) => {
+  const handleAddEndpoint = async (data: { name: string; provider: ProviderType; target_url: string; secret_key?: string }) => {
     await createEndpoint(data);
     const updated = await fetchEndpoints();
     setEndpoints(updated);
@@ -354,6 +362,7 @@ export const App: React.FC = () => {
         {/* Inspector Slide-over Drawer */}
         <InspectorDrawer
           event={selectedEvent}
+          endpoints={endpoints}
           onClose={() => setSelectedEvent(null)}
           onReplay={handleReplaySingle}
           onToast={(msg) => showToast(msg, 'info')}
