@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/big"
 	"net"
+	"net/mail"
 	"net/smtp"
 	"os"
 	"strconv"
@@ -81,12 +82,25 @@ func (m *Mailer) SendVerificationCode(toEmail, toName, code string) error {
 		return nil
 	}
 
-	from := m.From
-	if from == "" {
-		from = m.User
+	rawFrom := m.From
+	if rawFrom == "" {
+		rawFrom = m.User
 	}
-	if from == "" {
-		from = "no-reply@relaygate.local"
+	if rawFrom == "" {
+		rawFrom = "no-reply@relaygate.local"
+	}
+
+	envelopeFrom := rawFrom
+	headerFrom := rawFrom
+	if parsed, err := mail.ParseAddress(rawFrom); err == nil {
+		envelopeFrom = parsed.Address
+		if parsed.Name != "" {
+			headerFrom = fmt.Sprintf("%s <%s>", parsed.Name, parsed.Address)
+		} else {
+			headerFrom = fmt.Sprintf("RelayGate <%s>", parsed.Address)
+		}
+	} else if !strings.Contains(rawFrom, "<") {
+		headerFrom = fmt.Sprintf("RelayGate <%s>", rawFrom)
 	}
 
 	subject := fmt.Sprintf("[RelayGate] Kode Verifikasi Pendaftaran: %s", code)
@@ -108,7 +122,7 @@ func (m *Mailer) SendVerificationCode(toEmail, toName, code string) error {
 			"MIME-Version: 1.0\r\n"+
 			"Content-Type: text/plain; charset=UTF-8\r\n"+
 			"\r\n%s",
-		from, toEmail, subject, body,
+		headerFrom, toEmail, subject, body,
 	))
 
 	addr := fmt.Sprintf("%s:%d", m.Host, m.Port)
@@ -118,9 +132,10 @@ func (m *Mailer) SendVerificationCode(toEmail, toName, code string) error {
 		auth = smtp.PlainAuth("", m.User, m.Pass, m.Host)
 	}
 
+	dialer := &net.Dialer{Timeout: 15 * time.Second}
+
 	// Implicit TLS connection (standard for port 465)
 	if m.Port == 465 {
-		dialer := &net.Dialer{Timeout: 15 * time.Second}
 		tlsConn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
 			ServerName: m.Host,
 		})
@@ -140,7 +155,7 @@ func (m *Mailer) SendVerificationCode(toEmail, toName, code string) error {
 				return fmt.Errorf("smtp auth failed: %w", err)
 			}
 		}
-		if err = c.Mail(from); err != nil {
+		if err = c.Mail(envelopeFrom); err != nil {
 			return fmt.Errorf("smtp MAIL FROM failed: %w", err)
 		}
 		if err = c.Rcpt(toEmail); err != nil {
@@ -159,6 +174,49 @@ func (m *Mailer) SendVerificationCode(toEmail, toName, code string) error {
 		return c.Quit()
 	}
 
-	// Standard STARTTLS or plain connection (port 587, 25, 2525)
-	return smtp.SendMail(addr, auth, from, []string{toEmail}, msg)
+	// Standard STARTTLS or plain connection with 15s timeout
+	conn, err := dialer.Dial("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("smtp connection to %s failed: %w", addr, err)
+	}
+	defer conn.Close()
+
+	c, err := smtp.NewClient(conn, m.Host)
+	if err != nil {
+		return fmt.Errorf("smtp client creation failed: %w", err)
+	}
+	defer c.Close()
+
+	if ok, _ := c.Extension("STARTTLS"); ok {
+		tlsConfig := &tls.Config{ServerName: m.Host}
+		if err := c.StartTLS(tlsConfig); err != nil {
+			return fmt.Errorf("smtp starttls failed: %w", err)
+		}
+	}
+
+	if auth != nil {
+		if ok, _ := c.Extension("AUTH"); ok {
+			if err := c.Auth(auth); err != nil {
+				return fmt.Errorf("smtp auth failed: %w", err)
+			}
+		}
+	}
+
+	if err := c.Mail(envelopeFrom); err != nil {
+		return fmt.Errorf("smtp MAIL FROM failed: %w", err)
+	}
+	if err := c.Rcpt(toEmail); err != nil {
+		return fmt.Errorf("smtp RCPT TO failed: %w", err)
+	}
+	w, err := c.Data()
+	if err != nil {
+		return fmt.Errorf("smtp DATA failed: %w", err)
+	}
+	if _, err = w.Write(msg); err != nil {
+		return fmt.Errorf("smtp write message failed: %w", err)
+	}
+	if err = w.Close(); err != nil {
+		return fmt.Errorf("smtp close data failed: %w", err)
+	}
+	return c.Quit()
 }

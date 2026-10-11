@@ -419,7 +419,15 @@ func TestAPI_EmailVerificationEdgeCases(t *testing.T) {
 		t.Fatalf("expected 200 OK register, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// 2. Resend code immediately should trigger cooldown rate limit (30s)
+	// 2. Immediate duplicate registration or resend should trigger cooldown rate limit (30s)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(regBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 Too Many Requests for rapid duplicate registration, got %d: %s", rec.Code, rec.Body.String())
+	}
+
 	resendBody := []byte(`{"email":"brute@example.com"}`)
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/resend-code", bytes.NewReader(resendBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -429,7 +437,20 @@ func TestAPI_EmailVerificationEdgeCases(t *testing.T) {
 		t.Fatalf("expected 429 Too Many Requests for quick resend, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// 3. Brute force attempts (max 5)
+	// 3. Invalid code length validation (should reject without burning attempt counters)
+	shortCodeBody := []byte(`{"email":"brute@example.com","code":"123"}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/verify", bytes.NewReader(shortCodeBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for short code, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "6 digit angka") {
+		t.Errorf("expected 6 digit error message, got: %s", rec.Body.String())
+	}
+
+	// 4. Brute force attempts (max 5)
 	for i := 1; i <= 5; i++ {
 		badBody := []byte(`{"email":"brute@example.com","code":"000000"}`)
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/verify", bytes.NewReader(badBody))
@@ -451,7 +472,7 @@ func TestAPI_EmailVerificationEdgeCases(t *testing.T) {
 		t.Fatalf("expected 429 Too Many Requests after max attempts, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// 4. Test expired verification
+	// 5. Test expired verification and resend recovery
 	expired := &model.EmailVerification{
 		Email:        "expired@example.com",
 		Name:         "Expired User",
@@ -476,6 +497,45 @@ func TestAPI_EmailVerificationEdgeCases(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "kedaluwarsa") {
 		t.Errorf("expected expired message, got: %s", rec.Body.String())
+	}
+
+	// Verify that user can request a fresh code after expiration rather than being stranded
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/resend-code", bytes.NewReader([]byte(`{"email":"expired@example.com"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for resend code after expiration, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resendRes api.ResendCodeResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resendRes); err != nil {
+		t.Fatalf("failed to decode resend response: %v", err)
+	}
+	if resendRes.DevCode == "" {
+		t.Fatalf("expected new dev code in resend response")
+	}
+
+	// 6. Test that stale session (>24h) is rejected
+	stale := &model.EmailVerification{
+		Email:        "stale@example.com",
+		Name:         "Stale User",
+		PasswordHash: "somehash",
+		Code:         "999888",
+		Attempts:     0,
+		MaxAttempts:  5,
+		LastSentAt:   time.Now().UTC().Add(-25 * time.Hour),
+		ExpiresAt:    time.Now().UTC().Add(-24 * time.Hour),
+		CreatedAt:    time.Now().UTC().Add(-25 * time.Hour),
+	}
+	if err := db.SaveEmailVerification(ctx, stale); err != nil {
+		t.Fatalf("failed to seed stale verification: %v", err)
+	}
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/resend-code", bytes.NewReader([]byte(`{"email":"stale@example.com"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 Not Found for stale session (>24h), got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 

@@ -148,3 +148,68 @@ func TestMailer_SMTPSend(t *testing.T) {
 		t.Errorf("expected received email to contain recipient name John Doe, got: %s", content)
 	}
 }
+
+func TestMailer_NamedSenderAddress(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen on loopback: %v", err)
+	}
+	defer ln.Close()
+
+	port := ln.Addr().(*net.TCPAddr).Port
+	mailFromChan := make(chan string, 1)
+
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		reader := bufio.NewReader(conn)
+		writer := bufio.NewWriter(conn)
+
+		writer.WriteString("220 mock.smtp.local Service ready\r\n")
+		writer.Flush()
+
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				break
+			}
+			lineClean := strings.TrimRight(line, "\r\n")
+			if strings.HasPrefix(lineClean, "EHLO") || strings.HasPrefix(lineClean, "HELO") {
+				writer.WriteString("250-mock.smtp.local\r\n250 HELP\r\n")
+				writer.Flush()
+			} else if strings.HasPrefix(lineClean, "MAIL FROM:") {
+				mailFromChan <- lineClean
+				writer.WriteString("250 2.1.0 Sender OK\r\n")
+				writer.Flush()
+			} else if strings.HasPrefix(lineClean, "RCPT TO:") {
+				writer.WriteString("250 2.1.5 Recipient OK\r\n")
+				writer.Flush()
+			} else if lineClean == "DATA" {
+				writer.WriteString("354 Start mail input; end with <CRLF>.<CRLF>\r\n")
+				writer.Flush()
+			} else if lineClean == "." {
+				writer.WriteString("250 OK: queued\r\n")
+				writer.Flush()
+			} else if lineClean == "QUIT" {
+				writer.WriteString("221 2.0.0 Bye\r\n")
+				writer.Flush()
+				break
+			}
+		}
+	}()
+
+	m := mailer.NewMailer("127.0.0.1", port, "", "", "RelayGate Team <notifications@relaygate.local>")
+	if err := m.SendVerificationCode("user@example.com", "Test User", "555111"); err != nil {
+		t.Fatalf("SendVerificationCode failed: %v", err)
+	}
+
+	mailFrom := <-mailFromChan
+	// Envelope MAIL FROM must be clean address without display name
+	if mailFrom != "MAIL FROM:<notifications@relaygate.local>" {
+		t.Errorf("expected clean envelope sender MAIL FROM:<notifications@relaygate.local>, got: %s", mailFrom)
+	}
+}

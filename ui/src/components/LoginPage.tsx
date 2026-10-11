@@ -122,40 +122,53 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       return;
     }
 
+    const char = cleaned.slice(-1);
     const newOtp = [...otp];
-    newOtp[index] = cleaned[cleaned.length - 1];
+    newOtp[index] = char;
     setOtp(newOtp);
 
-    if (index < 5) {
+    if (index < 5 && char) {
       otpInputs.current[index + 1]?.focus();
+      otpInputs.current[index + 1]?.select();
     }
   };
 
   const handleOtpKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Backspace') {
       if (!otp[index] && index > 0) {
-        otpInputs.current[index - 1]?.focus();
+        e.preventDefault();
+        const prevIndex = index - 1;
+        const newOtp = [...otp];
+        newOtp[prevIndex] = '';
+        setOtp(newOtp);
+        otpInputs.current[prevIndex]?.focus();
+        otpInputs.current[prevIndex]?.select();
       }
     } else if (e.key === 'ArrowLeft' && index > 0) {
+      e.preventDefault();
       otpInputs.current[index - 1]?.focus();
+      otpInputs.current[index - 1]?.select();
     } else if (e.key === 'ArrowRight' && index < 5) {
+      e.preventDefault();
       otpInputs.current[index + 1]?.focus();
+      otpInputs.current[index + 1]?.select();
     }
   };
 
-  const handleOtpPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+  const handleOtpPaste = (e: React.ClipboardEvent) => {
     e.preventDefault();
     const pasteData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
     if (!pasteData) return;
 
     const newOtp = [...otp];
-    for (let i = 0; i < pasteData.length; i++) {
-      newOtp[i] = pasteData[i];
+    for (let i = 0; i < 6; i++) {
+      newOtp[i] = i < pasteData.length ? pasteData[i] : '';
     }
     setOtp(newOtp);
 
     const nextIdx = Math.min(pasteData.length, 5);
     otpInputs.current[nextIdx]?.focus();
+    otpInputs.current[nextIdx]?.select();
   };
 
   const handleVerify = async (e: React.FormEvent) => {
@@ -248,8 +261,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                 Verifikasi Alamat Email
               </h1>
               <p className="text-xs text-[#71717a] mt-1 leading-relaxed">
-                Masukkan 6-digit kode verifikasi yang dikirimkan ke email{' '}
-                <span className="font-semibold text-[#18181b]">{email}</span>.
+                Masukkan 6-digit kode verifikasi yang dikirimkan ke email Anda.
+              </p>
+              <p className="text-xs font-semibold text-[#18181b] mt-0.5">
+                {email}
               </p>
             </>
           )}
@@ -527,9 +542,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                   <button
                     type="button"
                     onClick={() => {
-                      const digits = devCode.split('');
-                      setOtp(digits);
+                      const digits = devCode.split('').slice(0, 6);
+                      const newOtp = ['', '', '', '', '', ''];
+                      for (let i = 0; i < 6; i++) {
+                        newOtp[i] = digits[i] || '';
+                      }
+                      setOtp(newOtp);
                       otpInputs.current[5]?.focus();
+                      otpInputs.current[5]?.select();
                     }}
                     className="text-xs text-[#18181b] font-medium underline hover:text-[#3f3f46]"
                   >
@@ -551,10 +571,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                   type="text"
                   inputMode="numeric"
                   pattern="[0-9]*"
-                  maxLength={1}
+                  maxLength={2}
                   value={digit}
+                  onFocus={(e) => e.target.select()}
                   onChange={(e) => handleOtpChange(idx, e.target.value)}
                   onKeyDown={(e) => handleOtpKeyDown(idx, e)}
+                  onPaste={handleOtpPaste}
                   className="w-11 h-12 text-center text-lg font-mono font-semibold bg-white border border-[#e4e4e7] rounded-lg text-[#18181b] focus:outline-none focus:border-[#18181b] focus:ring-1 focus:ring-[#18181b] transition-colors"
                 />
               ))}

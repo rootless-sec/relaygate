@@ -2,6 +2,7 @@ package api
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -630,11 +631,25 @@ func (a *API) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if email is already registered
+	// Check if email is already registered and active
 	existing, err := a.repo.GetUserByEmail(r.Context(), req.Email)
 	if err == nil && existing != nil {
 		writeError(w, http.StatusConflict, "Email sudah terdaftar. Silakan gunakan email lain atau masuk.", nil)
 		return
+	}
+
+	// Rate limiting: prevent spamming if a verification code was sent within 30 seconds
+	if pending, err := a.repo.GetEmailVerification(r.Context(), req.Email); err == nil && pending != nil {
+		cooldownDuration := 30 * time.Second
+		elapsed := time.Since(pending.LastSentAt)
+		if elapsed < cooldownDuration {
+			remaining := int((cooldownDuration - elapsed).Seconds())
+			if remaining <= 0 {
+				remaining = 1
+			}
+			writeError(w, http.StatusTooManyRequests, fmt.Sprintf("Harap tunggu %d detik sebelum mendaftar ulang atau meminta kode baru.", remaining), nil)
+			return
+		}
 	}
 
 	// Generate secure 6-digit verification code
@@ -702,6 +717,10 @@ func (a *API) VerifyCode(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Email dan kode verifikasi wajib diisi", nil)
 		return
 	}
+	if len(req.Code) != 6 {
+		writeError(w, http.StatusBadRequest, "Kode verifikasi harus berupa 6 digit angka", nil)
+		return
+	}
 
 	verif, err := a.repo.GetEmailVerification(r.Context(), req.Email)
 	if err != nil || verif == nil {
@@ -709,9 +728,8 @@ func (a *API) VerifyCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Expiration check
+	// Expiration check (keep record intact so user can request a fresh code via Resend)
 	if time.Now().UTC().After(verif.ExpiresAt) {
-		_ = a.repo.DeleteEmailVerification(r.Context(), verif.Email)
 		writeError(w, http.StatusBadRequest, "Kode verifikasi telah kedaluwarsa. Silakan kirim ulang kode baru.", nil)
 		return
 	}
@@ -722,8 +740,8 @@ func (a *API) VerifyCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Code match check
-	if verif.Code != req.Code {
+	// Constant-time code match check to prevent timing attacks
+	if subtle.ConstantTimeCompare([]byte(verif.Code), []byte(req.Code)) != 1 {
 		newAttempts, _ := a.repo.IncrementVerificationAttempts(r.Context(), verif.Email)
 		remaining := verif.MaxAttempts - newAttempts
 		if remaining <= 0 {
@@ -780,6 +798,13 @@ func (a *API) ResendCode(w http.ResponseWriter, r *http.Request) {
 	verif, err := a.repo.GetEmailVerification(r.Context(), req.Email)
 	if err != nil || verif == nil {
 		writeError(w, http.StatusNotFound, "Sesi pendaftaran tidak ditemukan. Silakan lakukan pendaftaran baru.", nil)
+		return
+	}
+
+	// Reject if initial registration session was created more than 24 hours ago
+	if time.Since(verif.CreatedAt) > 24*time.Hour {
+		_ = a.repo.DeleteEmailVerification(r.Context(), verif.Email)
+		writeError(w, http.StatusNotFound, "Sesi pendaftaran telah kedaluwarsa. Silakan lakukan pendaftaran baru.", nil)
 		return
 	}
 
