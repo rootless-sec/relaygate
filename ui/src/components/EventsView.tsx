@@ -7,7 +7,9 @@ import {
   CheckCircle2, 
   Clock, 
   AlertCircle,
-  Inbox
+  Inbox,
+  Pause,
+  Play
 } from 'lucide-react';
 import { Endpoint, EventStatus, StatsSummary, WebhookEvent } from '../types';
 
@@ -92,29 +94,25 @@ export const EventsView: React.FC<EventsViewProps> = ({
     switch (status) {
       case 'DELIVERED':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+          <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-200">
             DELIVERED
           </span>
         );
       case 'RETRYING':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse" />
+          <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold tracking-wide bg-amber-50 text-amber-700 border border-amber-200">
             RETRYING
           </span>
         );
       case 'FAILED':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
-            <span className="w-1.5 h-1.5 rounded-full bg-rose-600" />
+          <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold tracking-wide bg-rose-50 text-rose-700 border border-rose-200">
             FAILED
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-zinc-100 text-zinc-700 border border-zinc-200">
-            <span className="w-1.5 h-1.5 rounded-full bg-zinc-500" />
+          <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold tracking-wide bg-zinc-100 text-zinc-700 border border-zinc-200">
             PENDING
           </span>
         );
@@ -229,18 +227,20 @@ export const EventsView: React.FC<EventsViewProps> = ({
 
           <button
             onClick={onToggleLive}
-            className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-md text-xs font-semibold transition-colors shadow-2xs ${
-              isLive
-                ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                : 'bg-white text-[#71717a] border-[#e4e4e7]'
-            }`}
+            title={isLive ? 'Jeda stream real-time' : 'Lanjutkan stream real-time'}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-[#f4f4f5] text-[#18181b] border border-[#e4e4e7] rounded-md text-xs font-semibold transition-colors shadow-2xs"
           >
-            <span
-              className={`w-2 h-2 rounded-full ${
-                isLive ? 'bg-emerald-600 animate-ping' : 'bg-[#a1a1aa]'
-              }`}
-            />
-            <span>{isLive ? 'Live Ingest' : 'Dijeda'}</span>
+            {isLive ? (
+              <>
+                <Pause className="w-3.5 h-3.5 text-[#71717a]" />
+                <span>Pause Stream</span>
+              </>
+            ) : (
+              <>
+                <Play className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Resume Stream</span>
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -252,7 +252,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
             onClick={onFlushBuffer}
             className="w-full py-1.5 px-3 bg-sky-50 border border-sky-200 text-sky-800 text-xs font-medium rounded-md hover:bg-sky-100 transition-colors flex items-center justify-center gap-2"
           >
-            <Radio className="w-3.5 h-3.5 text-sky-600 animate-pulse" />
+            <Radio className="w-3.5 h-3.5 text-sky-600" />
             <span>{bufferedCount} event baru masuk antrean, klik untuk memuat ke tampilan</span>
           </button>
         </div>

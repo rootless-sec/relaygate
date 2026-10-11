@@ -262,7 +262,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                     </td>
                     <td className="py-2.5 px-3 text-right">
                       <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold font-mono ${
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold font-mono ${
                           eb.success_rate >= 90
                             ? 'bg-emerald-50 text-emerald-800'
                             : eb.success_rate >= 70
