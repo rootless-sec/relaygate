@@ -11,9 +11,9 @@ import (
 
 // SSEMessage represents a broadcasted event payload
 type SSEMessage struct {
-	Type  string              `json:"type"` // "event_created", "event_updated", "event_replayed", "stats_updated"
-	Event *model.WebhookEvent `json:"event,omitempty"`
-	Data  any                 `json:"data,omitempty"`
+	Type  string `json:"type"` // "event_created", "event_updated", "event_replayed", "stats_updated"
+	Event any    `json:"event,omitempty"`
+	Data  any    `json:"data,omitempty"`
 }
 
 // Hub manages active SSE client subscribers and real-time broadcasts
@@ -55,9 +55,13 @@ func (h *Hub) Broadcast(eventType string, data any) {
 	}
 
 	if ev, ok := data.(*model.WebhookEvent); ok {
-		msg.Event = ev
+		msg.Event = formatEventResponse(ev)
 	} else if ev, ok := data.(model.WebhookEvent); ok {
-		msg.Event = &ev
+		msg.Event = formatEventResponse(&ev)
+	} else if evResp, ok := data.(*EventResponse); ok {
+		msg.Event = evResp
+	} else if evResp, ok := data.(EventResponse); ok {
+		msg.Event = &evResp
 	} else {
 		msg.Data = data
 	}

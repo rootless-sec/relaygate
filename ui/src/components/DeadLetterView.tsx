@@ -8,13 +8,14 @@ import {
   AlertTriangle 
 } from 'lucide-react';
 import { Endpoint, WebhookEvent } from '../types';
+import { fetchEvents } from '../api';
 
 interface DeadLetterViewProps {
   events: WebhookEvent[];
   endpoints: Endpoint[];
   onSelectEvent: (event: WebhookEvent) => void;
   onReplaySingle: (event: WebhookEvent) => void;
-  onBulkReplay: (targetIds: string[], allFailed: boolean) => void;
+  onBulkReplay: (targetIds: string[], allFailed: boolean) => void | Promise<void>;
 }
 
 export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
@@ -26,15 +27,34 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
 }) => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [endpointFilter, setEndpointFilter] = useState('');
+  const [serverFailed, setServerFailed] = useState<WebhookEvent[]>([]);
   const [confirmModal, setConfirmModal] = useState<{
     open: boolean;
     count: number;
     isAll: boolean;
   }>({ open: false, count: 0, isAll: false });
 
-  // Filter for FAILED status only
-  const failedEvents = events.filter((ev) => {
-    if (ev.status !== 'FAILED') return false;
+  // Load all dead-lettered events from server
+  const loadFailedEvents = React.useCallback(async () => {
+    try {
+      const res = await fetchEvents({ status: 'FAILED', limit: 200 });
+      setServerFailed(res.events || []);
+    } catch {}
+  }, []);
+
+  React.useEffect(() => {
+    loadFailedEvents();
+  }, [loadFailedEvents, events]);
+
+  // Merge server failed events with parent events
+  const allFailedMap = new Map<string, WebhookEvent>();
+  serverFailed.forEach((e) => allFailedMap.set(e.id, e));
+  events.filter((e) => e.status === 'FAILED').forEach((e) => allFailedMap.set(e.id, e));
+  events.filter((e) => e.status !== 'FAILED').forEach((e) => allFailedMap.delete(e.id));
+  const mergedFailed = Array.from(allFailedMap.values());
+
+  // Filter by endpoint if selected
+  const failedEvents = mergedFailed.filter((ev) => {
     if (endpointFilter && ev.endpoint_id !== endpointFilter) return false;
     return true;
   });
@@ -66,15 +86,16 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
     setConfirmModal({ open: true, count, isAll });
   };
 
-  const handleExecuteReplay = () => {
+  const handleExecuteReplay = async () => {
     if (confirmModal.isAll) {
-      onBulkReplay([], true);
+      await onBulkReplay([], true);
       setSelectedIds(new Set());
     } else {
-      onBulkReplay(Array.from(selectedIds), false);
+      await onBulkReplay(Array.from(selectedIds), false);
       setSelectedIds(new Set());
     }
     setConfirmModal({ open: false, count: 0, isAll: false });
+    setTimeout(loadFailedEvents, 250);
   };
 
   const formatTime = (isoString?: string) => {

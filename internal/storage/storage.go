@@ -468,12 +468,13 @@ func (d *DB) UpdateEventStatus(ctx context.Context, id string, status model.Even
 		SET status = ?,
 		    http_status_code = ?,
 		    last_error = ?,
+		    attempts = CASE WHEN ? = 'PENDING' THEN 0 ELSE attempts END,
 		    next_retry_at = CASE WHEN ? IN ('DELIVERED', 'FAILED', 'PENDING') THEN NULL ELSE next_retry_at END,
 		    updated_at = ?
 		WHERE id = ?;
 	`
 
-	res, err := d.db.ExecContext(ctx, query, string(status), httpStatusCode, lastError, string(status), nowStr, id)
+	res, err := d.db.ExecContext(ctx, query, string(status), httpStatusCode, lastError, string(status), string(status), nowStr, id)
 	if err != nil {
 		return fmt.Errorf("failed to update event status: %w", err)
 	}

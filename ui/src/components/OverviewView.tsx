@@ -125,7 +125,8 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                 const xPos = 12 + i * gap;
 
                 return (
-                  <g key={bucket.index} className="transition-all">
+                  <g key={bucket.index} className="transition-all cursor-pointer">
+                    <title>{`${bucket.label}: ${bucket.total} event (${bucket.failed} gagal/retry)`}</title>
                     {/* Background track */}
                     <rect
                       x={xPos}

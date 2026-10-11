@@ -252,8 +252,16 @@ func TestAPI_SSEStream(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	go func() {
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(30 * time.Millisecond)
 		hub.Broadcast("test_ping", map[string]string{"hello": "world"})
+		time.Sleep(30 * time.Millisecond)
+		hub.Broadcast("event_created", &model.WebhookEvent{
+			ID:         "test_ev_123",
+			EndpointID: "ep_1",
+			Provider:   model.ProviderGeneric,
+			Payload:    []byte(`{"order_id":"ord_999","amount":100}`),
+			Status:     model.StatusPending,
+		})
 	}()
 
 	router.ServeHTTP(rec, req)
@@ -264,5 +272,14 @@ func TestAPI_SSEStream(t *testing.T) {
 	}
 	if !bytes.Contains([]byte(body), []byte("event: test_ping")) {
 		t.Errorf("expected SSE test_ping event, got: %s", body)
+	}
+	if !bytes.Contains([]byte(body), []byte("event: event_created")) {
+		t.Errorf("expected SSE event_created event, got: %s", body)
+	}
+	if !bytes.Contains([]byte(body), []byte("payload_raw")) {
+		t.Errorf("expected SSE event to contain payload_raw, got: %s", body)
+	}
+	if !bytes.Contains([]byte(body), []byte("ord_999")) {
+		t.Errorf("expected SSE event to contain unmarshaled payload text ord_999, got: %s", body)
 	}
 }

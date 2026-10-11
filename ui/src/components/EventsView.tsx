@@ -43,6 +43,22 @@ export const EventsView: React.FC<EventsViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [endpointFilter, setEndpointFilter] = useState<string>('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  // Reset page when filter changes
+  const handleSearchChange = (val: string) => {
+    setSearchQuery(val);
+    setCurrentPage(1);
+  };
+  const handleStatusFilterChange = (val: string) => {
+    setStatusFilter(val);
+    setCurrentPage(1);
+  };
+  const handleEndpointFilterChange = (val: string) => {
+    setEndpointFilter(val);
+    setCurrentPage(1);
+  };
 
   // Filtered event list
   const filteredEvents = events.filter((ev) => {
@@ -50,11 +66,27 @@ export const EventsView: React.FC<EventsViewProps> = ({
     if (endpointFilter && ev.endpoint_id !== endpointFilter) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      const rawText = (ev.id + ev.endpoint_id + ev.provider + (ev.payload_raw || '')).toLowerCase();
+      const rawText = (
+        ev.id +
+        ' ' +
+        ev.endpoint_id +
+        ' ' +
+        ev.provider +
+        ' ' +
+        (ev.payload_raw || '') +
+        ' ' +
+        (ev.payload_json ? JSON.stringify(ev.payload_json) : '')
+      ).toLowerCase();
       if (!rawText.includes(q)) return false;
     }
     return true;
   });
+
+  const totalItems = filteredEvents.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const validPage = Math.min(currentPage, totalPages);
+  const startIndex = (validPage - 1) * pageSize;
+  const paginatedEvents = filteredEvents.slice(startIndex, startIndex + pageSize);
 
   const getStatusBadge = (status: EventStatus) => {
     switch (status) {
@@ -154,7 +186,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
             ref={searchInputRef}
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
             placeholder="Cari event ID, endpoint, payload... ( / )"
             className="w-full pl-9 pr-3 py-1.5 text-xs bg-white border border-[#e4e4e7] rounded-md text-[#18181b] placeholder:text-[#a1a1aa] focus:outline-none focus:border-[#18181b] focus:ring-1 focus:ring-[#18181b] transition-colors"
           />
@@ -162,7 +194,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
 
         <select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
+          onChange={(e) => handleStatusFilterChange(e.target.value)}
           className="px-3 py-1.5 text-xs bg-white border border-[#e4e4e7] rounded-md text-[#18181b] focus:outline-none focus:border-[#18181b] transition-colors"
         >
           <option value="">Semua status</option>
@@ -174,7 +206,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
 
         <select
           value={endpointFilter}
-          onChange={(e) => setEndpointFilter(e.target.value)}
+          onChange={(e) => handleEndpointFilterChange(e.target.value)}
           className="px-3 py-1.5 text-xs bg-white border border-[#e4e4e7] rounded-md text-[#18181b] focus:outline-none focus:border-[#18181b] transition-colors"
         >
           <option value="">Semua endpoint</option>
@@ -242,8 +274,8 @@ export const EventsView: React.FC<EventsViewProps> = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-[#f4f4f5]">
-            {filteredEvents.length > 0 ? (
-              filteredEvents.map((ev) => {
+            {paginatedEvents.length > 0 ? (
+              paginatedEvents.map((ev) => {
                 const isSelected = selectedEventId === ev.id;
                 return (
                   <tr
@@ -320,6 +352,54 @@ export const EventsView: React.FC<EventsViewProps> = ({
             )}
           </tbody>
         </table>
+
+        {/* Pagination Toolbar */}
+        {totalItems > 0 && (
+          <div className="border-t border-[#e4e4e7] bg-[#fafafa] px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-[#71717a] select-none sticky bottom-0">
+            <div className="flex items-center gap-2">
+              <span>
+                Menampilkan <b className="text-[#18181b]">{startIndex + 1}</b> -{' '}
+                <b className="text-[#18181b]">{Math.min(startIndex + pageSize, totalItems)}</b> dari{' '}
+                <b className="text-[#18181b]">{totalItems}</b> event
+              </span>
+              <div className="flex items-center gap-1 ml-2">
+                <span>Per halaman:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="bg-white border border-[#e4e4e7] rounded px-1.5 py-0.5 text-xs text-[#18181b] focus:outline-none"
+                >
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={validPage <= 1}
+                className="px-2 py-1 bg-white hover:bg-[#f4f4f5] border border-[#e4e4e7] rounded text-xs font-semibold text-[#18181b] disabled:opacity-40 transition-colors"
+              >
+                Sebelumnya
+              </button>
+              <span className="px-2 font-mono text-[11px]">
+                {validPage} / {totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={validPage >= totalPages}
+                className="px-2 py-1 bg-white hover:bg-[#f4f4f5] border border-[#e4e4e7] rounded text-xs font-semibold text-[#18181b] disabled:opacity-40 transition-colors"
+              >
+                Berikutnya
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
