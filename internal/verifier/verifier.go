@@ -25,6 +25,30 @@ const (
 	VerificationInvalid = -1
 )
 
+// VerificationError represents a typed error occurring during webhook signature verification
+type VerificationError struct {
+	Code model.ErrorCode
+	Err  error
+}
+
+func (ve *VerificationError) Error() string {
+	if ve.Err != nil {
+		return ve.Err.Error()
+	}
+	return string(ve.Code)
+}
+
+func (ve *VerificationError) Unwrap() error {
+	return ve.Err
+}
+
+func newVerificationError(code model.ErrorCode, format string, a ...any) *VerificationError {
+	return &VerificationError{
+		Code: code,
+		Err:  fmt.Errorf(format, a...),
+	}
+}
+
 // Engine orchestrates webhook cryptographic verification across multiple providers
 type Engine struct {
 	stripeTolerance time.Duration
@@ -114,7 +138,7 @@ func (e *Engine) VerifyGeneric(secretKey string, headers map[string]string, payl
 	)
 
 	if sigHeader == "" {
-		return false, fmt.Errorf("missing signature header")
+		return false, newVerificationError(model.ErrCodeSignatureHeaderMissing, "missing signature header")
 	}
 
 	// Remove common prefixes
@@ -136,21 +160,21 @@ func (e *Engine) VerifyGeneric(secretKey string, headers map[string]string, payl
 		return true, nil
 	}
 
-	return false, fmt.Errorf("generic signature mismatch")
+	return false, newVerificationError(model.ErrCodeSignatureMismatch, "generic signature mismatch")
 }
 
 // VerifyMidtrans performs SHA512 hash verification for Midtrans webhooks
 // Formula: SHA512(order_id + status_code + gross_amount + ServerKey)
 func (e *Engine) VerifyMidtrans(serverKey string, headers map[string]string, payload []byte) (bool, error) {
 	if len(payload) == 0 {
-		return false, fmt.Errorf("empty midtrans payload")
+		return false, newVerificationError(model.ErrCodeSignaturePayloadMalformed, "empty midtrans payload")
 	}
 
 	var data map[string]any
 	decoder := json.NewDecoder(strings.NewReader(string(payload)))
 	decoder.UseNumber()
 	if err := decoder.Decode(&data); err != nil {
-		return false, fmt.Errorf("failed to parse midtrans json payload: %w", err)
+		return false, newVerificationError(model.ErrCodeSignaturePayloadMalformed, "failed to parse midtrans json payload: %w", err)
 	}
 
 	// Extract signature key from body or headers
@@ -162,7 +186,7 @@ func (e *Engine) VerifyMidtrans(serverKey string, headers map[string]string, pay
 	}
 
 	if signatureKey == "" {
-		return false, fmt.Errorf("midtrans signature_key not found in payload or headers")
+		return false, newVerificationError(model.ErrCodeSignatureHeaderMissing, "midtrans signature_key not found in payload or headers")
 	}
 
 	orderID := getStringField(data, "order_id")
@@ -170,7 +194,7 @@ func (e *Engine) VerifyMidtrans(serverKey string, headers map[string]string, pay
 	grossAmount := getStringField(data, "gross_amount")
 
 	if orderID == "" || statusCode == "" || grossAmount == "" {
-		return false, fmt.Errorf("midtrans missing required fields (order_id, status_code, or gross_amount)")
+		return false, newVerificationError(model.ErrCodeSignaturePayloadMalformed, "midtrans missing required fields (order_id, status_code, or gross_amount)")
 	}
 
 	candidates := []string{grossAmount}
@@ -191,7 +215,7 @@ func (e *Engine) VerifyMidtrans(serverKey string, headers map[string]string, pay
 		}
 	}
 
-	return false, fmt.Errorf("midtrans signature hash mismatch")
+	return false, newVerificationError(model.ErrCodeSignatureMismatch, "midtrans signature hash mismatch")
 }
 
 // VerifyStripe performs v1 HMAC-SHA256 signature and timestamp verification for Stripe webhooks
@@ -199,7 +223,7 @@ func (e *Engine) VerifyMidtrans(serverKey string, headers map[string]string, pay
 func (e *Engine) VerifyStripe(secretKey string, headers map[string]string, payload []byte) (bool, error) {
 	sigHeader := getHeader(headers, "Stripe-Signature")
 	if sigHeader == "" {
-		return false, fmt.Errorf("missing Stripe-Signature header")
+		return false, newVerificationError(model.ErrCodeSignatureHeaderMissing, "missing Stripe-Signature header")
 	}
 
 	parts := strings.Split(sigHeader, ",")
@@ -221,17 +245,17 @@ func (e *Engine) VerifyStripe(secretKey string, headers map[string]string, paylo
 	}
 
 	if timestampStr == "" {
-		return false, fmt.Errorf("stripe signature missing timestamp (t)")
+		return false, newVerificationError(model.ErrCodeSignatureTimestampInvalid, "stripe signature missing timestamp (t)")
 	}
 	if len(signatures) == 0 {
-		return false, fmt.Errorf("stripe signature missing v1 signature")
+		return false, newVerificationError(model.ErrCodeSignatureTimestampInvalid, "stripe signature missing v1 signature")
 	}
 
 	// Timestamp tolerance check
 	if e.stripeTolerance > 0 {
 		tsSec, err := strconv.ParseInt(timestampStr, 10, 64)
 		if err != nil {
-			return false, fmt.Errorf("invalid stripe timestamp: %w", err)
+			return false, newVerificationError(model.ErrCodeSignatureTimestampInvalid, "invalid stripe timestamp: %w", err)
 		}
 
 		eventTime := time.Unix(tsSec, 0)
@@ -240,7 +264,7 @@ func (e *Engine) VerifyStripe(secretKey string, headers map[string]string, paylo
 			diff = -diff
 		}
 		if diff > e.stripeTolerance {
-			return false, fmt.Errorf("stripe signature timestamp too old (tolerance %v exceeded)", e.stripeTolerance)
+			return false, newVerificationError(model.ErrCodeSignatureTimestampExpired, "stripe signature timestamp too old (tolerance %v exceeded)", e.stripeTolerance)
 		}
 	}
 
@@ -258,14 +282,14 @@ func (e *Engine) VerifyStripe(secretKey string, headers map[string]string, paylo
 		}
 	}
 
-	return false, fmt.Errorf("stripe v1 signature mismatch")
+	return false, newVerificationError(model.ErrCodeSignatureMismatch, "stripe v1 signature mismatch")
 }
 
 // VerifyGithub performs GitHub HMAC-SHA256 verification (X-Hub-Signature-256)
 func (e *Engine) VerifyGithub(secretKey string, headers map[string]string, payload []byte) (bool, error) {
 	sigHeader := getHeader(headers, "X-Hub-Signature-256")
 	if sigHeader == "" {
-		return false, fmt.Errorf("missing X-Hub-Signature-256 header")
+		return false, newVerificationError(model.ErrCodeSignatureHeaderMissing, "missing X-Hub-Signature-256 header")
 	}
 
 	cleanSig := strings.TrimSpace(sigHeader)
@@ -281,21 +305,21 @@ func (e *Engine) VerifyGithub(secretKey string, headers map[string]string, paylo
 		return true, nil
 	}
 
-	return false, fmt.Errorf("github signature mismatch")
+	return false, newVerificationError(model.ErrCodeSignatureMismatch, "github signature mismatch")
 }
 
 // VerifyXendit performs callback token verification for Xendit webhooks
 func (e *Engine) VerifyXendit(callbackToken string, headers map[string]string) (bool, error) {
 	receivedToken := getHeader(headers, "X-Callback-Token")
 	if receivedToken == "" {
-		return false, fmt.Errorf("missing X-Callback-Token header")
+		return false, newVerificationError(model.ErrCodeSignatureHeaderMissing, "missing X-Callback-Token header")
 	}
 
 	if subtle.ConstantTimeCompare([]byte(receivedToken), []byte(callbackToken)) == 1 {
 		return true, nil
 	}
 
-	return false, fmt.Errorf("xendit callback token mismatch")
+	return false, newVerificationError(model.ErrCodeSignatureMismatch, "xendit callback token mismatch")
 }
 
 func getHeader(headers map[string]string, keys ...string) string {
@@ -337,3 +361,28 @@ func getStringField(m map[string]any, key string) string {
 		return fmt.Sprintf("%v", v)
 	}
 }
+
+// VerificationKind defines the verification mechanism per provider
+type VerificationKind string
+
+const (
+	VerificationKindStaticToken VerificationKind = "static_token"
+	VerificationKindHMAC        VerificationKind = "hmac"
+	VerificationKindHash        VerificationKind = "hash"
+)
+
+// ProviderVerificationKind returns the verification kind for a given provider.
+// This is the single source of truth for verification kinds.
+func ProviderVerificationKind(provider model.ProviderType) VerificationKind {
+	switch provider {
+	case model.ProviderXendit:
+		return VerificationKindStaticToken
+	case model.ProviderMidtrans:
+		return VerificationKindHash
+	case model.ProviderStripe, model.ProviderGithub, model.ProviderGeneric:
+		return VerificationKindHMAC
+	default:
+		return VerificationKindHMAC
+	}
+}
+

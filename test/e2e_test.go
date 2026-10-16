@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -41,14 +42,19 @@ func TestEndToEnd_IngestToDelivery(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Mock downstream target service
+	var mu sync.Mutex
 	var receivedPayload []byte
 	var receivedHeaders http.Header
 	var deliveryCount atomic.Int32
 
 	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		deliveryCount.Add(1)
-		receivedHeaders = r.Header.Clone()
-		receivedPayload, _ = io.ReadAll(r.Body)
+		b, _ := io.ReadAll(r.Body)
+		h := r.Header.Clone()
+		mu.Lock()
+		receivedHeaders = h
+		receivedPayload = b
+		mu.Unlock()
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"success"}`))
 	}))
@@ -126,14 +132,20 @@ func TestEndToEnd_IngestToDelivery(t *testing.T) {
 	}
 
 	// 7. Verify payload & headers delivered to target
-	if string(receivedPayload) != string(rawBody) {
-		t.Errorf("payload mismatch: expected %s, got %s", string(rawBody), string(receivedPayload))
+	mu.Lock()
+	gotPayload := string(receivedPayload)
+	gotDeliveryHeader := receivedHeaders.Get("X-RelayGate-Delivery")
+	gotVerifiedHeader := receivedHeaders.Get("X-RelayGate-Verified")
+	mu.Unlock()
+
+	if gotPayload != string(rawBody) {
+		t.Errorf("payload mismatch: expected %s, got %s", string(rawBody), gotPayload)
 	}
-	if receivedHeaders.Get("X-RelayGate-Delivery") != ingestResp.ID {
-		t.Errorf("missing delivery header: %s", receivedHeaders.Get("X-RelayGate-Delivery"))
+	if gotDeliveryHeader != ingestResp.ID {
+		t.Errorf("missing delivery header: %s", gotDeliveryHeader)
 	}
-	if receivedHeaders.Get("X-RelayGate-Verified") != "1" {
-		t.Errorf("expected X-RelayGate-Verified=1, got %s", receivedHeaders.Get("X-RelayGate-Verified"))
+	if gotVerifiedHeader != "1" {
+		t.Errorf("expected X-RelayGate-Verified=1, got %s", gotVerifiedHeader)
 	}
 
 	// 8. Verify database final state

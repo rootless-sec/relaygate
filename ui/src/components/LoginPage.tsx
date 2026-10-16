@@ -4,11 +4,12 @@ import { loginUser, registerUser, verifyRegistrationCode, resendVerificationCode
 
 interface LoginPageProps {
   onLoginSuccess: (email: string) => void;
+  initialError?: string | null;
 }
 
 type AuthMode = 'login' | 'register' | 'verify';
 
-export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
+export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialError }) => {
   const [mode, setMode] = useState<AuthMode>('login');
 
   // Form states
@@ -27,7 +28,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(initialError || null);
+
+  useEffect(() => {
+    if (initialError) {
+      setError(initialError);
+    }
+  }, [initialError]);
 
   // Countdown timer for resend OTP
   useEffect(() => {
@@ -62,8 +69,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       localStorage.setItem(
         'relaygate_auth',
         JSON.stringify({
+          token: res.token,
           email: res.user.email,
           name: res.user.name,
+          role: res.user.role,
           loggedInAt: Date.now(),
         })
       );
@@ -187,8 +196,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       localStorage.setItem(
         'relaygate_auth',
         JSON.stringify({
+          token: res.token,
           email: res.user.email,
           name: res.user.name,
+          role: res.user.role,
           loggedInAt: Date.now(),
         })
       );
@@ -228,8 +239,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen bg-[#fafafa] flex items-center justify-center p-4">
-      <div className="w-full max-w-sm bg-white border border-[#e4e4e7] rounded-xl p-8 shadow-sm">
+    <div className="min-h-screen bg-zinc-50 flex items-center justify-center p-4">
+      <div className="w-full max-w-sm bg-white border border-zinc-200 rounded-xl p-8 shadow-sm">
         {/* Header with Logo */}
         <div className="flex flex-col items-center text-center mb-6">
           <img
@@ -239,31 +250,31 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           />
           {mode === 'login' ? (
             <>
-              <h1 className="text-xl font-bold tracking-tight text-[#18181b]">
+              <h1 className="text-xl font-bold tracking-tight text-zinc-900">
                 Masuk ke Dashboard
               </h1>
-              <p className="text-xs text-[#71717a] mt-1 leading-relaxed">
+              <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
                 Gunakan akun Anda untuk mengakses control panel webhook di RelayGate.
               </p>
             </>
           ) : mode === 'register' ? (
             <>
-              <h1 className="text-xl font-bold tracking-tight text-[#18181b]">
+              <h1 className="text-xl font-bold tracking-tight text-zinc-900">
                 Buat Akun Baru
               </h1>
-              <p className="text-xs text-[#71717a] mt-1 leading-relaxed">
+              <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
                 Daftarkan akun Anda untuk mengelola webhook di RelayGate.
               </p>
             </>
           ) : (
             <>
-              <h1 className="text-xl font-bold tracking-tight text-[#18181b]">
+              <h1 className="text-xl font-bold tracking-tight text-zinc-900">
                 Verifikasi Alamat Email
               </h1>
-              <p className="text-xs text-[#71717a] mt-1 leading-relaxed">
+              <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
                 Masukkan 6-digit kode verifikasi yang dikirimkan ke email Anda.
               </p>
-              <p className="text-xs font-semibold text-[#18181b] mt-0.5">
+              <p className="text-xs font-semibold text-zinc-900 mt-0.5">
                 {email}
               </p>
             </>
@@ -272,14 +283,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
         {/* Tab Toggle (only visible in login or register mode) */}
         {mode !== 'verify' && (
-          <div className="flex p-1 bg-[#f4f4f5] rounded-lg mb-5 border border-[#ebebee]">
+          <div className="flex p-1 bg-zinc-100 rounded-lg mb-5 border border-zinc-200">
             <button
               type="button"
               onClick={() => switchMode('login')}
               className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${
                 mode === 'login'
-                  ? 'bg-white text-[#18181b] shadow-xs'
-                  : 'text-[#71717a] hover:text-[#18181b]'
+                  ? 'bg-white text-zinc-900 shadow-xs'
+                  : 'text-zinc-500 hover:text-zinc-900'
               }`}
             >
               Masuk
@@ -289,8 +300,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               onClick={() => switchMode('register')}
               className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${
                 mode === 'register'
-                  ? 'bg-white text-[#18181b] shadow-xs'
-                  : 'text-[#71717a] hover:text-[#18181b]'
+                  ? 'bg-white text-zinc-900 shadow-xs'
+                  : 'text-zinc-500 hover:text-zinc-900'
               }`}
             >
               Daftar
@@ -303,20 +314,20 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
               <label
-                className="block text-xs font-semibold text-[#18181b] mb-1.5"
+                className="block text-xs font-semibold text-zinc-900 mb-1.5"
                 htmlFor="login-email"
               >
                 Alamat Email
               </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#71717a]" />
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                 <input
                   id="login-email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="nama@perusahaan.com"
-                  className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-[#e4e4e7] rounded-lg text-[#18181b] placeholder:text-[#a1a1aa] focus:outline-none focus:border-[#18181b] focus:ring-1 focus:ring-[#18181b] transition-colors"
+                  className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors"
                   autoFocus
                 />
               </div>
@@ -325,7 +336,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label
-                  className="block text-xs font-semibold text-[#18181b]"
+                  className="block text-xs font-semibold text-zinc-900"
                   htmlFor="login-password"
                 >
                   Password
@@ -333,7 +344,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="text-xs text-[#71717a] hover:text-[#18181b] transition-colors flex items-center gap-1"
+                  className="text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center gap-1"
                 >
                   {showPassword ? (
                     <>
@@ -347,14 +358,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                 </button>
               </div>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#71717a]" />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                 <input
                   id="login-password"
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full pl-9 pr-10 py-2 text-sm bg-white border border-[#e4e4e7] rounded-lg text-[#18181b] placeholder:text-[#a1a1aa] focus:outline-none focus:border-[#18181b] focus:ring-1 focus:ring-[#18181b] transition-colors font-mono"
+                  className="w-full pl-9 pr-10 py-2 text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors font-mono"
                 />
               </div>
             </div>
@@ -369,7 +380,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 px-4 bg-[#18181b] hover:bg-[#27272a] text-white text-sm font-semibold rounded-lg shadow-sm disabled:opacity-60 transition-all flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#18181b]"
+              className="w-full py-2.5 px-4 bg-zinc-900 hover:bg-zinc-800 text-white text-sm font-semibold rounded-lg shadow-sm disabled:opacity-60 transition-all flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-zinc-900"
             >
               {loading ? (
                 <span className="flex items-center gap-2">
@@ -388,20 +399,20 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           <form onSubmit={handleRegister} className="space-y-3.5">
             <div>
               <label
-                className="block text-xs font-semibold text-[#18181b] mb-1.5"
+                className="block text-xs font-semibold text-zinc-900 mb-1.5"
                 htmlFor="register-name"
               >
                 Nama Lengkap / Username
               </label>
               <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#71717a]" />
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                 <input
                   id="register-name"
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="cth. John Doe atau johndoe"
-                  className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-[#e4e4e7] rounded-lg text-[#18181b] placeholder:text-[#a1a1aa] focus:outline-none focus:border-[#18181b] focus:ring-1 focus:ring-[#18181b] transition-colors"
+                  className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors"
                   autoFocus
                 />
               </div>
@@ -409,20 +420,20 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
             <div>
               <label
-                className="block text-xs font-semibold text-[#18181b] mb-1.5"
+                className="block text-xs font-semibold text-zinc-900 mb-1.5"
                 htmlFor="register-email"
               >
                 Alamat Email
               </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#71717a]" />
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                 <input
                   id="register-email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="nama@perusahaan.com"
-                  className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-[#e4e4e7] rounded-lg text-[#18181b] placeholder:text-[#a1a1aa] focus:outline-none focus:border-[#18181b] focus:ring-1 focus:ring-[#18181b] transition-colors"
+                  className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors"
                 />
               </div>
             </div>
@@ -430,7 +441,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label
-                  className="block text-xs font-semibold text-[#18181b]"
+                  className="block text-xs font-semibold text-zinc-900"
                   htmlFor="register-password"
                 >
                   Password
@@ -438,7 +449,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="text-xs text-[#71717a] hover:text-[#18181b] transition-colors flex items-center gap-1"
+                  className="text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center gap-1"
                 >
                   {showPassword ? (
                     <>
@@ -452,14 +463,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                 </button>
               </div>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#71717a]" />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                 <input
                   id="register-password"
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Minimal 6 karakter"
-                  className="w-full pl-9 pr-10 py-2 text-sm bg-white border border-[#e4e4e7] rounded-lg text-[#18181b] placeholder:text-[#a1a1aa] focus:outline-none focus:border-[#18181b] focus:ring-1 focus:ring-[#18181b] transition-colors font-mono"
+                  className="w-full pl-9 pr-10 py-2 text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors font-mono"
                 />
               </div>
             </div>
@@ -467,7 +478,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label
-                  className="block text-xs font-semibold text-[#18181b]"
+                  className="block text-xs font-semibold text-zinc-900"
                   htmlFor="register-confirm-password"
                 >
                   Konfirmasi Password
@@ -475,7 +486,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="text-xs text-[#71717a] hover:text-[#18181b] transition-colors flex items-center gap-1"
+                  className="text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center gap-1"
                 >
                   {showConfirmPassword ? (
                     <>
@@ -489,14 +500,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                 </button>
               </div>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#71717a]" />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                 <input
                   id="register-confirm-password"
                   type={showConfirmPassword ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Ulangi password"
-                  className="w-full pl-9 pr-10 py-2 text-sm bg-white border border-[#e4e4e7] rounded-lg text-[#18181b] placeholder:text-[#a1a1aa] focus:outline-none focus:border-[#18181b] focus:ring-1 focus:ring-[#18181b] transition-colors font-mono"
+                  className="w-full pl-9 pr-10 py-2 text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors font-mono"
                 />
               </div>
             </div>
@@ -511,7 +522,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 px-4 bg-[#18181b] hover:bg-[#27272a] text-white text-sm font-semibold rounded-lg shadow-sm disabled:opacity-60 transition-all flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#18181b]"
+              className="w-full py-2.5 px-4 bg-zinc-900 hover:bg-zinc-800 text-white text-sm font-semibold rounded-lg shadow-sm disabled:opacity-60 transition-all flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-zinc-900"
             >
               {loading ? (
                 <span className="flex items-center gap-2">
@@ -531,12 +542,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           <form onSubmit={handleVerify}>
             {/* Dev Mock Helper (Shown only when backend operates without SMTP configuration) */}
             {devCode && (
-              <div className="mb-4 p-3 rounded-lg bg-[#f4f4f5] border border-[#e4e4e7] text-xs text-[#18181b]">
-                <div className="text-[11px] font-medium text-[#71717a] mb-1">
+              <div className="mb-4 p-3 rounded-lg bg-zinc-100 border border-zinc-200 text-xs text-zinc-900">
+                <div className="text-[11px] font-medium text-zinc-500 mb-1">
                   Mode Dev / Lokal (SMTP belum disetel):
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="font-mono text-sm font-bold tracking-widest text-[#18181b]">
+                  <span className="font-mono text-sm font-bold tracking-widest text-zinc-900">
                     {devCode}
                   </span>
                   <button
@@ -551,7 +562,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                       otpInputs.current[5]?.focus();
                       otpInputs.current[5]?.select();
                     }}
-                    className="text-xs text-[#18181b] font-medium underline hover:text-[#3f3f46]"
+                    className="text-xs text-zinc-900 font-medium underline hover:text-zinc-700"
                   >
                     Isi Otomatis
                   </button>
@@ -577,7 +588,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                   onChange={(e) => handleOtpChange(idx, e.target.value)}
                   onKeyDown={(e) => handleOtpKeyDown(idx, e)}
                   onPaste={handleOtpPaste}
-                  className="w-11 h-12 text-center text-lg font-mono font-semibold bg-white border border-[#e4e4e7] rounded-lg text-[#18181b] focus:outline-none focus:border-[#18181b] focus:ring-1 focus:ring-[#18181b] transition-colors"
+                  className="w-11 h-12 text-center text-lg font-mono font-semibold bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors"
                 />
               ))}
             </div>
@@ -592,7 +603,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 px-4 bg-[#18181b] hover:bg-[#27272a] text-white text-sm font-semibold rounded-lg shadow-sm disabled:opacity-60 transition-all flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#18181b]"
+              className="w-full py-2.5 px-4 bg-zinc-900 hover:bg-zinc-800 text-white text-sm font-semibold rounded-lg shadow-sm disabled:opacity-60 transition-all flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-zinc-900"
             >
               {loading ? (
                 <span className="flex items-center gap-2">
@@ -608,11 +619,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             </button>
 
             {/* Resend and Navigation links */}
-            <div className="mt-4 pt-4 border-t border-[#e4e4e7] flex flex-col items-center gap-2.5 text-xs text-[#71717a]">
+            <div className="mt-4 pt-4 border-t border-zinc-200 flex flex-col items-center gap-2.5 text-xs text-zinc-500">
               <div className="flex items-center gap-1.5">
                 <span>Belum menerima kode?</span>
                 {countdown > 0 ? (
-                  <span className="text-[#a1a1aa] font-medium">
+                  <span className="text-zinc-400 font-medium">
                     Kirim ulang dalam {countdown}s
                   </span>
                 ) : (
@@ -620,7 +631,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                     type="button"
                     onClick={handleResend}
                     disabled={resending}
-                    className="font-semibold text-[#18181b] hover:underline disabled:opacity-50"
+                    className="font-semibold text-zinc-900 hover:underline disabled:opacity-50"
                   >
                     {resending ? 'Mengirim...' : 'Kirim Ulang Kode'}
                   </button>
@@ -629,7 +640,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               <button
                 type="button"
                 onClick={handleChangeEmail}
-                className="text-xs text-[#71717a] hover:text-[#18181b] transition-colors"
+                className="text-xs text-zinc-500 hover:text-zinc-900 transition-colors"
               >
                 Ubah Alamat Email
               </button>

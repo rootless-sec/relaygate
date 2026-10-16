@@ -2,8 +2,10 @@ package storage
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -46,6 +48,16 @@ type Repository interface {
 	GetUserByEmail(ctx context.Context, email string) (*model.User, error)
 	GetUserByID(ctx context.Context, id string) (*model.User, error)
 
+	// Session methods
+	SaveSession(ctx context.Context, session *model.Session) error
+	GetSession(ctx context.Context, token string) (*model.Session, error)
+	TouchSession(ctx context.Context, token string, activeAt time.Time) error
+	DeleteSession(ctx context.Context, token string) error
+
+	// Audit Reveal methods
+	SaveAuditReveal(ctx context.Context, audit *model.AuditReveal) error
+	ListAuditReveals(ctx context.Context, eventID string) ([]*model.AuditReveal, error)
+
 	// Verification methods
 	SaveEmailVerification(ctx context.Context, v *model.EmailVerification) error
 	GetEmailVerification(ctx context.Context, email string) (*model.EmailVerification, error)
@@ -57,6 +69,7 @@ type Repository interface {
 	GetEventByID(ctx context.Context, id string) (*model.WebhookEvent, error)
 	ListEvents(ctx context.Context, filter ListFilter) ([]*model.WebhookEvent, int64, error)
 	UpdateEventStatus(ctx context.Context, id string, status model.EventStatus, httpStatusCode int, lastError string) error
+	UpdateEventFailure(ctx context.Context, id string, status model.EventStatus, httpStatusCode int, lastError string, failureCode string, failedAt *time.Time) error
 	UpdateEventVerification(ctx context.Context, id string, isVerified int) error
 	GetPendingRetries(ctx context.Context, limit int) ([]*model.WebhookEvent, error)
 	GetPendingEvents(ctx context.Context, limit int) ([]*model.WebhookEvent, error)
@@ -82,6 +95,9 @@ func Open(dbPath string) (*DB, error) {
 
 	// SQLite connection string with WAL and busy timeout pragmas
 	dsn := fmt.Sprintf("%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)", dbPath)
+	if dbPath == ":memory:" {
+		dsn = fmt.Sprintf("file:mem_%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)", time.Now().UnixNano())
+	}
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
@@ -127,17 +143,110 @@ func (d *DB) Checkpoint(ctx context.Context) error {
 	return nil
 }
 
+// RawDB returns the underlying *sql.DB connection (primarily for tests and direct queries)
+func (d *DB) RawDB() *sql.DB {
+	return d.db
+}
+
 // Migrate executes schema.sql against the SQLite database
 func (d *DB) Migrate(ctx context.Context) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	_, err := d.db.ExecContext(ctx, schemaSQL)
+	// Additive migration: if webhook_events already exists from previous version,
+	// add missing columns before executing schemaSQL (which creates indices on them).
+	colRows, err := d.db.QueryContext(ctx, "PRAGMA table_info(webhook_events);")
+	if err == nil {
+		var colCount int
+		hasFailureCode := false
+		hasFailedAt := false
+		for colRows.Next() {
+			colCount++
+			var cid int
+			var name, colType string
+			var notNull, pk int
+			var dfltValue any
+			if scanErr := colRows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); scanErr == nil {
+				if strings.EqualFold(name, "failure_code") {
+					hasFailureCode = true
+				}
+				if strings.EqualFold(name, "failed_at") {
+					hasFailedAt = true
+				}
+			}
+		}
+		colRows.Close()
+
+		if colCount > 0 {
+			if !hasFailureCode {
+				_, _ = d.db.ExecContext(ctx, "ALTER TABLE webhook_events ADD COLUMN failure_code TEXT;")
+			}
+			if !hasFailedAt {
+				_, _ = d.db.ExecContext(ctx, "ALTER TABLE webhook_events ADD COLUMN failed_at DATETIME;")
+			}
+		}
+	}
+
+	// Additive migration: check users table for role column
+	userColRows, uErr := d.db.QueryContext(ctx, "PRAGMA table_info(users);")
+	if uErr == nil {
+		hasRole := false
+		var uColCount int
+		for userColRows.Next() {
+			uColCount++
+			var cid int
+			var name, colType string
+			var notNull, pk int
+			var dfltValue any
+			if scanErr := userColRows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); scanErr == nil {
+				if strings.EqualFold(name, "role") {
+					hasRole = true
+				}
+			}
+		}
+		userColRows.Close()
+		if uColCount > 0 && !hasRole {
+			_, _ = d.db.ExecContext(ctx, "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'viewer';")
+		}
+	}
+
+	// Check if legacy sessions table has token instead of token_hash or is missing last_active_at
+	sessColRows, sErr := d.db.QueryContext(ctx, "PRAGMA table_info(sessions);")
+	if sErr == nil {
+		hasTokenHash := false
+		hasLastActiveAt := false
+		var sColCount int
+		for sessColRows.Next() {
+			sColCount++
+			var cid int
+			var name, colType string
+			var notNull, pk int
+			var dfltValue any
+			if scanErr := sessColRows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); scanErr == nil {
+				if strings.EqualFold(name, "token_hash") {
+					hasTokenHash = true
+				}
+				if strings.EqualFold(name, "last_active_at") {
+					hasLastActiveAt = true
+				}
+			}
+		}
+		_ = sessColRows.Close()
+		if sColCount > 0 {
+			if !hasTokenHash {
+				_, _ = d.db.ExecContext(ctx, "DROP TABLE IF EXISTS sessions;")
+			} else if !hasLastActiveAt {
+				_, _ = d.db.ExecContext(ctx, "ALTER TABLE sessions ADD COLUMN last_active_at DATETIME;")
+			}
+		}
+	}
+
+	_, err = d.db.ExecContext(ctx, schemaSQL)
 	if err != nil {
 		return fmt.Errorf("migration execution error: %w", err)
 	}
 
-	// Ensure default administrator account is seeded for backward compatibility
+	// Ensure default administrator account is seeded with admin role for backward compatibility
 	var count int
 	row := d.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE email = 'admin@relaygate.local';")
 	if err := row.Scan(&count); err == nil && count == 0 {
@@ -145,10 +254,12 @@ func (d *DB) Migrate(ctx context.Context) error {
 		if err == nil {
 			nowStr := time.Now().UTC().Format("2006-01-02 15:04:05")
 			_, _ = d.db.ExecContext(ctx, `
-				INSERT INTO users (id, name, email, password_hash, created_at)
-				VALUES (?, ?, ?, ?, ?)
-			`, "usr_admin", "Administrator", "admin@relaygate.local", string(hash), nowStr)
+				INSERT INTO users (id, name, email, password_hash, role, created_at)
+				VALUES (?, ?, ?, ?, ?, ?)
+			`, "usr_admin", "Administrator", "admin@relaygate.local", string(hash), "admin", nowStr)
 		}
+	} else {
+		_, _ = d.db.ExecContext(ctx, "UPDATE users SET role = 'admin' WHERE email = 'admin@relaygate.local' AND role != 'admin';")
 	}
 
 	return nil
@@ -309,17 +420,21 @@ func (d *DB) SaveUser(ctx context.Context, user *model.User) error {
 		user.CreatedAt = time.Now().UTC()
 	}
 	user.Email = strings.ToLower(strings.TrimSpace(user.Email))
+	if user.Role == "" {
+		user.Role = "viewer"
+	}
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	query := `
-		INSERT INTO users (id, name, email, password_hash, created_at)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO users (id, name, email, password_hash, role, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name = excluded.name,
 			email = excluded.email,
-			password_hash = excluded.password_hash;
+			password_hash = excluded.password_hash,
+			role = excluded.role;
 	`
 
 	createdAtStr := user.CreatedAt.UTC().Format("2006-01-02 15:04:05")
@@ -328,6 +443,7 @@ func (d *DB) SaveUser(ctx context.Context, user *model.User) error {
 		user.Name,
 		user.Email,
 		user.PasswordHash,
+		user.Role,
 		createdAtStr,
 	)
 	if err != nil {
@@ -344,7 +460,7 @@ func (d *DB) GetUserByEmail(ctx context.Context, email string) (*model.User, err
 
 	normEmail := strings.ToLower(strings.TrimSpace(email))
 	query := `
-		SELECT id, name, email, password_hash, created_at
+		SELECT id, name, email, password_hash, role, created_at
 		FROM users
 		WHERE LOWER(email) = LOWER(?);
 	`
@@ -358,6 +474,7 @@ func (d *DB) GetUserByEmail(ctx context.Context, email string) (*model.User, err
 		&u.Name,
 		&u.Email,
 		&u.PasswordHash,
+		&u.Role,
 		&createdAtRaw,
 	)
 	if err != nil {
@@ -377,7 +494,7 @@ func (d *DB) GetUserByID(ctx context.Context, id string) (*model.User, error) {
 	defer d.mu.RUnlock()
 
 	query := `
-		SELECT id, name, email, password_hash, created_at
+		SELECT id, name, email, password_hash, role, created_at
 		FROM users
 		WHERE id = ?;
 	`
@@ -391,6 +508,7 @@ func (d *DB) GetUserByID(ctx context.Context, id string) (*model.User, error) {
 		&u.Name,
 		&u.Email,
 		&u.PasswordHash,
+		&u.Role,
 		&createdAtRaw,
 	)
 	if err != nil {
@@ -404,6 +522,218 @@ func (d *DB) GetUserByID(ctx context.Context, id string) (*model.User, error) {
 	return &u, nil
 }
 
+func hashSessionToken(token string) string {
+	h := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(h[:])
+}
+
+// SaveSession persists an active session token (persisted as SHA-256 hash)
+func (d *DB) SaveSession(ctx context.Context, session *model.Session) error {
+	if session == nil || session.Token == "" {
+		return fmt.Errorf("session and token cannot be empty")
+	}
+	if session.CreatedAt.IsZero() {
+		session.CreatedAt = time.Now().UTC()
+	}
+	if session.Role == "" {
+		session.Role = "viewer"
+	}
+
+	if session.LastActiveAt.IsZero() {
+		session.LastActiveAt = session.CreatedAt
+	}
+	if session.LastActiveAt.IsZero() {
+		session.LastActiveAt = time.Now().UTC()
+	}
+
+	tokenHash := hashSessionToken(session.Token)
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	query := `
+		INSERT INTO sessions (token_hash, user_id, user_email, role, expires_at, last_active_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(token_hash) DO UPDATE SET
+			user_id = excluded.user_id,
+			user_email = excluded.user_email,
+			role = excluded.role,
+			expires_at = excluded.expires_at,
+			last_active_at = excluded.last_active_at;
+	`
+
+	expiresAtStr := session.ExpiresAt.UTC().Format("2006-01-02 15:04:05")
+	lastActiveAtStr := session.LastActiveAt.UTC().Format("2006-01-02 15:04:05")
+	createdAtStr := session.CreatedAt.UTC().Format("2006-01-02 15:04:05")
+
+	_, err := d.db.ExecContext(ctx, query,
+		tokenHash,
+		session.UserID,
+		session.UserEmail,
+		session.Role,
+		expiresAtStr,
+		lastActiveAtStr,
+		createdAtStr,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to save session: %w", err)
+	}
+	return nil
+}
+
+// GetSession retrieves an active session by token hash
+func (d *DB) GetSession(ctx context.Context, token string) (*model.Session, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	tokenHash := hashSessionToken(token)
+
+	query := `
+		SELECT user_id, user_email, role, expires_at, last_active_at, created_at
+		FROM sessions
+		WHERE token_hash = ?;
+	`
+
+	var s model.Session
+	s.Token = token
+	var expiresAtRaw, lastActiveAtRaw, createdAtRaw any
+
+	row := d.db.QueryRowContext(ctx, query, tokenHash)
+	err := row.Scan(
+		&s.UserID,
+		&s.UserEmail,
+		&s.Role,
+		&expiresAtRaw,
+		&lastActiveAtRaw,
+		&createdAtRaw,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("session not found: %w", err)
+		}
+		return nil, fmt.Errorf("failed to get session: %w", err)
+	}
+
+	s.ExpiresAt = parseSQLTime(expiresAtRaw)
+	s.LastActiveAt = parseSQLTime(lastActiveAtRaw)
+	s.CreatedAt = parseSQLTime(createdAtRaw)
+	if s.LastActiveAt.IsZero() {
+		s.LastActiveAt = s.CreatedAt
+	}
+	return &s, nil
+}
+
+// TouchSession updates last_active_at timestamp for a session
+func (d *DB) TouchSession(ctx context.Context, token string, activeAt time.Time) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	tokenHash := hashSessionToken(token)
+	activeStr := activeAt.UTC().Format("2006-01-02 15:04:05")
+	_, err := d.db.ExecContext(ctx, "UPDATE sessions SET last_active_at = ? WHERE token_hash = ?;", activeStr, tokenHash)
+	if err != nil {
+		return fmt.Errorf("failed to touch session: %w", err)
+	}
+	return nil
+}
+
+// DeleteSession removes a session by token hash
+func (d *DB) DeleteSession(ctx context.Context, token string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	tokenHash := hashSessionToken(token)
+
+	_, err := d.db.ExecContext(ctx, "DELETE FROM sessions WHERE token_hash = ?;", tokenHash)
+	if err != nil {
+		return fmt.Errorf("failed to delete session: %w", err)
+	}
+	return nil
+}
+
+// SaveAuditReveal records when an admin reveals sensitive headers
+func (d *DB) SaveAuditReveal(ctx context.Context, audit *model.AuditReveal) error {
+	if audit == nil {
+		return fmt.Errorf("audit cannot be nil")
+	}
+	if audit.ID == "" {
+		audit.ID = uuid.NewString()
+	}
+	if audit.CreatedAt.IsZero() {
+		audit.CreatedAt = time.Now().UTC()
+	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	query := `
+		INSERT INTO audit_reveals (id, event_id, user_id, user_email, revealed_header_names, ip_address, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?);
+	`
+
+	createdAtStr := audit.CreatedAt.UTC().Format("2006-01-02 15:04:05")
+	_, err := d.db.ExecContext(ctx, query,
+		audit.ID,
+		audit.EventID,
+		audit.UserID,
+		audit.UserEmail,
+		audit.RevealedHeaderNames,
+		audit.IPAddress,
+		createdAtStr,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to save audit reveal: %w", err)
+	}
+	return nil
+}
+
+// ListAuditReveals retrieves audit reveal entries, optionally filtered by eventID
+func (d *DB) ListAuditReveals(ctx context.Context, eventID string) ([]*model.AuditReveal, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	var rows *sql.Rows
+	var err error
+	if eventID != "" {
+		rows, err = d.db.QueryContext(ctx, `
+			SELECT id, event_id, user_id, user_email, revealed_header_names, ip_address, created_at
+			FROM audit_reveals
+			WHERE event_id = ?
+			ORDER BY created_at DESC;
+		`, eventID)
+	} else {
+		rows, err = d.db.QueryContext(ctx, `
+			SELECT id, event_id, user_id, user_email, revealed_header_names, ip_address, created_at
+			FROM audit_reveals
+			ORDER BY created_at DESC;
+		`)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query audit reveals: %w", err)
+	}
+	defer rows.Close()
+
+	var list []*model.AuditReveal
+	for rows.Next() {
+		var a model.AuditReveal
+		var createdAtRaw any
+		if err := rows.Scan(
+			&a.ID,
+			&a.EventID,
+			&a.UserID,
+			&a.UserEmail,
+			&a.RevealedHeaderNames,
+			&a.IPAddress,
+			&createdAtRaw,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan audit reveal: %w", err)
+		}
+		a.CreatedAt = parseSQLTime(createdAtRaw)
+		list = append(list, &a)
+	}
+	return list, nil
+}
+
 // SaveEmailVerification persists or updates an email verification record
 func (d *DB) SaveEmailVerification(ctx context.Context, v *model.EmailVerification) error {
 	if v == nil {
@@ -412,7 +742,7 @@ func (d *DB) SaveEmailVerification(ctx context.Context, v *model.EmailVerificati
 
 	v.Email = strings.ToLower(strings.TrimSpace(v.Email))
 	if v.MaxAttempts <= 0 {
-		v.MaxAttempts = 5
+		v.MaxAttempts = model.DefaultVerificationMaxAttempts
 	}
 	now := time.Now().UTC()
 	if v.CreatedAt.IsZero() {
@@ -563,9 +893,7 @@ func (d *DB) SaveEvent(ctx context.Context, ev *model.WebhookEvent) error {
 	if ev.UpdatedAt.IsZero() {
 		ev.UpdatedAt = now
 	}
-	if ev.MaxAttempts <= 0 {
-		ev.MaxAttempts = 5
-	}
+	ev.MaxAttempts = model.NormalizeMaxAttempts(ev.MaxAttempts)
 	if ev.Status == "" {
 		ev.Status = model.StatusPending
 	}
@@ -590,6 +918,20 @@ func (d *DB) SaveEvent(ctx context.Context, ev *model.WebhookEvent) error {
 		nextRetryStr = &s
 	}
 
+	var failedAtStr *string
+	if ev.FailedAt != nil {
+		s := ev.FailedAt.UTC().Format("2006-01-02 15:04:05")
+		failedAtStr = &s
+	}
+	var failureCodeStr *string
+	if ev.FailureCode != "" {
+		failureCodeStr = &ev.FailureCode
+	} else if ev.Status == model.StatusFailed {
+		_, inferredCode := model.InferFailureCode(ev.LastError, ev.HTTPStatusCode, ev.Attempts, ev.IsVerified)
+		s := string(inferredCode)
+		failureCodeStr = &s
+	}
+
 	createdAtStr := ev.CreatedAt.UTC().Format("2006-01-02 15:04:05")
 	updatedAtStr := ev.UpdatedAt.UTC().Format("2006-01-02 15:04:05")
 
@@ -600,11 +942,11 @@ func (d *DB) SaveEvent(ctx context.Context, ev *model.WebhookEvent) error {
 		INSERT INTO webhook_events (
 			id, endpoint_id, provider, source_ip, headers, payload,
 			signature, is_verified, status, http_status_code, attempts,
-			max_attempts, last_error, next_retry_at, created_at, updated_at
+			max_attempts, last_error, failure_code, failed_at, next_retry_at, created_at, updated_at
 		) VALUES (
 			?, ?, ?, ?, ?, ?,
 			?, ?, ?, ?, ?,
-			?, ?, ?, ?, ?
+			?, ?, ?, ?, ?, ?, ?
 		);
 	`
 
@@ -622,6 +964,8 @@ func (d *DB) SaveEvent(ctx context.Context, ev *model.WebhookEvent) error {
 		ev.Attempts,
 		ev.MaxAttempts,
 		ev.LastError,
+		failureCodeStr,
+		failedAtStr,
 		nextRetryStr,
 		createdAtStr,
 		updatedAtStr,
@@ -642,7 +986,7 @@ func (d *DB) GetEventByID(ctx context.Context, id string) (*model.WebhookEvent, 
 		SELECT
 			id, endpoint_id, provider, source_ip, headers, payload,
 			signature, is_verified, status, http_status_code, attempts,
-			max_attempts, last_error, next_retry_at, created_at, updated_at
+			max_attempts, last_error, failure_code, failed_at, next_retry_at, created_at, updated_at
 		FROM webhook_events
 		WHERE id = ?;
 	`
@@ -701,7 +1045,7 @@ func (d *DB) ListEvents(ctx context.Context, filter ListFilter) ([]*model.Webhoo
 		SELECT
 			id, endpoint_id, provider, source_ip, headers, payload,
 			signature, is_verified, status, http_status_code, attempts,
-			max_attempts, last_error, next_retry_at, created_at, updated_at
+			max_attempts, last_error, failure_code, failed_at, next_retry_at, created_at, updated_at
 		FROM webhook_events
 		%s
 		ORDER BY created_at DESC
@@ -746,15 +1090,77 @@ func (d *DB) UpdateEventStatus(ctx context.Context, id string, status model.Even
 		SET status = ?,
 		    http_status_code = ?,
 		    last_error = ?,
-		    attempts = CASE WHEN ? = 'PENDING' THEN 0 ELSE attempts END,
+		    attempts = CASE 
+		        WHEN ? = 'PENDING' THEN 0 
+		        WHEN ? = 'DELIVERED' THEN attempts + 1 
+		        ELSE attempts 
+		    END,
+		    failure_code = CASE WHEN ? = 'PENDING' THEN NULL ELSE failure_code END,
+		    failed_at = CASE WHEN ? IN ('PENDING', 'DELIVERED') THEN NULL ELSE failed_at END,
 		    next_retry_at = CASE WHEN ? IN ('DELIVERED', 'FAILED', 'PENDING') THEN NULL ELSE next_retry_at END,
 		    updated_at = ?
 		WHERE id = ?;
 	`
 
-	res, err := d.db.ExecContext(ctx, query, string(status), httpStatusCode, lastError, string(status), string(status), nowStr, id)
+	res, err := d.db.ExecContext(ctx, query,
+		string(status),
+		httpStatusCode,
+		lastError,
+		string(status),
+		string(status),
+		string(status),
+		string(status),
+		string(status),
+		nowStr,
+		id,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to update event status: %w", err)
+	}
+
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("event not found: %s", id)
+	}
+
+	return nil
+}
+
+// UpdateEventFailure updates event failure state with structured failure_code and failed_at
+func (d *DB) UpdateEventFailure(ctx context.Context, id string, status model.EventStatus, httpStatusCode int, lastError string, failureCode string, failedAt *time.Time) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	nowStr := time.Now().UTC().Format("2006-01-02 15:04:05")
+	var failedAtStr string
+	if failedAt != nil {
+		failedAtStr = failedAt.UTC().Format("2006-01-02 15:04:05")
+	} else {
+		failedAtStr = nowStr
+	}
+
+	if len(lastError) > 4096 {
+		lastError = lastError[:4096]
+	}
+
+	query := `
+		UPDATE webhook_events
+		SET status = ?,
+		    http_status_code = ?,
+		    last_error = ?,
+		    failure_code = ?,
+		    failed_at = ?,
+		    next_retry_at = NULL,
+		    updated_at = ?
+		WHERE id = ?;
+	`
+
+	res, err := d.db.ExecContext(ctx, query, string(status), httpStatusCode, lastError, failureCode, failedAtStr, nowStr, id)
+	if err != nil {
+		return fmt.Errorf("failed to update event failure: %w", err)
 	}
 
 	rows, err := res.RowsAffected()
@@ -801,7 +1207,7 @@ func (d *DB) GetPendingRetries(ctx context.Context, limit int) ([]*model.Webhook
 		SELECT
 			id, endpoint_id, provider, source_ip, headers, payload,
 			signature, is_verified, status, http_status_code, attempts,
-			max_attempts, last_error, next_retry_at, created_at, updated_at
+			max_attempts, last_error, failure_code, failed_at, next_retry_at, created_at, updated_at
 		FROM webhook_events
 		WHERE status = 'RETRYING' AND (next_retry_at IS NULL OR next_retry_at <= ?)
 		ORDER BY next_retry_at ASC
@@ -843,7 +1249,7 @@ func (d *DB) GetPendingEvents(ctx context.Context, limit int) ([]*model.WebhookE
 		SELECT
 			id, endpoint_id, provider, source_ip, headers, payload,
 			signature, is_verified, status, http_status_code, attempts,
-			max_attempts, last_error, next_retry_at, created_at, updated_at
+			max_attempts, last_error, failure_code, failed_at, next_retry_at, created_at, updated_at
 		FROM webhook_events
 		WHERE status = 'PENDING'
 		ORDER BY created_at ASC
@@ -878,19 +1284,32 @@ func (d *DB) IncrementAttempts(ctx context.Context, id string, nextRetryAt *time
 	defer d.mu.Unlock()
 
 	// Read current attempts and max_attempts
-	var attempts, maxAttempts int
-	err := d.db.QueryRowContext(ctx, `SELECT attempts, max_attempts FROM webhook_events WHERE id = ?;`, id).Scan(&attempts, &maxAttempts)
+	var attemptsNull, maxAttemptsNull sql.NullInt64
+	err := d.db.QueryRowContext(ctx, `SELECT attempts, max_attempts FROM webhook_events WHERE id = ?;`, id).Scan(&attemptsNull, &maxAttemptsNull)
 	if err != nil {
 		return fmt.Errorf("failed to read event for increment: %w", err)
 	}
+	attempts := int(attemptsNull.Int64)
+	maxAttempts := model.NormalizeMaxAttempts(int(maxAttemptsNull.Int64))
 
 	newAttempts := attempts + 1
+	if newAttempts > maxAttempts {
+		newAttempts = maxAttempts
+	}
 	var newStatus model.EventStatus
 	var nextRetryStr *string
+	var failedAtStr *string
+	var failureCodeStr *string
+
+	nowStr := time.Now().UTC().Format("2006-01-02 15:04:05")
 
 	if newAttempts >= maxAttempts {
 		newStatus = model.StatusFailed
 		nextRetryStr = nil
+		failedAtStr = &nowStr
+		_, inferredCode := model.InferFailureCode(lastError, httpStatusCode, newAttempts, 1)
+		s := string(inferredCode)
+		failureCodeStr = &s
 	} else {
 		newStatus = model.StatusRetrying
 		if nextRetryAt != nil {
@@ -903,14 +1322,24 @@ func (d *DB) IncrementAttempts(ctx context.Context, id string, nextRetryAt *time
 		lastError = lastError[:4096]
 	}
 
-	nowStr := time.Now().UTC().Format("2006-01-02 15:04:05")
 	query := `
 		UPDATE webhook_events
-		SET attempts = ?, status = ?, next_retry_at = ?, last_error = ?, http_status_code = ?, updated_at = ?
+		SET attempts = ?,
+		    status = ?,
+		    next_retry_at = ?,
+		    last_error = ?,
+		    http_status_code = ?,
+		    failure_code = CASE WHEN ? = 'FAILED' THEN COALESCE(?, failure_code) ELSE failure_code END,
+		    failed_at = CASE WHEN ? = 'FAILED' THEN COALESCE(?, failed_at, ?) ELSE failed_at END,
+		    updated_at = ?
 		WHERE id = ?;
 	`
 
-	_, err = d.db.ExecContext(ctx, query, newAttempts, string(newStatus), nextRetryStr, lastError, httpStatusCode, nowStr, id)
+	_, err = d.db.ExecContext(ctx, query,
+		newAttempts, string(newStatus), nextRetryStr, lastError, httpStatusCode,
+		string(newStatus), failureCodeStr,
+		string(newStatus), failedAtStr, nowStr,
+		nowStr, id)
 	if err != nil {
 		return fmt.Errorf("failed to increment attempts: %w", err)
 	}
@@ -927,6 +1356,7 @@ func (d *DB) GetStats(ctx context.Context) (*model.StatsSummary, error) {
 		SELECT
 			COUNT(*) AS total,
 			COALESCE(SUM(CASE WHEN status = 'DELIVERED' THEN 1 ELSE 0 END), 0) AS delivered,
+			COALESCE(SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END), 0) AS pending,
 			COALESCE(SUM(CASE WHEN status = 'RETRYING' THEN 1 ELSE 0 END), 0) AS retrying,
 			COALESCE(SUM(CASE WHEN status = 'FAILED' THEN 1 ELSE 0 END), 0) AS failed
 		FROM webhook_events;
@@ -934,7 +1364,7 @@ func (d *DB) GetStats(ctx context.Context) (*model.StatsSummary, error) {
 
 	var stats model.StatsSummary
 	row := d.db.QueryRowContext(ctx, query)
-	err := row.Scan(&stats.TotalEvents, &stats.DeliveredEvents, &stats.RetryingEvents, &stats.FailedEvents)
+	err := row.Scan(&stats.TotalEvents, &stats.DeliveredEvents, &stats.PendingEvents, &stats.RetryingEvents, &stats.FailedEvents)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get stats: %w", err)
 	}
@@ -954,7 +1384,10 @@ func scanEvent(s rowScanner) (*model.WebhookEvent, error) {
 	var sigNull sql.NullString
 	var statusStr string
 	var httpStatusNull sql.NullInt64
+	var maxAttemptsNull sql.NullInt64
 	var lastErrNull sql.NullString
+	var failureCodeNull sql.NullString
+	var failedAtNull sql.NullString
 	var nextRetryNull sql.NullString
 	var createdAtRaw any
 	var updatedAtRaw any
@@ -971,8 +1404,10 @@ func scanEvent(s rowScanner) (*model.WebhookEvent, error) {
 		&statusStr,
 		&httpStatusNull,
 		&ev.Attempts,
-		&ev.MaxAttempts,
+		&maxAttemptsNull,
 		&lastErrNull,
+		&failureCodeNull,
+		&failedAtNull,
 		&nextRetryNull,
 		&createdAtRaw,
 		&updatedAtRaw,
@@ -983,6 +1418,7 @@ func scanEvent(s rowScanner) (*model.WebhookEvent, error) {
 
 	ev.Provider = model.ProviderType(providerStr)
 	ev.Status = model.EventStatus(statusStr)
+	ev.MaxAttempts = model.NormalizeMaxAttempts(int(maxAttemptsNull.Int64))
 
 	if sigNull.Valid {
 		ev.Signature = sigNull.String
@@ -992,6 +1428,31 @@ func scanEvent(s rowScanner) (*model.WebhookEvent, error) {
 	}
 	if lastErrNull.Valid {
 		ev.LastError = lastErrNull.String
+	}
+
+	if failureCodeNull.Valid && failureCodeNull.String != "" {
+		ev.FailureCode = failureCodeNull.String
+		ev.ErrorCode = failureCodeNull.String
+	} else if ev.Status == model.StatusFailed || ev.Status == model.StatusRetrying {
+		// Canonical single fallback mapping for legacy rows without failure_code
+		_, inferredCode := model.InferFailureCode(ev.LastError, ev.HTTPStatusCode, ev.Attempts, ev.IsVerified)
+		ev.FailureCode = string(inferredCode)
+		ev.ErrorCode = string(inferredCode)
+	}
+
+	if failedAtNull.Valid && failedAtNull.String != "" {
+		t := parseSQLTime(failedAtNull.String)
+		if !t.IsZero() {
+			ev.FailedAt = &t
+		}
+	} else if ev.Status == model.StatusFailed {
+		// Fallback for legacy rows lacking failed_at: use UpdatedAt or CreatedAt
+		t := parseSQLTime(updatedAtRaw)
+		if !t.IsZero() {
+			ev.FailedAt = &t
+		} else {
+			ev.FailedAt = &ev.CreatedAt
+		}
 	}
 
 	if headersStr != "" {

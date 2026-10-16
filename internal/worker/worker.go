@@ -3,10 +3,12 @@ package worker
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -51,6 +53,26 @@ func DefaultConfig() Config {
 		JitterFraction: 0.2, // +/- 20%
 		PollInterval:   3 * time.Second,
 		HTTPTimeout:    15 * time.Second,
+	}
+}
+
+// ApplyEnvOverrides applies optional environment variable overrides to Config.
+// If an environment variable is empty or invalid, the existing default is preserved.
+func (c *Config) ApplyEnvOverrides() {
+	if s := os.Getenv("RELAYGATE_WORKER_BASE_BACKOFF"); s != "" {
+		if d, err := time.ParseDuration(s); err == nil && d > 0 {
+			c.BaseBackoff = d
+		}
+	}
+	if s := os.Getenv("RELAYGATE_WORKER_POLL_INTERVAL"); s != "" {
+		if d, err := time.ParseDuration(s); err == nil && d > 0 {
+			c.PollInterval = d
+		}
+	}
+	if s := os.Getenv("RELAYGATE_WORKER_HTTP_TIMEOUT"); s != "" {
+		if d, err := time.ParseDuration(s); err == nil && d > 0 {
+			c.HTTPTimeout = d
+		}
 	}
 }
 
@@ -228,6 +250,15 @@ func (p *Pool) scheduleRetries() {
 	}
 }
 
+// IsInFlight checks whether an event is currently being processed in worker goroutines
+func (p *Pool) IsInFlight(eventID string) bool {
+	if p == nil {
+		return false
+	}
+	_, ok := p.inFlight.Load(eventID)
+	return ok
+}
+
 // Dispatch executes the HTTP delivery of a single webhook event
 func (p *Pool) Dispatch(ctx context.Context, eventID string) error {
 	return p.processEventWithContext(ctx, eventID)
@@ -256,21 +287,53 @@ func (p *Pool) processEventWithContext(ctx context.Context, eventID string) erro
 		return nil
 	}
 
+	event.MaxAttempts = model.NormalizeMaxAttempts(event.MaxAttempts)
+
+	// An event that has already exhausted attempts must be marked FAILED rather than silently dropped
+	if event.Attempts >= event.MaxAttempts {
+		now := time.Now().UTC()
+		failureCode := event.FailureCode
+		if failureCode == "" {
+			if event.HTTPStatusCode >= 500 {
+				failureCode = string(model.ErrCodeHTTP5xx)
+			} else if event.HTTPStatusCode >= 400 {
+				failureCode = string(model.ErrCodeHTTP4xx)
+			} else {
+				failureCode = string(model.ErrCodeDeliveryFailed)
+			}
+		}
+		_ = p.repo.UpdateEventFailure(ctx, event.ID, model.StatusFailed, event.HTTPStatusCode, event.LastError, failureCode, &now)
+		event.Status = model.StatusFailed
+		event.FailedAt = &now
+		p.notifyUpdate(event)
+		return nil
+	}
+
 	endpoint, err := p.repo.GetEndpointByID(ctx, event.EndpointID)
 	if err != nil {
 		errMsg := fmt.Sprintf("endpoint %s not found: %v", event.EndpointID, err)
-		_ = p.repo.UpdateEventStatus(ctx, event.ID, model.StatusFailed, 0, errMsg)
+		now := time.Now().UTC()
+		_ = p.repo.UpdateEventFailure(ctx, event.ID, model.StatusFailed, 0, errMsg, string(model.ErrCodeDeliveryFailed), &now)
 		event.Status = model.StatusFailed
 		event.LastError = errMsg
+		event.FailureCode = string(model.ErrCodeDeliveryFailed)
+		event.ErrorCode = string(model.ErrCodeDeliveryFailed)
+		event.FailedAt = &now
+		event.ErrorClass = string(model.ErrorClassDeliveryFailed)
 		p.notifyUpdate(event)
 		return fmt.Errorf("%s", errMsg)
 	}
 
 	if !endpoint.IsActive {
 		errMsg := fmt.Sprintf("endpoint %s is disabled", endpoint.ID)
-		_ = p.repo.UpdateEventStatus(ctx, event.ID, model.StatusFailed, 0, errMsg)
+		now := time.Now().UTC()
+		_ = p.repo.UpdateEventFailure(ctx, event.ID, model.StatusFailed, 0, errMsg, string(model.ErrCodeDeliveryFailed), &now)
 		event.Status = model.StatusFailed
 		event.LastError = errMsg
+		event.FailureCode = string(model.ErrCodeDeliveryFailed)
+		event.ErrorCode = string(model.ErrCodeDeliveryFailed)
+		event.FailedAt = &now
+		event.ErrorClass = string(model.ErrorClassDeliveryFailed)
 		p.notifyUpdate(event)
 		return fmt.Errorf("%s", errMsg)
 	}
@@ -282,22 +345,58 @@ func (p *Pool) processEventWithContext(ctx context.Context, eventID string) erro
 			_ = p.repo.UpdateEventVerification(ctx, event.ID, verificationStatus)
 			event.IsVerified = verificationStatus
 			if verificationStatus == verifier.VerificationInvalid {
+				var failureCode model.ErrorCode = model.ErrCodeSignatureMismatch
+				var vTypedErr *verifier.VerificationError
+				if errors.As(vErr, &vTypedErr) {
+					failureCode = vTypedErr.Code
+				}
+
 				errMsg := "cryptographic signature verification failed"
-				if vErr != nil {
+				if endpoint.Provider == model.ProviderXendit {
+					errMsg = "callback token verification failed"
+					if vErr != nil {
+						errMsg = fmt.Sprintf("callback token verification failed: %v", vErr)
+					}
+				} else if vErr != nil {
 					errMsg = fmt.Sprintf("cryptographic signature verification failed: %v", vErr)
 				}
-				_ = p.repo.UpdateEventStatus(ctx, event.ID, model.StatusFailed, 0, errMsg)
+				now := time.Now().UTC()
+				_ = p.repo.UpdateEventFailure(ctx, event.ID, model.StatusFailed, 0, errMsg, string(failureCode), &now)
 				event.Status = model.StatusFailed
 				event.LastError = errMsg
+				event.FailureCode = string(failureCode)
+				event.ErrorCode = string(failureCode)
+				event.FailedAt = &now
+				event.ErrorClass = string(model.ErrorClassVerificationRejected)
 				p.notifyUpdate(event)
 				return fmt.Errorf("%s", errMsg)
 			}
 		} else if event.IsVerified == verifier.VerificationInvalid {
-			_ = p.repo.UpdateEventStatus(ctx, event.ID, model.StatusFailed, 0, "cryptographic signature verification failed")
+			errMsg := event.LastError
+			if errMsg == "" {
+				if endpoint.Provider == model.ProviderXendit {
+					errMsg = "callback token verification failed"
+				} else {
+					errMsg = "cryptographic signature verification failed"
+				}
+			}
+			var failureCode model.ErrorCode = model.ErrCodeSignatureMismatch
+			if event.FailureCode != "" {
+				failureCode = model.ErrorCode(event.FailureCode)
+			} else {
+				_, inferredCode := model.InferFailureCode(errMsg, 0, 0, -1)
+				failureCode = inferredCode
+			}
+			now := time.Now().UTC()
+			_ = p.repo.UpdateEventFailure(ctx, event.ID, model.StatusFailed, 0, errMsg, string(failureCode), &now)
 			event.Status = model.StatusFailed
-			event.LastError = "cryptographic signature verification failed"
+			event.LastError = errMsg
+			event.FailureCode = string(failureCode)
+			event.ErrorCode = string(failureCode)
+			event.FailedAt = &now
+			event.ErrorClass = string(model.ErrorClassVerificationRejected)
 			p.notifyUpdate(event)
-			return fmt.Errorf("cryptographic signature verification failed")
+			return fmt.Errorf("%s", errMsg)
 		}
 	}
 
@@ -340,6 +439,8 @@ func (p *Pool) processEventWithContext(ctx context.Context, eventID string) erro
 			event.HTTPStatusCode = resp.StatusCode
 			event.Attempts++
 			event.LastError = ""
+			event.FailureCode = ""
+			event.ErrorCode = ""
 			p.notifyUpdate(event)
 		}
 		return err
@@ -351,17 +452,27 @@ func (p *Pool) processEventWithContext(ctx context.Context, eventID string) erro
 }
 
 func (p *Pool) handleFailure(ctx context.Context, event *model.WebhookEvent, statusCode int, errMsg string) error {
+	event.MaxAttempts = model.NormalizeMaxAttempts(event.MaxAttempts)
 	nextAttempt := event.Attempts + 1
+	if nextAttempt > event.MaxAttempts {
+		nextAttempt = event.MaxAttempts
+	}
 	var err error
 	if nextAttempt >= event.MaxAttempts {
 		// Dead-letter queue transition
 		err = p.repo.IncrementAttempts(ctx, event.ID, nil, errMsg, statusCode)
 		if err == nil {
+			now := time.Now().UTC()
 			event.Status = model.StatusFailed
 			event.Attempts = nextAttempt
 			event.HTTPStatusCode = statusCode
 			event.LastError = errMsg
 			event.NextRetryAt = nil
+			event.FailedAt = &now
+			_, code := model.InferFailureCode(errMsg, statusCode, nextAttempt, 1)
+			event.FailureCode = string(code)
+			event.ErrorCode = string(code)
+			event.ErrorClass = string(model.ErrorClassDeliveryFailed)
 			p.notifyUpdate(event)
 		}
 		return err

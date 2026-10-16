@@ -1,15 +1,19 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,15 +22,20 @@ import (
 	"github.com/rootless-sec/relaygate/internal/mailer"
 	"github.com/rootless-sec/relaygate/internal/model"
 	"github.com/rootless-sec/relaygate/internal/storage"
+	"github.com/rootless-sec/relaygate/internal/verifier"
 	"github.com/rootless-sec/relaygate/internal/worker"
 )
 
 // EventResponse wraps model.WebhookEvent with parsed payload and delivery logs
 type EventResponse struct {
 	*model.WebhookEvent
-	PayloadJSON any                      `json:"payload_json,omitempty"`
-	PayloadRaw  string                   `json:"payload_raw"`
-	DeliveryLog []model.DeliveryLogEntry `json:"delivery_log"`
+	PayloadJSON      any                      `json:"payload_json,omitempty"`
+	PayloadRaw       string                   `json:"payload_raw"`
+	DeliveryLog      []model.DeliveryLogEntry `json:"delivery_log"`
+	ErrorCode        string                   `json:"error_code,omitempty"`
+	ErrorClass       string                   `json:"error_class,omitempty"`
+	FailureCode      string                   `json:"failure_code,omitempty"`
+	VerificationKind string                   `json:"verification_kind"`
 }
 
 // EventsListResponse represents paginated events list response
@@ -51,7 +60,10 @@ type BulkReplayRequest struct {
 
 // BulkReplayResponse represents bulk replay result
 type BulkReplayResponse struct {
-	ReplayedCount int `json:"replayed_count"`
+	EligibleCount    int            `json:"eligible_count"`
+	ReplayedCount    int            `json:"replayed_count"`
+	SkippedCount     int            `json:"skipped_count"`
+	SkippedBreakdown map[string]int `json:"skipped_breakdown"`
 }
 
 // CreateEndpointRequest represents payload to register a new endpoint
@@ -139,16 +151,88 @@ type LoginRequest struct {
 
 // AuthResponse represents the authentication response payload
 type AuthResponse struct {
+	Token   string      `json:"token,omitempty"`
 	User    *model.User `json:"user"`
 	Message string      `json:"message,omitempty"`
 }
 
+// KeyedMutex provides per-key mutual exclusion without holding a global lock across multiple operations
+type KeyedMutex struct {
+	mu    sync.Mutex
+	locks map[string]*keyLockEntry
+}
+
+type keyLockEntry struct {
+	mu  sync.Mutex
+	ref int
+}
+
+// NewKeyedMutex creates a new KeyedMutex
+func NewKeyedMutex() *KeyedMutex {
+	return &KeyedMutex{
+		locks: make(map[string]*keyLockEntry),
+	}
+}
+
+// TryLock attempts to acquire the lock for a given key without blocking.
+// Returns an unlock function and true if acquired; nil and false if already locked.
+func (km *KeyedMutex) TryLock(key string) (func(), bool) {
+	km.mu.Lock()
+	defer km.mu.Unlock()
+
+	entry, ok := km.locks[key]
+	if !ok {
+		entry = &keyLockEntry{}
+		km.locks[key] = entry
+	}
+
+	if !entry.mu.TryLock() {
+		return nil, false
+	}
+	entry.ref++
+
+	return func() {
+		entry.mu.Unlock()
+		km.mu.Lock()
+		defer km.mu.Unlock()
+		entry.ref--
+		if entry.ref <= 0 {
+			delete(km.locks, key)
+		}
+	}, true
+}
+
+// Lock acquires the lock for a given key, blocking until available.
+func (km *KeyedMutex) Lock(key string) func() {
+	km.mu.Lock()
+	entry, ok := km.locks[key]
+	if !ok {
+		entry = &keyLockEntry{}
+		km.locks[key] = entry
+	}
+	entry.ref++
+	km.mu.Unlock()
+
+	entry.mu.Lock()
+
+	return func() {
+		entry.mu.Unlock()
+		km.mu.Lock()
+		defer km.mu.Unlock()
+		entry.ref--
+		if entry.ref <= 0 {
+			delete(km.locks, key)
+		}
+	}
+}
+
 // API handles control plane REST requests
 type API struct {
-	repo   storage.Repository
-	pool   *worker.Pool
-	hub    *Hub
-	mailer *mailer.Mailer
+	repo       storage.Repository
+	pool       *worker.Pool
+	hub        *Hub
+	mailer     *mailer.Mailer
+	eventLocks *KeyedMutex
 }
 
 // NewAPI initializes control plane API handlers
@@ -160,10 +244,11 @@ func NewAPI(repo storage.Repository, pool *worker.Pool, hub *Hub, mailerOpt ...*
 		m = mailer.NewMailerFromEnv()
 	}
 	return &API{
-		repo:   repo,
-		pool:   pool,
-		hub:    hub,
-		mailer: m,
+		repo:       repo,
+		pool:       pool,
+		hub:        hub,
+		mailer:     m,
+		eventLocks: NewKeyedMutex(),
 	}
 }
 
@@ -234,33 +319,108 @@ func (a *API) GetEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, formatEventResponse(event))
+	reveal := r.URL.Query().Get("reveal") == "true" || r.URL.Query().Get("reveal") == "1"
+	if reveal {
+		session := a.getSession(r)
+		if session == nil {
+			writeError(w, http.StatusUnauthorized, "Sesi tidak valid atau telah kedaluwarsa. Autentikasi admin diperlukan untuk membuka header sensitif.", nil)
+			return
+		}
+
+		if session.Role != "admin" {
+			writeError(w, http.StatusForbidden, "admin role required to reveal sensitive headers", nil)
+			return
+		}
+
+		// Extract ONLY names of sensitive headers that exist in this event (NO VALUES!)
+		var sensNames []string
+		for k := range event.Headers {
+			if isSensitiveHeader(k) {
+				sensNames = append(sensNames, k)
+			}
+		}
+		sort.Strings(sensNames)
+		revealedNamesStr := strings.Join(sensNames, ",")
+
+		ip := ResolveClientIP(r)
+
+		// Persist security audit log entry to database
+		audit := &model.AuditReveal{
+			ID:                  uuid.NewString(),
+			EventID:             event.ID,
+			UserID:              session.UserID,
+			UserEmail:           session.UserEmail,
+			RevealedHeaderNames: revealedNamesStr,
+			IPAddress:           ip,
+			CreatedAt:           time.Now().UTC(),
+		}
+		if err := a.repo.SaveAuditReveal(r.Context(), audit); err != nil {
+			log.Printf("[AUDIT ERROR] Failed to save audit reveal: %v", err)
+			writeError(w, http.StatusInternalServerError, "failed to record audit log for reveal request", err)
+			return
+		}
+		log.Printf("[AUDIT] Sensitive headers revealed for event %s by %s from IP %s (headers: %s)", id, session.UserEmail, ip, revealedNamesStr)
+	}
+
+	writeJSON(w, http.StatusOK, formatEventResponseWithReveal(event, reveal))
 }
 
-// ReplayEvent handles POST /api/v1/events/{id}/replay
-func (a *API) ReplayEvent(w http.ResponseWriter, r *http.Request) {
-	id := extractPathID(r, "id", "events")
+// executeSingleReplay performs server-side validation and resets an event for replay.
+// It acquires a per-event lock so concurrent replays on the same event are safely serialized/rejected.
+func (a *API) executeSingleReplay(ctx context.Context, id string) (*model.WebhookEvent, bool, string, error) {
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "event id is required", nil)
-		return
+		return nil, false, "", fmt.Errorf("event id is required")
 	}
 
-	event, err := a.repo.GetEventByID(r.Context(), id)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "event not found", err)
-		return
+	unlock, ok := a.eventLocks.TryLock(id)
+	if !ok {
+		return nil, false, "ALREADY_PENDING", fmt.Errorf("Event ini sedang dalam antrean pengiriman (status Menunggu). Silakan tunggu hingga proses selesai.")
+	}
+	defer unlock()
+
+	event, err := a.repo.GetEventByID(ctx, id)
+	if err != nil || event == nil {
+		return nil, false, "", fmt.Errorf("event not found")
 	}
 
-	// Update status in repository to PENDING
-	if err := a.repo.UpdateEventStatus(r.Context(), id, model.StatusPending, 0, ""); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to reset event status", err)
-		return
+	// Idempotency: Reject immediate duplicate replay if event is already queued or running
+	if event.Status == model.StatusPending || event.Status == model.StatusRetrying {
+		return nil, false, "ALREADY_PENDING", fmt.Errorf("Event ini sedang dalam antrean pengiriman (status Menunggu). Silakan tunggu hingga proses selesai.")
+	}
+
+	if !event.IsEligibleForReplay() {
+		fCode := event.FailureCode
+		if fCode == "" {
+			_, inferred := model.InferFailureCode(event.LastError, event.HTTPStatusCode, event.Attempts, event.IsVerified)
+			fCode = string(inferred)
+		}
+		if fCode == "" {
+			fCode = "INELIGIBLE"
+		}
+		return nil, false, fCode, fmt.Errorf("event ini tidak dapat diverifikasi ulang karena data signature pada request yang tersimpan tidak valid atau tidak lengkap. Perbaiki konfigurasi agar event berikutnya lolos, atau minta provider mengirim ulang.")
+	}
+
+	wasVerificationInvalid := (event.IsVerified == verifier.VerificationInvalid || event.IsVerified < 0)
+	if wasVerificationInvalid {
+		if err := a.repo.UpdateEventVerification(ctx, id, 0); err != nil {
+			return nil, false, "", fmt.Errorf("failed to reset event verification state: %w", err)
+		}
+		event.IsVerified = 0
+	}
+
+	// Update status in repository to PENDING while preserving last HTTP status code (resets attempts to 0)
+	if err := a.repo.UpdateEventStatus(ctx, id, model.StatusPending, event.HTTPStatusCode, ""); err != nil {
+		return nil, false, "", fmt.Errorf("failed to reset event status: %w", err)
 	}
 
 	event.Status = model.StatusPending
 	event.Attempts = 0
-	event.HTTPStatusCode = 0
 	event.LastError = ""
+	event.FailureCode = ""
+	event.ErrorCode = ""
+	event.ErrorClass = ""
+	event.FailedAt = nil
+	event.VerificationKind = string(verifier.ProviderVerificationKind(event.Provider))
 
 	// Enqueue in worker pool
 	if a.pool != nil {
@@ -272,10 +432,35 @@ func (a *API) ReplayEvent(w http.ResponseWriter, r *http.Request) {
 		a.hub.Broadcast("event_updated", event)
 	}
 
+	return event, wasVerificationInvalid, "", nil
+}
+
+// ReplayEvent handles POST /api/v1/events/{id}/replay
+func (a *API) ReplayEvent(w http.ResponseWriter, r *http.Request) {
+	id := extractPathID(r, "id", "events")
+	event, wasVerificationInvalid, skipCode, err := a.executeSingleReplay(r.Context(), id)
+	if err != nil {
+		if skipCode == "ALREADY_PENDING" || skipCode == "IN_FLIGHT" {
+			writeError(w, http.StatusConflict, err.Error(), nil)
+			return
+		}
+		if skipCode != "" {
+			writeError(w, http.StatusBadRequest, err.Error(), nil)
+			return
+		}
+		if err.Error() == "event not found" {
+			writeError(w, http.StatusNotFound, "event not found", err)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error(), err)
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":  "replaying",
-		"id":      id,
-		"message": "event queued for immediate re-delivery",
+		"status":          "replaying",
+		"id":              event.ID,
+		"re_verification": wasVerificationInvalid,
+		"message":         "event queued for immediate re-delivery",
 	})
 }
 
@@ -306,26 +491,31 @@ func (a *API) BulkReplay(w http.ResponseWriter, r *http.Request) {
 		targetIDs = req.IDs
 	}
 
-	replayedCount := 0
+	eligibleCount := 0
+	skippedCount := 0
+	skippedBreakdown := make(map[string]int)
+
 	for _, id := range targetIDs {
 		if id == "" {
 			continue
 		}
-		if err := a.repo.UpdateEventStatus(r.Context(), id, model.StatusPending, 0, ""); err == nil {
-			if a.pool != nil {
-				a.pool.Enqueue(id)
+		_, _, skipCode, err := a.executeSingleReplay(r.Context(), id)
+		if err != nil {
+			skippedCount++
+			if skipCode == "" {
+				skipCode = "INELIGIBLE"
 			}
-			if a.hub != nil {
-				if ev, err := a.repo.GetEventByID(r.Context(), id); err == nil {
-					a.hub.Broadcast("event_updated", ev)
-				}
-			}
-			replayedCount++
+			skippedBreakdown[skipCode]++
+			continue
 		}
+		eligibleCount++
 	}
 
 	writeJSON(w, http.StatusOK, BulkReplayResponse{
-		ReplayedCount: replayedCount,
+		EligibleCount:    eligibleCount,
+		ReplayedCount:    eligibleCount,
+		SkippedCount:     skippedCount,
+		SkippedBreakdown: skippedBreakdown,
 	})
 }
 
@@ -672,7 +862,7 @@ func (a *API) Register(w http.ResponseWriter, r *http.Request) {
 		PasswordHash: string(hash),
 		Code:         code,
 		Attempts:     0,
-		MaxAttempts:  5,
+		MaxAttempts:  model.DefaultVerificationMaxAttempts,
 		LastSentAt:   now,
 		ExpiresAt:    now.Add(15 * time.Minute),
 		CreatedAt:    now,
@@ -764,6 +954,7 @@ func (a *API) VerifyCode(w http.ResponseWriter, r *http.Request) {
 		ID:           "usr_" + strings.ToLower(uuid.NewString()[:8]),
 		Name:         verif.Name,
 		Email:        verif.Email,
+		Role:         "viewer",
 		PasswordHash: verif.PasswordHash,
 		CreatedAt:    time.Now().UTC(),
 	}
@@ -775,7 +966,31 @@ func (a *API) VerifyCode(w http.ResponseWriter, r *http.Request) {
 
 	_ = a.repo.DeleteEmailVerification(r.Context(), verif.Email)
 
+	tokenBytes := make([]byte, 32)
+	_, _ = rand.Read(tokenBytes)
+	sessionToken := "sess_" + hex.EncodeToString(tokenBytes)
+	session := &model.Session{
+		Token:     sessionToken,
+		UserID:    user.ID,
+		UserEmail: user.Email,
+		Role:      user.Role,
+		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+		CreatedAt: time.Now().UTC(),
+	}
+	_ = a.repo.SaveSession(r.Context(), session)
+
+	isHTTPS := r.TLS != nil || (IsTrustedProxy(r.RemoteAddr) && strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"))
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session",
+		Value:    sessionToken,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   isHTTPS,
+		SameSite: http.SameSiteStrictMode,
+	})
+
 	writeJSON(w, http.StatusCreated, AuthResponse{
+		Token:   sessionToken,
 		User:    user,
 		Message: "Verifikasi berhasil. Akun Anda telah aktif.",
 	})
@@ -882,70 +1097,168 @@ func (a *API) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tokenBytes := make([]byte, 32)
+	_, _ = rand.Read(tokenBytes)
+	sessionToken := "sess_" + hex.EncodeToString(tokenBytes)
+	role := user.Role
+	if role == "" {
+		role = "viewer"
+	}
+	now := Now()
+	absTimeout, _ := GetSessionTimeouts()
+	session := &model.Session{
+		Token:        sessionToken,
+		UserID:       user.ID,
+		UserEmail:    user.Email,
+		Role:         role,
+		ExpiresAt:    now.Add(absTimeout),
+		LastActiveAt: now,
+		CreatedAt:    now,
+	}
+	_ = a.repo.SaveSession(r.Context(), session)
+
+	isHTTPS := r.TLS != nil || (IsTrustedProxy(r.RemoteAddr) && strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"))
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session",
+		Value:    sessionToken,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   isHTTPS,
+		SameSite: http.SameSiteStrictMode,
+	})
+
 	writeJSON(w, http.StatusOK, AuthResponse{
+		Token:   sessionToken,
 		User:    user,
 		Message: "Autentikasi berhasil",
 	})
 }
 
+// Logout terminates active session and clears session cookie
+func (a *API) Logout(w http.ResponseWriter, r *http.Request) {
+	token := extractTokenFromRequest(r)
+	if token != "" && a.repo != nil {
+		_ = a.repo.DeleteSession(r.Context(), token)
+	}
+
+	isHTTPS := r.TLS != nil || (IsTrustedProxy(r.RemoteAddr) && strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"))
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		Expires:  time.Unix(0, 0),
+		HttpOnly: true,
+		Secure:   isHTTPS,
+		SameSite: http.SameSiteStrictMode,
+	})
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"message": "Sesi telah berakhir",
+	})
+}
+
+func (a *API) getSession(r *http.Request) *model.Session {
+	if s, ok := r.Context().Value(SessionContextKey).(*model.Session); ok && s != nil {
+		return s
+	}
+	token := extractTokenFromRequest(r)
+	if token != "" && a.repo != nil {
+		if s, err := a.repo.GetSession(r.Context(), token); err == nil && s != nil {
+			now := Now()
+			isAbsExpired := now.After(s.ExpiresAt)
+			isIdleExpired := false
+			if !s.LastActiveAt.IsZero() {
+				isIdleExpired = now.Sub(s.LastActiveAt) > GetSessionIdleTimeout()
+			} else if !s.CreatedAt.IsZero() {
+				isIdleExpired = now.Sub(s.CreatedAt) > GetSessionIdleTimeout()
+			}
+			if !isAbsExpired && !isIdleExpired {
+				return s
+			}
+		}
+	}
+	return nil
+}
+
+func isSensitiveHeader(key string) bool {
+	lower := strings.ToLower(strings.TrimSpace(key))
+	if lower == "authorization" ||
+		lower == "proxy-authorization" ||
+		lower == "cookie" ||
+		lower == "set-cookie" ||
+		lower == "x-callback-token" ||
+		lower == "x-api-key" ||
+		lower == "stripe-signature" ||
+		strings.HasPrefix(lower, "x-hub-signature") {
+		return true
+	}
+	return strings.Contains(lower, "token") ||
+		strings.Contains(lower, "secret") ||
+		strings.Contains(lower, "signature") ||
+		strings.Contains(lower, "auth") ||
+		strings.Contains(lower, "password") ||
+		strings.Contains(lower, "key") ||
+		strings.Contains(lower, "cookie")
+}
+
+func maskHeaders(headers map[string]string) map[string]string {
+	if headers == nil {
+		return nil
+	}
+	masked := make(map[string]string, len(headers))
+	for k, v := range headers {
+		if isSensitiveHeader(k) {
+			masked[k] = "••••••••••••••••••••••••••••••••"
+		} else {
+			masked[k] = v
+		}
+	}
+	return masked
+}
+
 func formatEventResponse(ev *model.WebhookEvent) EventResponse {
+	return formatEventResponseWithReveal(ev, false)
+}
+
+func formatEventResponseWithReveal(ev *model.WebhookEvent, revealSensitive bool) EventResponse {
+	class, code := model.ClassifyEventError(ev)
+	ev.ErrorClass = class
+	ev.ErrorCode = code
+	if ev.FailureCode == "" {
+		ev.FailureCode = code
+	}
+	if ev.FailedAt == nil && ev.Status == model.StatusFailed {
+		if !ev.UpdatedAt.IsZero() {
+			ev.FailedAt = &ev.UpdatedAt
+		} else {
+			ev.FailedAt = &ev.CreatedAt
+		}
+	}
+	vKind := string(verifier.ProviderVerificationKind(ev.Provider))
+	ev.VerificationKind = vKind
+
+	evCopy := *ev
+	evCopy.VerificationKind = vKind
+	if !revealSensitive && evCopy.Headers != nil {
+		evCopy.Headers = maskHeaders(ev.Headers)
+	}
+
 	res := EventResponse{
-		WebhookEvent: ev,
-		PayloadRaw:   string(ev.Payload),
-		DeliveryLog:  make([]model.DeliveryLogEntry, 0),
+		WebhookEvent:     &evCopy,
+		PayloadRaw:       string(ev.Payload),
+		DeliveryLog:      make([]model.DeliveryLogEntry, 0),
+		ErrorCode:        code,
+		FailureCode:      ev.FailureCode,
+		ErrorClass:       class,
+		VerificationKind: vKind,
 	}
 
 	var jsonParsed any
 	if len(ev.Payload) > 0 && json.Unmarshal(ev.Payload, &jsonParsed) == nil {
 		res.PayloadJSON = jsonParsed
-	}
-
-	// Construct delivery timeline based on attempts and status
-	attempts := ev.Attempts
-	if attempts == 0 && ev.Status != model.StatusPending {
-		attempts = 1
-	}
-
-	for i := 1; i <= attempts; i++ {
-		isFinal := (i == attempts)
-		code := 500
-		durationMs := int64(80 + (i * 25))
-		errMsg := ""
-
-		if isFinal {
-			if ev.Status == model.StatusDelivered {
-				code = ev.HTTPStatusCode
-				if code == 0 {
-					code = 200
-				}
-				durationMs = 95
-				errMsg = ""
-			} else if ev.Status == model.StatusPending {
-				code = 0
-				durationMs = 0
-				errMsg = "Awaiting replay dispatch"
-			} else {
-				code = ev.HTTPStatusCode
-				errMsg = ev.LastError
-			}
-		} else {
-			code = 502
-			errMsg = "Bad Gateway"
-		}
-
-		timeOffset := time.Duration((attempts - i) * 30) * time.Second
-		attemptTime := ev.UpdatedAt.Add(-timeOffset)
-		if attemptTime.Before(ev.CreatedAt) {
-			attemptTime = ev.CreatedAt
-		}
-
-		res.DeliveryLog = append(res.DeliveryLog, model.DeliveryLogEntry{
-			Attempt:    i,
-			StatusCode: code,
-			DurationMs: durationMs,
-			Error:      errMsg,
-			CreatedAt:  attemptTime,
-		})
 	}
 
 	return res

@@ -52,9 +52,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <aside className="w-56 bg-white border-r border-[#e4e4e7] flex flex-col h-full shrink-0 select-none">
+    <aside className="w-56 bg-white border-r border-zinc-200 flex flex-col h-full shrink-0 select-none">
       {/* Brand Logo */}
-      <div className="p-4 pb-3 flex items-center justify-between border-b border-[#f4f4f5]">
+      <div className="p-4 pb-3 flex items-center justify-between border-b border-zinc-100">
         <img
           src="/logo.png"
           alt="RelayGate"
@@ -73,12 +73,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onClick={() => onTabChange(item.id)}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
                 isActive
-                  ? 'bg-[#f4f4f5] text-[#18181b] font-semibold shadow-xs'
-                  : 'text-[#71717a] hover:text-[#18181b] hover:bg-[#fafafa]'
+                  ? 'bg-zinc-100 text-zinc-900 font-semibold shadow-xs'
+                  : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-50'
               }`}
             >
               <div className="flex items-center gap-2.5">
-                <Icon className={`w-4 h-4 ${isActive ? 'text-[#18181b]' : 'text-[#a1a1aa]'}`} />
+                <Icon className={`w-4 h-4 ${isActive ? 'text-zinc-900' : 'text-zinc-500'}`} />
                 <span>{item.label}</span>
               </div>
               {item.count !== undefined && (
@@ -87,8 +87,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     item.alert
                       ? 'bg-rose-100 text-rose-700 font-bold'
                       : isActive
-                      ? 'bg-zinc-200 text-[#18181b]'
-                      : 'bg-zinc-100 text-[#71717a]'
+                      ? 'bg-zinc-200 text-zinc-900'
+                      : 'bg-zinc-100 text-zinc-700'
                   }`}
                 >
                   {item.count}
@@ -101,17 +101,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
 
       {/* User Session Footer */}
-      <div className="p-3 border-t border-[#e4e4e7] flex items-center justify-between gap-2 bg-[#ffffff]">
+      <div className="p-3 border-t border-zinc-200 flex items-center justify-between gap-2 bg-white">
         <div className="min-w-0 flex-1">
-          <div className="text-[11px] font-semibold text-[#18181b] truncate" title={userEmail}>
+          <div className="text-[11px] font-semibold text-zinc-900 truncate" title={userEmail}>
             {userEmail}
           </div>
-          <div className="text-[10px] text-[#71717a]">Administrator</div>
+          <div className="text-[10px] text-zinc-500">Administrator</div>
         </div>
         <button
           onClick={onLogout}
           title="Keluar dari sesi"
-          className="p-1.5 text-[#71717a] hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors"
+          className="p-1.5 text-zinc-500 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors"
         >
           <LogOut className="w-4 h-4" />
         </button>

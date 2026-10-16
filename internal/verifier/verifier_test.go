@@ -279,3 +279,36 @@ func TestVerifier_GithubAndXendit(t *testing.T) {
 		t.Fatalf("expected invalid Xendit token to fail, got status=%d, err=%v", status, err)
 	}
 }
+
+func TestVerifier_TypedErrors(t *testing.T) {
+	engine := verifier.NewEngine()
+	ep := &model.Endpoint{
+		ID:        "ep-stripe",
+		Provider:  model.ProviderStripe,
+		SecretKey: "whsec_test",
+	}
+
+	// Missing header -> SIGNATURE_HEADER_MISSING
+	_, err := engine.Verify(ep, map[string]string{}, []byte(`{}`))
+	if vErr, ok := err.(*verifier.VerificationError); !ok || vErr.Code != model.ErrCodeSignatureHeaderMissing {
+		t.Fatalf("expected ErrCodeSignatureHeaderMissing, got %v", err)
+	}
+
+	// Missing timestamp -> SIGNATURE_TIMESTAMP_INVALID
+	_, err = engine.Verify(ep, map[string]string{
+		"Stripe-Signature": "v1=bad",
+	}, []byte(`{}`))
+	if vErr, ok := err.(*verifier.VerificationError); !ok || vErr.Code != model.ErrCodeSignatureTimestampInvalid {
+		t.Fatalf("expected ErrCodeSignatureTimestampInvalid, got %v", err)
+	}
+
+	// Mismatch -> SIGNATURE_MISMATCH
+	nowSec := fmt.Sprintf("%d", time.Now().Unix())
+	_, err = engine.Verify(ep, map[string]string{
+		"Stripe-Signature": fmt.Sprintf("t=%s,v1=abcdef1234567890", nowSec),
+	}, []byte(`{}`))
+	if vErr, ok := err.(*verifier.VerificationError); !ok || vErr.Code != model.ErrCodeSignatureMismatch {
+		t.Fatalf("expected ErrCodeSignatureMismatch, got %v", err)
+	}
+}
+

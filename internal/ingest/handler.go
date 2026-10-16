@@ -118,7 +118,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Status:         model.StatusPending,
 		HTTPStatusCode: 0,
 		Attempts:       0,
-		MaxAttempts:    5,
+		MaxAttempts:    model.DefaultMaxAttempts,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}

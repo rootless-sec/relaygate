@@ -29,7 +29,12 @@ export interface WebhookEvent {
   next_retry_at?: string | null;
   created_at: string;
   updated_at: string;
+  failed_at?: string;
   delivery_log?: DeliveryLogEntry[];
+  failure_code?: string;
+  error_code?: string;
+  error_class?: 'VERIFICATION_REJECTED' | 'DELIVERY_FAILED';
+  verification_kind?: 'static_token' | 'hmac' | 'hash';
 }
 
 export interface Endpoint {
@@ -45,6 +50,7 @@ export interface Endpoint {
 export interface StatsSummary {
   total_events: number;
   delivered_events: number;
+  pending_events?: number;
   retrying_events: number;
   failed_events: number;
 }

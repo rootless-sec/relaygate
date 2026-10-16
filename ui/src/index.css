@@ -41,7 +41,7 @@ code, kbd, pre, .mono {
 }
 
 @keyframes flash-in {
-  from { background-color: #f0f9ff; }
+  from { background-color: #f4f4f5; }
   to { background-color: transparent; }
 }
 

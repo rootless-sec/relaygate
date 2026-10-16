@@ -30,3 +30,5 @@ Thumbs.db
 *.mjs
 *.png
 .edge_*
+e2e-output/
+verify.txt

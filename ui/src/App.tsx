@@ -39,6 +39,20 @@ export const App: React.FC = () => {
     return null;
   });
 
+  const [sessionExpiredMessage, setSessionExpiredMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleExpired = (e: any) => {
+      const msg = e?.detail?.message || 'Sesi berakhir';
+      setUserEmail(null);
+      setSelectedEvent(null);
+      setSessionExpiredMessage(msg);
+      setToast({ id: Date.now().toString(), message: msg, type: 'error' });
+    };
+    window.addEventListener('relaygate_session_expired', handleExpired);
+    return () => window.removeEventListener('relaygate_session_expired', handleExpired);
+  }, []);
+
   // Navigation State
   const [currentTab, setCurrentTab] = useState<NavTab>(() => {
     try {
@@ -50,6 +64,21 @@ export const App: React.FC = () => {
     } catch {}
     return 'events';
   });
+
+  useEffect(() => {
+    const handlePopState = () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const tab = params.get('tab');
+        if (tab === 'dead' || tab === 'events' || tab === 'overview' || tab === 'endpoints') {
+          setCurrentTab(tab);
+          setSelectedEvent(null);
+        }
+      } catch {}
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   const handleTabChange = (tab: NavTab) => {
     setCurrentTab(tab);
@@ -211,15 +240,23 @@ export const App: React.FC = () => {
   };
 
   // 3. Replay Actions
-  const handleReplaySingle = async (ev: WebhookEvent) => {
+  const handleReplaySingle = async (ev: WebhookEvent, fromDrawer = false) => {
     try {
       await replayEvent(ev.id);
-      showToast(`Replay dikirim untuk event ${ev.id}`, 'success');
+      const isRejected = ev.is_verified === -1 || ev.failure_code?.startsWith('SIGNATURE_');
+      if (!fromDrawer) {
+        if (isRejected) {
+          showToast(`Verifikasi ulang dikirim untuk event ${ev.id.slice(0, 8)}`, 'info');
+        } else {
+          showToast('Dijadwalkan ulang, hingga 5 percobaan', 'info');
+        }
+      }
       setEvents((prev) =>
         prev.map((item) =>
-          item.id === ev.id ? { ...item, status: 'PENDING', http_status_code: 0, last_error: '' } : item
+          item.id === ev.id ? { ...item, status: 'PENDING' } : item
         )
       );
+      setStats((prev) => prev ? { ...prev, failed_events: Math.max(0, prev.failed_events - 1) } : prev);
       if (selectedEvent?.id === ev.id) {
         setSelectedEvent((prev) => (prev ? { ...prev, status: 'PENDING' } : null));
       }
@@ -232,10 +269,17 @@ export const App: React.FC = () => {
   const handleBulkReplay = async (targetIds: string[], allFailed: boolean) => {
     try {
       const res = await bulkReplay({ ids: targetIds, all_failed: allFailed });
-      showToast(`${res.replayed_count} event berhasil di-replay`, 'success');
+      setEvents((prev) =>
+        prev.map((item) =>
+          targetIds.includes(item.id) ? { ...item, status: 'PENDING' } : item
+        )
+      );
+      setStats((prev) => prev ? { ...prev, failed_events: Math.max(0, prev.failed_events - targetIds.length) } : prev);
       loadInitialData();
+      return res;
     } catch (err: any) {
       showToast(err?.message || 'Gagal bulk replay', 'error');
+      throw err;
     }
   };
 
@@ -312,14 +356,24 @@ export const App: React.FC = () => {
   };
 
   if (!userEmail) {
-    return <LoginPage onLoginSuccess={(email) => setUserEmail(email)} />;
+    return (
+      <LoginPage
+        onLoginSuccess={(email) => {
+          setSessionExpiredMessage(null);
+          setUserEmail(email);
+        }}
+        initialError={sessionExpiredMessage}
+      />
+    );
   }
 
-  const failedEventsCount = stats ? stats.failed_events : events.filter((e) => e.status === 'FAILED').length;
+  const failedEventsCount = events.length > 0
+    ? events.filter((e) => e.status === 'FAILED').length
+    : (stats ? stats.failed_events : 0);
   const totalEventsCount = stats ? stats.total_events : events.length;
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#fafafa] text-[#18181b] antialiased">
+    <div className="flex h-screen w-screen overflow-hidden bg-zinc-50 text-zinc-900 antialiased">
       {/* Sidebar Navigation */}
       <Sidebar
         currentTab={currentTab}
@@ -331,7 +385,7 @@ export const App: React.FC = () => {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-row min-w-0 min-h-0 relative overflow-hidden bg-[#fafafa]">
+      <main className="flex-1 flex flex-row min-w-0 min-h-0 relative overflow-hidden bg-zinc-50">
         <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
           {currentTab === 'overview' && (
             <OverviewView
@@ -349,6 +403,7 @@ export const App: React.FC = () => {
               onSelectEvent={(ev) => setSelectedEvent(ev)}
               onReplayEvent={handleReplaySingle}
               onBulkReplayFailed={() => handleBulkReplay([], true)}
+              onBulkReplay={(targetIds, allFailed) => handleBulkReplay(targetIds, allFailed)}
               isLive={isLive}
               onToggleLive={() => setIsLive(!isLive)}
               bufferedCount={bufferedEvents.length}
@@ -368,6 +423,7 @@ export const App: React.FC = () => {
               onNavigateToEndpoint={() => {
                 handleTabChange('endpoints');
               }}
+              onToast={(msg, type) => showToast(msg, type)}
             />
           )}
 

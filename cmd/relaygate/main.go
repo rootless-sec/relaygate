@@ -39,6 +39,11 @@ func main() {
 	log.Printf("[RelayGate] Database path: %s", *dbPath)
 	log.Printf("[RelayGate] Dispatch workers: %d", *workers)
 
+	// Initialize configuration & trusted proxies from environment
+	if err := api.InitConfig(); err != nil {
+		log.Fatalf("[RelayGate] Fatal configuration error: %v", err)
+	}
+
 	// Initialize SQLite WAL repository
 	repo, err := storage.Open(*dbPath)
 	if err != nil {
@@ -58,6 +63,7 @@ func main() {
 	// Initialize worker pool
 	workerCfg := worker.DefaultConfig()
 	workerCfg.Concurrency = *workers
+	workerCfg.ApplyEnvOverrides()
 	pool := worker.NewPool(repo, v, workerCfg)
 	pool.Start()
 	log.Printf("[RelayGate] Worker pool started with %d workers.", *workers)

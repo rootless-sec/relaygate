@@ -20,8 +20,8 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
 }) => {
   if (!data) {
     return (
-      <div className="flex-1 flex items-center justify-center p-8 bg-[#fafafa]">
-        <div className="flex flex-col items-center gap-2 text-[#71717a]">
+      <div className="flex-1 flex items-center justify-center p-8 bg-zinc-50">
+        <div className="flex flex-col items-center gap-2 text-zinc-500">
           <div className="w-6 h-6 border-2 border-zinc-400 border-t-zinc-900 rounded-full animate-spin" />
           <span className="text-xs">Memuat ringkasan performa RelayGate...</span>
         </div>
@@ -43,26 +43,26 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
   const svgWidth = Math.max(420, 12 * gap + 24);
 
   return (
-    <div className="flex-1 overflow-auto p-4 space-y-4 bg-[#fafafa]">
+    <div className="flex-1 overflow-auto p-4 space-y-4 bg-zinc-50">
       <div>
-        <h2 className="text-base font-bold text-[#18181b] tracking-tight">Overview Ringkasan Sistem</h2>
-        <p className="text-xs text-[#71717a]">
+        <h1 className="text-base font-bold text-zinc-900 tracking-tight">Overview Ringkasan Sistem</h1>
+        <p className="text-xs text-zinc-500">
           Monitoring real-time throughput ingestion, keandalan pengiriman endpoint, dan deteksi kegagalan webhook.
         </p>
       </div>
 
       {/* Global Stat Cards */}
       <div className="grid grid-cols-4 gap-3">
-        <div className="bg-white border border-[#e4e4e7] rounded-lg p-3.5 shadow-2xs">
-          <div className="text-[11px] font-semibold text-[#71717a] flex items-center justify-between">
+        <div className="bg-white border border-zinc-200 rounded-lg p-3.5 shadow-2xs">
+          <div className="text-[11px] font-semibold text-zinc-500 flex items-center justify-between">
             <span>Total Webhook</span>
-            <Layers className="w-3.5 h-3.5 text-[#a1a1aa]" />
+            <Layers className="w-3.5 h-3.5 text-zinc-400" />
           </div>
-          <div className="text-2xl font-bold text-[#18181b] mt-1">{total}</div>
+          <div className="text-2xl font-bold text-zinc-900 mt-1">{total}</div>
         </div>
 
-        <div className="bg-white border border-[#e4e4e7] rounded-lg p-3.5 shadow-2xs">
-          <div className="text-[11px] font-semibold text-[#71717a] flex items-center justify-between">
+        <div className="bg-white border border-zinc-200 rounded-lg p-3.5 shadow-2xs">
+          <div className="text-[11px] font-semibold text-zinc-500 flex items-center justify-between">
             <span>Terkirim (Sukses)</span>
             <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
           </div>
@@ -71,16 +71,16 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
           </div>
         </div>
 
-        <div className="bg-white border border-[#e4e4e7] rounded-lg p-3.5 shadow-2xs">
-          <div className="text-[11px] font-semibold text-[#71717a] flex items-center justify-between">
+        <div className="bg-white border border-zinc-200 rounded-lg p-3.5 shadow-2xs">
+          <div className="text-[11px] font-semibold text-zinc-500 flex items-center justify-between">
             <span>Retrying</span>
             <TrendingUp className="w-3.5 h-3.5 text-amber-600" />
           </div>
           <div className="text-2xl font-bold text-amber-700 mt-1">{stats.retrying_events}</div>
         </div>
 
-        <div className="bg-white border border-[#e4e4e7] rounded-lg p-3.5 shadow-2xs">
-          <div className="text-[11px] font-semibold text-[#71717a] flex items-center justify-between">
+        <div className="bg-white border border-zinc-200 rounded-lg p-3.5 shadow-2xs">
+          <div className="text-[11px] font-semibold text-zinc-500 flex items-center justify-between">
             <span>Dead-letter (Gagal)</span>
             <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
           </div>
@@ -91,20 +91,20 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
       {/* Main Grid: Throughput & Recent Failures */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* SVG Throughput Chart */}
-        <div className="lg:col-span-2 bg-white border border-[#e4e4e7] rounded-lg p-4 shadow-2xs flex flex-col justify-between">
+        <div className="lg:col-span-2 bg-white border border-zinc-200 rounded-lg p-4 shadow-2xs flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
             <div>
-              <div className="text-xs font-bold text-[#18181b] flex items-center gap-1.5">
-                <BarChart3 className="w-4 h-4 text-[#18181b]" />
+              <div className="text-xs font-bold text-zinc-900 flex items-center gap-1.5">
+                <BarChart3 className="w-4 h-4 text-zinc-900" />
                 Throughput Webhook, 12 Menit Terakhir
               </div>
-              <p className="text-[11px] text-[#71717a] mt-0.5">
+              <p className="text-[11px] text-zinc-500 mt-0.5">
                 Grafik volume event per menit. Warna merah mengindikasikan lonjakan kegagalan atau retry.
               </p>
             </div>
-            <div className="flex items-center gap-3 text-[11px] text-[#71717a]">
+            <div className="flex items-center gap-3 text-[11px] text-zinc-500">
               <div className="flex items-center gap-1">
-                <span className="w-2.5 h-2.5 bg-[#18181b] rounded-xs" />
+                <span className="w-2.5 h-2.5 bg-zinc-900 rounded-xs" />
                 <span>Total Ingest</span>
               </div>
               <div className="flex items-center gap-1">
@@ -134,7 +134,8 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                       width={barWidth}
                       height={chartHeight}
                       rx={3}
-                      fill="#f4f4f5"
+                      fill="currentColor"
+                      className="text-zinc-100"
                     />
 
                     {/* Total traffic bar */}
@@ -145,7 +146,8 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                         width={barWidth}
                         height={totalH}
                         rx={3}
-                        fill="#18181b"
+                        fill="currentColor"
+                        className="text-zinc-900"
                       />
                     )}
 
@@ -157,7 +159,8 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                         width={barWidth}
                         height={failH}
                         rx={3}
-                        fill="#e11d48"
+                        fill="currentColor"
+                        className="text-rose-600"
                       />
                     )}
 
@@ -167,7 +170,8 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                       y={156}
                       textAnchor="middle"
                       fontSize={10}
-                      fill="#71717a"
+                      fill="currentColor"
+                      className="text-zinc-500"
                       fontFamily="ui-monospace, monospace"
                     >
                       {bucket.label}
@@ -180,41 +184,41 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
         </div>
 
         {/* Recent Failed Events */}
-        <div className="bg-white border border-[#e4e4e7] rounded-lg p-4 shadow-2xs flex flex-col">
-          <div className="text-xs font-bold text-[#18181b] mb-1 flex items-center justify-between">
+        <div className="bg-white border border-zinc-200 rounded-lg p-4 shadow-2xs flex flex-col">
+          <div className="text-xs font-bold text-zinc-900 mb-1 flex items-center justify-between">
             <div className="flex items-center gap-1.5">
               <AlertTriangle className="w-4 h-4 text-rose-600" />
               Event Gagal Terbaru
             </div>
-            <span className="text-[11px] text-[#71717a] font-normal">
+            <span className="text-[11px] text-zinc-500 font-normal">
               {recent_failed.length} ditemukan
             </span>
           </div>
-          <p className="text-[11px] text-[#71717a] mb-3">
+          <p className="text-[11px] text-zinc-500 mb-3">
             Klik event untuk langsung membuka drawer inspeksi payload dan error.
           </p>
 
-          <div className="flex-1 divide-y divide-[#f4f4f5] overflow-y-auto max-h-[170px]">
+          <div className="flex-1 divide-y divide-zinc-100 overflow-y-auto max-h-[170px]">
             {recent_failed.length > 0 ? (
               recent_failed.map((ev) => (
                 <div
                   key={ev.id}
                   onClick={() => onSelectEvent(ev)}
-                  className="py-2 px-1.5 flex items-center justify-between hover:bg-[#fafafa] rounded cursor-pointer transition-colors group"
+                  className="py-2 px-1.5 flex items-center justify-between hover:bg-zinc-50 rounded cursor-pointer transition-colors group"
                 >
                   <div className="min-w-0 flex-1 pr-2">
-                    <div className="font-mono text-xs font-bold text-[#18181b] group-hover:underline truncate">
+                    <div className="font-mono text-xs font-bold text-zinc-900 group-hover:underline truncate">
                       {ev.id}
                     </div>
-                    <div className="text-[11px] text-[#71717a] truncate mt-0.5">
+                    <div className="text-[11px] text-zinc-500 truncate mt-0.5">
                       {ev.endpoint_id} · <span className="text-rose-700">{ev.last_error || 'Gagal terkirim'}</span>
                     </div>
                   </div>
-                  <ArrowUpRight className="w-3.5 h-3.5 text-[#a1a1aa] group-hover:text-[#18181b] shrink-0" />
+                  <ArrowUpRight className="w-3.5 h-3.5 text-zinc-400 group-hover:text-zinc-900 shrink-0" />
                 </div>
               ))
             ) : (
-              <div className="h-full flex flex-col items-center justify-center p-4 text-[#71717a] text-xs text-center">
+              <div className="h-full flex flex-col items-center justify-center p-4 text-zinc-500 text-xs text-center">
                 <CheckCircle className="w-6 h-6 text-emerald-600 mb-1" />
                 <span>Tidak ada event gagal dalam riwayat terkini. Semua pengiriman berjalan lancar.</span>
               </div>
@@ -224,18 +228,18 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
       </div>
 
       {/* Endpoint Breakdown Table */}
-      <div className="bg-white border border-[#e4e4e7] rounded-lg p-4 shadow-2xs">
-        <div className="text-xs font-bold text-[#18181b] mb-1">
+      <div className="bg-white border border-zinc-200 rounded-lg p-4 shadow-2xs">
+        <div className="text-xs font-bold text-zinc-900 mb-1">
           Distribusi Performa Berdasarkan Endpoint
         </div>
-        <p className="text-[11px] text-[#71717a] mb-3">
+        <p className="text-[11px] text-zinc-500 mb-3">
           Ringkasan statistik perutean webhook dan rasio keberhasilan pengiriman HTTP downstream.
         </p>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="border-b border-[#e4e4e7] text-[11px] font-semibold text-[#71717a] uppercase tracking-wider">
+              <tr className="border-b border-zinc-200 text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
                 <th className="py-2 px-3">Endpoint Target</th>
                 <th className="py-2 px-3">Provider</th>
                 <th className="py-2 px-3 text-right">Total Event</th>
@@ -243,18 +247,18 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                 <th className="py-2 px-3 text-right">Tingkat Sukses</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#f4f4f5]">
+            <tbody className="divide-y divide-zinc-100">
               {endpoint_breakdown.length > 0 ? (
                 endpoint_breakdown.map((eb) => (
-                  <tr key={eb.id} className="hover:bg-[#fafafa] transition-colors">
-                    <td className="py-2.5 px-3 font-semibold text-[#18181b]">
+                  <tr key={eb.id} className="hover:bg-zinc-50 transition-colors">
+                    <td className="py-2.5 px-3 font-semibold text-zinc-900">
                       {eb.name}
-                      <span className="block font-mono text-[10px] text-[#71717a] font-normal">{eb.id}</span>
+                      <span className="block font-mono text-[10px] text-zinc-500 font-normal">{eb.id}</span>
                     </td>
-                    <td className="py-2.5 px-3 text-[#71717a] uppercase text-[11px]">
+                    <td className="py-2.5 px-3 text-zinc-500 uppercase text-[11px]">
                       {eb.provider}
                     </td>
-                    <td className="py-2.5 px-3 font-mono text-right font-medium text-[#18181b]">
+                    <td className="py-2.5 px-3 font-mono text-right font-medium text-zinc-900">
                       {eb.total}
                     </td>
                     <td className="py-2.5 px-3 font-mono text-right font-semibold text-rose-700">
@@ -277,7 +281,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                 ))
               ) : (
                 <tr>
-                  <td colSpan={5} className="py-8 text-center text-[#71717a]">
+                  <td colSpan={5} className="py-8 text-center text-zinc-500">
                     Belum ada endpoint yang terdaftar.
                   </td>
                 </tr>

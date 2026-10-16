@@ -69,12 +69,12 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
         const keyPart = match[1];
         const colonPart = match[2];
         elements.push(
-          <span key={match.index} className="text-[#0f172a] font-semibold">
+          <span key={match.index} className="text-zinc-900 font-semibold">
             {keyPart}
           </span>
         );
         elements.push(
-          <span key={`${match.index}-colon`} className="text-[#71717a]">
+          <span key={`${match.index}-colon`} className="text-zinc-500">
             {colonPart}
           </span>
         );
@@ -88,7 +88,7 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
       } else if (isBoolNull) {
         if (str === 'null') {
           elements.push(
-            <span key={match.index} className="text-[#a1a1aa] italic font-medium">
+            <span key={match.index} className="text-zinc-400 italic font-medium">
               null
             </span>
           );
@@ -109,7 +109,7 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
       } else {
         // Structural characters: { } [ ] ,
         elements.push(
-          <span key={match.index} className="text-[#71717a]">
+          <span key={match.index} className="text-zinc-500">
             {str}
           </span>
         );
@@ -128,12 +128,12 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between pb-1">
-        <span className="text-xs text-[#52525b] font-medium">JSON Body</span>
+        <span className="text-xs text-zinc-600 font-medium">JSON Body</span>
         <div className="flex items-center gap-1.5">
           <button
             type="button"
             onClick={() => setIsPretty(!isPretty)}
-            className="px-2 py-1 text-[11px] font-medium bg-[#f4f4f5] hover:bg-[#e4e4e7] text-[#18181b] rounded transition-colors"
+            className="px-2 py-1 text-[11px] font-medium bg-zinc-100 hover:bg-zinc-200 text-zinc-900 rounded transition-colors"
             aria-label="Ganti mode tampilan JSON"
           >
             {isPretty ? 'Tampilan Mentah (Raw)' : 'Format Rapi (Pretty)'}
@@ -141,7 +141,7 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
           <button
             type="button"
             onClick={() => copyToClipboard(isPretty ? jsonString : rawString || jsonString, 'Payload')}
-            className="px-2 py-1 text-[11px] font-medium bg-[#f4f4f5] hover:bg-[#e4e4e7] text-[#18181b] rounded transition-colors flex items-center gap-1"
+            className="px-2 py-1 text-[11px] font-medium bg-zinc-100 hover:bg-zinc-200 text-zinc-900 rounded transition-colors flex items-center gap-1"
             aria-label="Salin payload JSON"
           >
             {copiedKey === 'Payload' ? (
@@ -151,7 +151,7 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
               </>
             ) : (
               <>
-                <Copy className="w-3 h-3 text-[#71717a]" />
+                <Copy className="w-3 h-3 text-zinc-500" />
                 <span>Salin</span>
               </>
             )}
@@ -160,7 +160,7 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
             <button
               type="button"
               onClick={() => copyToClipboard(curlCommand, 'cURL')}
-              className="px-2 py-1 text-[11px] font-medium bg-[#f4f4f5] hover:bg-[#e4e4e7] text-[#18181b] rounded transition-colors flex items-center gap-1"
+              className="px-2 py-1 text-[11px] font-medium bg-zinc-100 hover:bg-zinc-200 text-zinc-900 rounded transition-colors flex items-center gap-1"
               aria-label="Salin perintah cURL"
             >
               {copiedKey === 'cURL' ? (
@@ -170,7 +170,7 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
                 </>
               ) : (
                 <>
-                  <Terminal className="w-3 h-3 text-[#71717a]" />
+                  <Terminal className="w-3 h-3 text-zinc-500" />
                   <span>Salin cURL</span>
                 </>
               )}
@@ -179,7 +179,7 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
         </div>
       </div>
 
-      <pre className="p-3 bg-[#fafafa] border border-[#e4e4e7] rounded-lg text-xs font-mono text-[#18181b] overflow-auto max-h-[460px] whitespace-pre-wrap break-all select-text leading-relaxed">
+      <pre className="p-3 bg-zinc-50 border border-zinc-200 rounded-lg text-xs font-mono text-zinc-900 overflow-auto max-h-[460px] whitespace-pre-wrap break-all select-text leading-relaxed">
         {isPretty ? highlightedTokens : rawString || jsonString}
       </pre>
     </div>

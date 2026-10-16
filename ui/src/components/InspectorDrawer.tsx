@@ -1,31 +1,39 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, 
   RotateCw, 
   Copy, 
   Clock, 
   ShieldCheck, 
-  ShieldAlert, 
   ShieldOff,
   ArrowRight,
   AlertTriangle,
-  HelpCircle,
+  AlertOctagon,
   ExternalLink,
-  Check
+  Check,
+  CheckCircle,
+  Loader2,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { Endpoint, WebhookEvent } from '../types';
+import { fetchEvent } from '../api';
 import { JsonViewer } from './JsonViewer';
 import { 
   formatAbsoluteTime, 
+  formatRelativeTime,
   formatSourceIP, 
-  analyzeEventError 
+  analyzeEventError,
+  isSensitiveHeader,
+  formatFailureCodeLabel,
+  formatAttemptsDisplay
 } from '../utils/formatters';
 
 interface InspectorDrawerProps {
   event: WebhookEvent | null;
   endpoints?: Endpoint[];
   onClose: () => void;
-  onReplay: (event: WebhookEvent) => void;
+  onReplay: (event: WebhookEvent, fromDrawer?: boolean) => void;
   onToast: (message: string) => void;
   onNavigateToEndpoint?: (endpointId: string) => void;
   isSplitView?: boolean;
@@ -40,22 +48,70 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
   onNavigateToEndpoint,
   isSplitView = true,
 }) => {
-  // Default tab changed to 'log' for immediate troubleshooting context
-  const [activeTab, setActiveTab] = useState<'log' | 'payload' | 'headers'>('log');
+  const [activeTab, setActiveTab] = useState<'payload' | 'headers'>('payload');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  const [showInvalidReplayConfirm, setShowInvalidReplayConfirm] = useState(false);
+  const [unmaskedHeaders, setUnmaskedHeaders] = useState<Set<string>>(new Set());
+  const [revealedHeaders, setRevealedHeaders] = useState<Record<string, string>>({});
+  const [showReverifyConfirm, setShowReverifyConfirm] = useState(false);
+  const [replayInProgress, setReplayInProgress] = useState(false);
+  const [replayInlineResult, setReplayInlineResult] = useState<{
+    status: 'success' | 'still_failed' | 'info';
+    message: string;
+  } | null>(null);
+
+  const drawerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // When a new event is opened, default to Delivery Log for troubleshooting
-    setActiveTab('log');
-    setShowInvalidReplayConfirm(false);
+    setActiveTab('payload');
+    setUnmaskedHeaders(new Set());
+    setRevealedHeaders({});
+    setShowReverifyConfirm(false);
+    setReplayInProgress(false);
+    setReplayInlineResult(null);
+    if (event) {
+      setTimeout(() => drawerRef.current?.focus(), 50);
+    }
   }, [event?.id]);
+
+  // Track status transitions when SSE updates the active event
+  useEffect(() => {
+    if (!event) return;
+    if (event.status === 'DELIVERED') {
+      setReplayInProgress(false);
+      setReplayInlineResult(null);
+    } else if (event.status === 'PENDING') {
+      setReplayInProgress(false);
+      setReplayInlineResult(null);
+    } else if (replayInProgress) {
+      if (event.status === 'FAILED') {
+        setReplayInProgress(false);
+        const analysis = analyzeEventError(event);
+        const isVerifRejected = event.is_verified === -1;
+        setReplayInlineResult({
+          status: 'still_failed',
+          message: isVerifRejected
+            ? `Replay selesai: Event tetap ditolak (${analysis.badgeLabel.toLowerCase()}).`
+            : `Replay selesai: Pengiriman downstream gagal (${analysis.badgeLabel}).`,
+        });
+      }
+    }
+  }, [event?.status, event?.is_verified, replayInProgress]);
+
+  const handleClose = () => {
+    const evId = event?.id;
+    onClose();
+    if (evId) {
+      setTimeout(() => {
+        document.getElementById(`dlq-row-${evId}`)?.focus();
+      }, 30);
+    }
+  };
 
   // Keyboard shortcut: Escape to close
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && event) {
-        onClose();
+        handleClose();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -65,7 +121,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
   if (!event) return null;
 
   const errorAnalysis = analyzeEventError(event);
-  const isInvalidSignature = event.is_verified === -1;
+  const isRejected = (event.is_verified === -1 || errorAnalysis.class === 'VERIFICATION_REJECTED') && event.status !== 'DELIVERED';
 
   const copyToClipboard = (text: string, label: string) => {
     try {
@@ -106,51 +162,68 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
 
   const curlCommand = () => {
     const ep = endpoints.find((e) => e.id === event.endpoint_id);
-    const targetUrl = ep?.target_url || `${window.location.origin}/ingest/${event.endpoint_id}`;
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8080';
+    const targetUrl = ep?.target_url || `${origin}/ingest/${event.endpoint_id}`;
     const headersStr = Object.entries(event.headers || {})
-      .map(([k, v]) => `-H '${k}: ${v}'`)
+      .map(([k, v]) => {
+        const val = isSensitiveHeader(k) ? '<TOKEN>' : v;
+        return `-H '${k}: ${val}'`;
+      })
       .join(' ');
     const raw = getRawPayloadString();
     return `curl -X POST '${targetUrl}' ${headersStr ? headersStr + ' ' : ''}-d '${raw}'`;
   };
 
   const handleReplayClick = () => {
-    if (isInvalidSignature) {
-      setShowInvalidReplayConfirm(true);
+    if (isRejected) {
+      setShowReverifyConfirm(true);
     } else {
-      onReplay(event);
+      triggerReplayAction();
     }
   };
 
-  const handleConfirmInvalidReplay = () => {
-    setShowInvalidReplayConfirm(false);
-    onReplay(event);
+  const triggerReplayAction = () => {
+    setShowReverifyConfirm(false);
+    setReplayInProgress(true);
+    if (!isRejected) {
+      setReplayInlineResult({
+        status: 'info',
+        message: 'Dijadwalkan ulang, hingga 5 percobaan pengiriman downstream.',
+      });
+    } else {
+      setReplayInlineResult(null);
+    }
+    onReplay(event, true);
   };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'DELIVERED':
         return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
-            Terkirim
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+            <CheckCircle className="w-3 h-3 text-emerald-600" />
+            <span>Terkirim</span>
           </span>
         );
       case 'RETRYING':
         return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
-            Mencoba Ulang
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+            <Clock className="w-3 h-3 text-amber-600" />
+            <span>Menunggu</span>
           </span>
         );
       case 'FAILED':
         return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-50 text-rose-800 border border-rose-200">
-            Gagal
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-50 text-rose-800 border border-rose-200">
+            <AlertOctagon className="w-3 h-3 text-rose-600" />
+            <span>Gagal</span>
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-zinc-100 text-zinc-800 border border-zinc-200">
-            Menunggu
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-zinc-100 text-zinc-800 border border-zinc-200">
+            <Clock className="w-3 h-3 text-zinc-500" />
+            <span>Menunggu</span>
           </span>
         );
     }
@@ -162,169 +235,393 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
       {isSplitView && (
         <div
           onClick={onClose}
-          className="fixed inset-0 bg-black/20 backdrop-blur-2xs z-30 lg:hidden transition-opacity"
+          className="fixed inset-0 bg-black/20 backdrop-blur-2xs z-30 xl:hidden transition-opacity"
           aria-hidden="true"
         />
       )}
 
       {/* Detail Panel */}
       <div
-        className={`bg-white border-l border-[#e4e4e7] flex flex-col h-full select-text transition-all duration-200 ${
+        ref={drawerRef}
+        tabIndex={-1}
+        className={`bg-white border-l border-zinc-200 flex flex-col h-full select-text transition-all duration-200 outline-none ${
           isSplitView
-            ? 'fixed inset-y-0 right-0 w-full sm:w-[460px] z-40 lg:relative lg:inset-auto lg:z-10 lg:w-[440px] xl:w-[480px] lg:shrink-0 lg:shadow-none shadow-2xl'
+            ? 'fixed inset-y-0 right-0 w-full sm:w-[460px] z-40 xl:relative xl:inset-auto xl:z-10 xl:w-[480px] xl:shrink-0 xl:shadow-none shadow-2xl'
             : 'fixed inset-y-0 right-0 w-[460px] max-w-full z-40 shadow-xl'
         }`}
         role="region"
         aria-label="Panel Detail Event Webhook"
       >
-        {/* Header */}
-        <div className="p-3.5 border-b border-[#e4e4e7] flex items-center justify-between gap-3 bg-[#fafafa]">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span
-                className="font-mono text-xs font-bold text-[#18181b] truncate cursor-pointer hover:underline"
-                title={`Event ID lengkap: ${event.id} (klik untuk salin)`}
-                onClick={() => copyToClipboard(event.id, 'Event ID')}
-              >
-                {event.id}
-              </span>
-              {getStatusBadge(event.status)}
-            </div>
-            <div className="text-xs text-[#52525b] truncate mt-1 flex items-center gap-1.5 font-medium">
-              <span className="text-[#18181b] font-mono">{event.endpoint_id}</span>
-              <ArrowRight className="w-3 h-3 text-[#71717a]" />
-              <span className="font-mono text-[11px] uppercase text-[#18181b] bg-[#f4f4f5] px-1.5 py-0.5 rounded border border-[#e4e4e7]">
-                {event.provider}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* Contextual Replay Button */}
-            {isInvalidSignature ? (
-              <button
-                type="button"
-                onClick={handleReplayClick}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-rose-50 text-rose-700 border border-rose-300 rounded-md text-xs font-semibold shadow-2xs transition-colors"
-                title="Signature tidak valid. Klik untuk konfirmasi replay."
-                aria-label="Picu replay dengan konfirmasi peringatan"
-              >
-                <RotateCw className="w-3.5 h-3.5 text-rose-600" />
-                <span>Replay</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleReplayClick}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#18181b] hover:bg-[#27272a] text-white text-xs font-semibold rounded-md shadow-2xs transition-colors"
-                title="Kirim ulang webhook sekarang"
-                aria-label="Kirim ulang webhook sekarang"
-              >
-                <RotateCw className="w-3.5 h-3.5" />
-                <span>Replay</span>
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-1.5 text-[#52525b] hover:text-[#18181b] hover:bg-[#e4e4e7] rounded-md transition-colors"
-              title="Tutup panel (Esc)"
-              aria-label="Tutup panel detail"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        {/* Invalid Signature Banner */}
-        {isInvalidSignature && (
-          <div className="bg-rose-50 border-b border-rose-200 p-3.5 flex items-start gap-2.5 text-xs">
-            <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <div className="font-bold text-rose-900">
-                Signature Kriptografis Tidak Cocok
+        {/* 1. Header: ID singkat + copy, endpoint -> provider, status badge, action, close */}
+        <div className="p-3.5 border-b border-zinc-200 bg-zinc-50">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 font-mono text-xs font-bold text-zinc-900 truncate">
+                  <span title={`Event ID: ${event.id}`}>
+                    {event.id.slice(0, 10)}...
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(event.id, 'Event ID')}
+                    className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200 rounded transition-colors"
+                    title="Salin Event ID lengkap"
+                    aria-label="Salin Event ID"
+                  >
+                    {copiedKey === 'Event ID' ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </div>
+                {getStatusBadge(event.status)}
               </div>
-              <p className="text-rose-700 mt-0.5 leading-relaxed">
-                Signature tidak cocok. Periksa secret di endpoint, lalu replay.
-              </p>
-              {onNavigateToEndpoint && (
+              <div className="text-xs text-zinc-600 truncate mt-1 flex items-center gap-1.5 font-medium">
+                <span className="text-zinc-900 font-mono">{event.endpoint_id}</span>
+                <ArrowRight className="w-3 h-3 text-zinc-500" />
+                <span className="font-mono text-[11px] uppercase text-zinc-900 bg-zinc-100 px-1.5 py-0.5 rounded border border-zinc-200">
+                  {event.provider}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {/* Contextual Action Button: Rule: 1 status = 1 penanda di header. Sembunyikan jika tidak ada aksi */}
+              {event.status === 'DELIVERED' || event.status === 'PENDING' || event.status === 'RETRYING' || !errorAnalysis.isEligibleForReplay ? null : isRejected ? (
                 <button
                   type="button"
-                  onClick={() => onNavigateToEndpoint(event.endpoint_id)}
-                  className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-rose-800 hover:text-rose-950 underline underline-offset-2 transition-colors"
+                  onClick={handleReplayClick}
+                  disabled={replayInProgress}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-zinc-100 text-zinc-900 border border-zinc-200 rounded-md text-xs font-semibold shadow-2xs transition-colors disabled:opacity-50"
+                  title="Verifikasi akan dijalankan ulang. Jika konfigurasi belum diperbaiki, event tetap ditolak."
+                  aria-label="Verifikasi ulang dan kirim webhook"
                 >
-                  <span>Buka Konfigurasi Endpoint</span>
-                  <ExternalLink className="w-3 h-3" />
+                  {replayInProgress ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-900" />
+                  ) : (
+                    <RotateCw className="w-3.5 h-3.5 text-zinc-600" />
+                  )}
+                  <span>Verifikasi ulang & kirim</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleReplayClick}
+                  disabled={replayInProgress}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold rounded-md shadow-2xs transition-colors disabled:opacity-50"
+                  title="Kirim ulang webhook sekarang"
+                  aria-label="Kirim ulang webhook sekarang"
+                >
+                  {replayInProgress ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <RotateCw className="w-3.5 h-3.5" />
+                  )}
+                  <span>Replay</span>
                 </button>
               )}
+
+              <button
+                type="button"
+                onClick={handleClose}
+                className="p-1.5 text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200 rounded-md transition-colors"
+                title="Tutup panel (Esc)"
+                aria-label="Tutup panel detail"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
+          </div>
+
+          {/* Helper text for disabled button (dedup: clean replacement of yellow callout) */}
+          {!errorAnalysis.isEligibleForReplay && event.status !== 'DELIVERED' && event.status !== 'PENDING' && event.status !== 'RETRYING' && (
+            <p className="text-[11px] text-zinc-500 mt-2 text-right leading-relaxed">
+              {errorAnalysis.ineligibleHelperText || 'Tidak bisa diverifikasi ulang karena data signature pada request tidak lengkap.'}
+            </p>
+          )}
+        </div>
+
+        {/* Inline Replay In-Flight / Result Banner */}
+        {replayInProgress && (
+          <div className="p-3 bg-zinc-50 border-b border-zinc-200 text-xs text-zinc-900 flex items-center gap-2 animate-in fade-in duration-150">
+            <Loader2 className="w-4 h-4 animate-spin text-zinc-900 shrink-0" />
+            <span>Sedang memproses pengiriman ulang...</span>
           </div>
         )}
 
-        {/* Metadata Grid */}
-        <div className="grid grid-cols-2 gap-y-2 gap-x-4 p-3.5 border-b border-[#e4e4e7] bg-white text-xs">
-          <div>
-            <span className="text-[#52525b] font-medium">Provider:</span>
-            <span className="ml-2 font-semibold text-[#18181b] uppercase">{event.provider}</span>
-          </div>
-          <div>
-            <span className="text-[#52525b] font-medium">IP Asal:</span>
-            <span className="ml-2 font-mono text-[#18181b]">{formatSourceIP(event.source_ip)}</span>
-          </div>
-          <div>
-            <span className="text-[#52525b] font-medium">Signature:</span>
-            <span className="ml-2">
-              {event.is_verified === 1 ? (
-                <span className="inline-flex items-center gap-1 text-emerald-700 font-semibold">
-                  <ShieldCheck className="w-3.5 h-3.5" /> Valid
-                </span>
-              ) : event.is_verified === -1 ? (
-                <span className="inline-flex items-center gap-1 text-rose-700 font-semibold">
-                  <ShieldAlert className="w-3.5 h-3.5" /> Tidak Valid
-                </span>
+        {replayInlineResult && !replayInProgress && event.status !== 'PENDING' && event.status !== 'RETRYING' && event.status !== 'DELIVERED' && replayInlineResult.status !== 'still_failed' && (
+          <div
+            className={`p-3 border-b text-xs flex items-center justify-between gap-2 animate-in fade-in duration-150 ${
+              replayInlineResult.status === 'info'
+                ? 'bg-blue-50 border-blue-200 text-blue-900'
+                : 'bg-rose-50 border-rose-200 text-rose-900'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {replayInlineResult.status === 'info' ? (
+                <Clock className="w-4 h-4 text-blue-600 shrink-0" />
               ) : (
-                <span className="inline-flex items-center gap-1 text-[#52525b]">
-                  <ShieldOff className="w-3.5 h-3.5" /> Dilewati
+                <AlertOctagon className="w-4 h-4 text-rose-600 shrink-0" />
+              )}
+              <span className="leading-relaxed">{replayInlineResult.message}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReplayInlineResult(null)}
+              className="p-0.5 text-zinc-500 hover:text-zinc-800"
+              aria-label="Tutup notifikasi"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        )}
+
+        {/* 2. SATU Blok Diagnosis Tunggal */}
+        {event.status === 'DELIVERED' ? (
+          <div className="p-4 border-b border-zinc-200 bg-emerald-50/40" data-testid="diagnosis-delivered">
+            <div className="flex items-center gap-2 text-xs text-emerald-900 font-semibold">
+              <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>Lolos verifikasi dan terkirim ke downstream (HTTP {event.http_status_code || 200})</span>
+            </div>
+          </div>
+        ) : event.status === 'PENDING' || event.status === 'RETRYING' ? (
+          <div className="p-4 border-b border-zinc-200 bg-zinc-50 space-y-2" data-testid={event.status === 'PENDING' ? "diagnosis-pending" : "diagnosis-retrying"}>
+            <div className="flex items-center gap-2 text-xs">
+              <Clock className="w-4 h-4 text-zinc-500 shrink-0" />
+              <span className="text-zinc-900 font-medium">
+                {event.status === 'PENDING'
+                  ? (event.attempts ?? 0) === 0 && !event.http_status_code && !(event.last_error || '').trim()
+                    ? 'Event menunggu giliran dikirim ke downstream'
+                    : 'Event dijadwalkan ulang untuk pengiriman downstream'
+                  : 'Event sedang mencoba ulang pengiriman downstream'}
+              </span>
+            </div>
+            {event.http_status_code ? (
+              <p className="text-xs text-zinc-500" data-testid="last-failure-notice">
+                Kegagalan terakhir:{' '}
+                <span className="font-mono font-medium text-zinc-700">
+                  {`HTTP ${event.http_status_code}`}
                 </span>
+              </p>
+            ) : event.failure_code ? (
+              <p className="text-xs text-zinc-500" data-testid="last-failure-notice">
+                Kegagalan terakhir:{' '}
+                <span className="font-mono font-medium text-zinc-700">
+                  {formatFailureCodeLabel(event.failure_code)}
+                </span>
+              </p>
+            ) : null}
+            {event.last_error && (
+              <details
+                data-testid="technical-details"
+                className="mt-2 pt-2 border-t border-zinc-200/60 group"
+              >
+                <summary className="text-[11px] font-semibold text-zinc-500 hover:text-zinc-900 cursor-pointer select-none">
+                  Detail Teknis (Pesan Error Terakhir)
+                </summary>
+                <div
+                  className="mt-2 p-2.5 bg-white border border-zinc-200 rounded text-xs font-mono text-zinc-900 whitespace-pre-wrap select-text leading-relaxed"
+                  style={{ overflowWrap: 'anywhere' }}
+                >
+                  {event.last_error}
+                </div>
+              </details>
+            )}
+          </div>
+        ) : (
+          <div className="p-4 border-b border-zinc-200 bg-zinc-50 space-y-2.5">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm font-bold text-zinc-900 leading-tight">
+                  {errorAnalysis.title}
+                </h3>
+                {errorAnalysis.summary && (
+                  <p className="text-xs text-zinc-600 mt-1.5 leading-relaxed">
+                    {errorAnalysis.summary}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* HEADER_MISSING exact line: expected vs received header names (no values) */}
+            {errorAnalysis.code === 'SIGNATURE_HEADER_MISSING' && (
+              <div className="p-2.5 bg-white border border-zinc-200 rounded text-xs leading-relaxed">
+                <span className="text-zinc-500 font-medium">Header diharapkan: </span>
+                <span className="font-mono font-semibold text-zinc-900">{errorAnalysis.expectedHeader}. </span>
+                <span className="text-zinc-500 font-medium">Header diterima: </span>
+                <span className="font-mono text-zinc-600">{errorAnalysis.receivedHeadersList || '(tidak ada)'}</span>
+              </div>
+            )}
+
+            {/* Remediation Steps (Max 3 imperative command sentences) */}
+            <div className="pt-2 border-t border-zinc-200/60">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500">
+                Langkah Perbaikan:
+              </span>
+              <ul className="mt-1.5 space-y-1.5 text-xs text-zinc-900">
+                {errorAnalysis.advice.map((item, idx) => (
+                  <li key={idx} className="flex items-start gap-2">
+                    <span className="font-bold text-zinc-500 shrink-0">{idx + 1}.</span>
+                    <span className="leading-relaxed">{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Endpoint Configuration Link */}
+            {onNavigateToEndpoint && isRejected && (
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => onNavigateToEndpoint(event.endpoint_id)}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-zinc-900 hover:text-black underline underline-offset-2 transition-colors"
+                >
+                  <span>Buka Konfigurasi Endpoint</span>
+                  <ExternalLink className="w-3 h-3 text-zinc-500" />
+                </button>
+              </div>
+            )}
+
+            {/* Foldable Raw Error Section (default closed, overflow-wrap: anywhere) */}
+            <details
+              data-testid="technical-details"
+              className="mt-2 pt-2 border-t border-zinc-200/60 group"
+            >
+              <summary className="text-[11px] font-semibold text-zinc-500 hover:text-zinc-900 cursor-pointer select-none">
+                Detail Teknis (Pesan Error Asli)
+              </summary>
+              <div
+                className="mt-2 p-2.5 bg-white border border-zinc-200 rounded text-xs font-mono text-zinc-900 whitespace-pre-wrap select-text leading-relaxed"
+                style={{ overflowWrap: 'anywhere' }}
+              >
+                {event.last_error || 'Tidak ada detail pesan error tercatat.'}
+              </div>
+            </details>
+          </div>
+        )}
+
+        {/* 3. Grid Metadata Info (Provider, IP Asal, Waktu per status, Percobaan, Signature) */}
+        <div className="grid grid-cols-2 gap-y-2.5 gap-x-4 p-3.5 border-b border-zinc-200 bg-white text-xs">
+          <div>
+            <span className="text-zinc-500 font-medium">Provider:</span>
+            <span className="ml-2 font-semibold text-zinc-900 uppercase">{event.provider}</span>
+          </div>
+          <div>
+            <span className="text-zinc-500 font-medium">IP Asal:</span>
+            <span className="ml-2 font-mono text-zinc-900">{formatSourceIP(event.source_ip)}</span>
+          </div>
+          {/*
+            Sumber nilai timestamp waktu per status:
+            - DELIVERED: Terkirim pada -> event.updated_at (internal/worker/worker.go:384 via internal/storage/storage.go:804) fallback event.created_at
+            - PENDING: Dijadwalkan pada -> event.updated_at (internal/api/handlers.go:303 via internal/storage/storage.go:804) fallback event.created_at
+            - FAILED: Gagal pada -> event.failed_at (internal/worker/worker.go:344, 415 via internal/storage/storage.go:830) fallback event.updated_at / event.created_at
+          */}
+          <div>
+            <span className="text-zinc-500 font-medium">
+              {event.status === 'DELIVERED'
+                ? 'Terkirim pada:'
+                : event.status === 'PENDING' || event.status === 'RETRYING'
+                ? 'Dijadwalkan pada:'
+                : 'Gagal pada:'}
+            </span>
+            <span
+              className="ml-2 font-mono text-zinc-900 underline decoration-dotted decoration-zinc-400 underline-offset-4 cursor-help"
+              title={formatAbsoluteTime(
+                event.status === 'DELIVERED'
+                  ? (event.updated_at || event.created_at)
+                  : event.status === 'PENDING'
+                  ? (event.updated_at || event.created_at)
+                  : event.status === 'RETRYING'
+                  ? (event.next_retry_at || event.updated_at || event.created_at)
+                  : (event.failed_at || event.updated_at || event.created_at)
+              )}
+            >
+              {formatRelativeTime(
+                event.status === 'DELIVERED'
+                  ? (event.updated_at || event.created_at)
+                  : event.status === 'PENDING'
+                  ? (event.updated_at || event.created_at)
+                  : event.status === 'RETRYING'
+                  ? (event.next_retry_at || event.updated_at || event.created_at)
+                  : (event.failed_at || event.updated_at || event.created_at)
               )}
             </span>
           </div>
-          <div>
-            <span className="text-[#52525b] font-medium">Percobaan:</span>
-            <span className="ml-2 font-mono text-[#18181b]">
-              {isInvalidSignature && event.attempts === 0 ? (
-                <span className="font-semibold text-rose-700">0 / {event.max_attempts} (Ditolak di gerbang)</span>
-              ) : event.attempts >= event.max_attempts ? (
-                <span className="font-medium text-[#18181b]">{event.attempts} / {event.max_attempts} (Kuota habis)</span>
-              ) : (
-                <span className="font-medium text-[#18181b]">{event.attempts} / {event.max_attempts}</span>
-              )}
-            </span>
-          </div>
+          {(() => {
+            const attemptsInfo = formatAttemptsDisplay(event);
+            return (
+              <div>
+                <span className="text-zinc-500 font-medium whitespace-nowrap">Percobaan:</span>
+                <span className="ml-2">
+                  {attemptsInfo.isRejected ? (
+                    <span className="inline-flex flex-col">
+                      <span className="font-semibold text-zinc-900 text-xs whitespace-nowrap" data-testid="attempts-count">
+                        {attemptsInfo.primaryText}
+                      </span>
+                      {attemptsInfo.secondaryText && (
+                        <span className="text-[10px] text-zinc-500 whitespace-nowrap" data-testid="attempts-stop-reason">
+                          {attemptsInfo.secondaryText}
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="inline-flex flex-col">
+                      <span
+                        className={`font-mono text-xs whitespace-nowrap ${
+                          event.status === 'DELIVERED' ? 'text-emerald-700 font-medium' : 'text-zinc-900 font-medium'
+                        }`}
+                        data-testid="attempts-count"
+                      >
+                        {attemptsInfo.primaryText}
+                      </span>
+                      {attemptsInfo.secondaryText && (
+                        <span
+                          className={`text-[10px] whitespace-nowrap ${
+                            event.status === 'RETRYING' ? 'text-amber-700 font-medium' : 'text-zinc-500'
+                          }`}
+                          data-testid="attempts-stop-reason"
+                        >
+                          {attemptsInfo.secondaryText}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </span>
+              </div>
+            );
+          })()}
+          {/* Signature row only for delivered or delivery failed (!isRejected && event.status !== 'PENDING') */}
+          {(event.status === 'DELIVERED' || (!isRejected && event.status !== 'PENDING')) && (
+            <div>
+              <span className="text-zinc-500 font-medium">
+                {event.verification_kind === 'static_token' || event.provider?.toLowerCase() === 'xendit' ? 'Token:' : 'Signature:'}
+              </span>
+              <span className="ml-2">
+                {event.is_verified === 1 ? (
+                  <span className="inline-flex items-center gap-1 text-emerald-700 font-semibold">
+                    <ShieldCheck className="w-3.5 h-3.5" /> Valid
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-zinc-500">
+                    <ShieldOff className="w-3.5 h-3.5" /> Dilewati
+                  </span>
+                )}
+              </span>
+            </div>
+          )}
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="flex border-b border-[#e4e4e7] bg-[#fafafa] px-3 gap-1">
-          <button
-            type="button"
-            onClick={() => setActiveTab('log')}
-            className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
-              activeTab === 'log'
-                ? 'border-[#18181b] text-[#18181b] font-bold'
-                : 'border-transparent text-[#52525b] hover:text-[#18181b]'
-            }`}
-            aria-selected={activeTab === 'log'}
-          >
-            Delivery Log & Analisis
-          </button>
+        {/* 4. Sticky Navigation Tabs (Payload Data | Headers) */}
+        <div className="sticky top-0 bg-zinc-50 z-10 flex border-b border-zinc-200 px-3 gap-1">
           <button
             type="button"
             onClick={() => setActiveTab('payload')}
             className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
               activeTab === 'payload'
-                ? 'border-[#18181b] text-[#18181b] font-bold'
-                : 'border-transparent text-[#52525b] hover:text-[#18181b]'
+                ? 'border-zinc-900 text-zinc-900 font-bold'
+                : 'border-transparent text-zinc-500 hover:text-zinc-900'
             }`}
             aria-selected={activeTab === 'payload'}
           >
@@ -335,8 +632,8 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
             onClick={() => setActiveTab('headers')}
             className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
               activeTab === 'headers'
-                ? 'border-[#18181b] text-[#18181b] font-bold'
-                : 'border-transparent text-[#52525b] hover:text-[#18181b]'
+                ? 'border-zinc-900 text-zinc-900 font-bold'
+                : 'border-transparent text-zinc-500 hover:text-zinc-900'
             }`}
             aria-selected={activeTab === 'headers'}
           >
@@ -345,102 +642,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
         </div>
 
         {/* Tab Body */}
-        <div className="flex-1 overflow-auto p-4 bg-white space-y-4">
-          {activeTab === 'log' && (
-            <div className="space-y-4">
-              {/* Section: Kenapa Gagal? */}
-              <div className="p-3.5 bg-[#fafafa] border border-[#e4e4e7] rounded-lg space-y-2.5">
-                <div className="flex items-center gap-2">
-                  <HelpCircle className="w-4 h-4 text-[#18181b] shrink-0" />
-                  <h4 className="text-xs font-bold text-[#18181b]">
-                    Kenapa Gagal? ({errorAnalysis.title})
-                  </h4>
-                </div>
-                <p className="text-xs text-[#52525b] leading-relaxed">
-                  {errorAnalysis.summary}
-                </p>
-                <div className="pt-2 border-t border-[#e4e4e7]/60">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-[#52525b]">
-                    Langkah Perbaikan yang Disarankan:
-                  </span>
-                  <ul className="mt-1.5 space-y-1.5 text-xs text-[#18181b]">
-                    {errorAnalysis.advice.map((item, idx) => (
-                      <li key={idx} className="flex items-start gap-2">
-                        <span className="font-bold text-[#52525b] shrink-0">{idx + 1}.</span>
-                        <span className="leading-relaxed">{item}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-
-              {/* Delivery History */}
-              <div className="space-y-3">
-                <div className="text-xs font-semibold text-[#18181b] pb-1 flex items-center justify-between border-b border-[#f4f4f5]">
-                  <span>Riwayat Percobaan Pengiriman</span>
-                  <span className="font-mono text-[#52525b] text-[11px] font-normal">
-                    {event.attempts} kali dicoba
-                  </span>
-                </div>
-
-                <div className="relative pl-5 border-l-2 border-[#e4e4e7] space-y-4 ml-2">
-                  {event.delivery_log && event.delivery_log.length > 0 ? (
-                    event.delivery_log.slice().reverse().map((log, idx) => {
-                      const isOk = log.code >= 200 && log.code < 300;
-                      return (
-                        <div key={idx} className="relative text-xs">
-                          <span
-                            className={`absolute -left-[27px] top-1 w-3 h-3 rounded-full border-2 border-white ${
-                              isOk ? 'bg-emerald-500' : 'bg-rose-500'
-                            }`}
-                          />
-                          <div className="font-semibold text-[#18181b] flex items-center justify-between">
-                            <span>Percobaan ke-{log.attempt}</span>
-                            <span className="font-mono text-[#52525b] text-[11px]">
-                              {formatAbsoluteTime(log.t)}
-                            </span>
-                          </div>
-                          <div className="text-[11px] text-[#52525b] mt-0.5">
-                            Status:{' '}
-                            <span className={`font-mono font-medium ${isOk ? 'text-emerald-700' : 'text-rose-700'}`}>
-                              {log.code ? `HTTP ${log.code}` : 'Connection Timeout'}
-                            </span>
-                            {' '}· Durasi: <span className="font-mono">{log.ms} ms</span>
-                          </div>
-                          {log.err && (
-                            <div className="mt-1.5 p-2 bg-rose-50 border border-rose-200 rounded text-rose-700 font-mono text-[11px] break-all select-text">
-                              {log.err}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <div className="text-xs text-[#52525b] py-2">
-                      {isInvalidSignature ? (
-                        <div className="p-2.5 bg-rose-50/70 border border-rose-200/80 rounded text-rose-900 leading-relaxed">
-                          Tidak ada request downstream yang dikirim. Webhook ditolak di gerbang verifikasi signature RelayGate untuk mencegah transmisi payload yang tidak sah.
-                        </div>
-                      ) : (
-                        'Event belum memiliki riwayat pengiriman downstream.'
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {event.status === 'RETRYING' && event.next_retry_at && (
-                  <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 flex items-center gap-2">
-                    <Clock className="w-4 h-4 shrink-0 text-amber-600" />
-                    <span>
-                      Jadwal pengiriman ulang berikutnya:{' '}
-                      <b className="font-mono">{formatAbsoluteTime(event.next_retry_at)}</b>
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
+        <div className="flex-1 overflow-auto p-4 bg-white">
           {activeTab === 'payload' && (
             <JsonViewer
               jsonString={formattedPayload()}
@@ -453,40 +655,108 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
           {activeTab === 'headers' && (
             <div className="space-y-2">
               <div className="flex items-center justify-between pb-1">
-                <span className="text-xs text-[#52525b] font-medium">HTTP Request Headers</span>
+                <span className="text-xs text-zinc-500 font-medium">HTTP Request Headers</span>
                 <button
                   type="button"
                   onClick={() => {
                     const str = Object.entries(event.headers || {})
-                      .map(([k, v]) => `${k}: ${v}`)
+                      .map(([k, v]) => {
+                        const val = isSensitiveHeader(k) && !unmaskedHeaders.has(k) ? '<TOKEN>' : (revealedHeaders[k] || v);
+                        return `${k}: ${val}`;
+                      })
                       .join('\n');
                     copyToClipboard(str, 'Semua Headers');
                   }}
-                  className="px-2 py-1 text-[11px] font-medium bg-[#f4f4f5] hover:bg-[#e4e4e7] text-[#18181b] rounded transition-colors flex items-center gap-1"
+                  className="px-2 py-1 text-[11px] font-medium bg-zinc-100 hover:bg-zinc-200 text-zinc-900 rounded transition-colors flex items-center gap-1"
                 >
                   {copiedKey === 'Semua Headers' ? (
                     <>
-                      <Check className="w-3 h-3 text-emerald-600" />
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
                       <span className="text-emerald-700">Disalin!</span>
                     </>
                   ) : (
                     <>
-                      <Copy className="w-3 h-3 text-[#71717a]" />
+                      <Copy className="w-3.5 h-3.5 text-zinc-500" />
                       <span>Salin Semua</span>
                     </>
                   )}
                 </button>
               </div>
-              <div className="divide-y divide-[#f4f4f5] border border-[#e4e4e7] rounded-lg overflow-hidden bg-[#fafafa]">
+              <div className="divide-y divide-zinc-100 border border-zinc-200 rounded-lg overflow-hidden bg-zinc-50">
                 {Object.entries(event.headers || {}).length > 0 ? (
-                  Object.entries(event.headers || {}).map(([key, val]) => (
-                    <div key={key} className="p-2.5 text-xs flex flex-col gap-0.5 hover:bg-white transition-colors">
-                      <span className="font-mono font-semibold text-[#52525b] text-[11px]">{key}</span>
-                      <span className="font-mono text-[#18181b] break-all select-text">{val}</span>
-                    </div>
-                  ))
+                  Object.entries(event.headers || {}).map(([key, val]) => {
+                    const sensitive = isSensitiveHeader(key);
+                    const isUnmasked = unmaskedHeaders.has(key);
+                    const rawVal = revealedHeaders[key] || val;
+                    const displayVal = sensitive && !isUnmasked ? '••••••••••••••••••••••••••••••••' : rawVal;
+
+                    return (
+                      <div key={key} className="p-2.5 text-xs flex flex-col gap-1 hover:bg-white transition-colors">
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono font-semibold text-zinc-500 text-[11px] flex items-center gap-1.5">
+                            <span>{key}</span>
+                            {sensitive && (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 uppercase">
+                                Sensitif
+                              </span>
+                            )}
+                          </span>
+                          {sensitive && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (unmaskedHeaders.has(key)) {
+                                  setUnmaskedHeaders((prev) => {
+                                    const next = new Set(prev);
+                                    next.delete(key);
+                                    return next;
+                                  });
+                                } else {
+                                  if (!revealedHeaders[key]) {
+                                    try {
+                                      const detail = await fetchEvent(event.id, true);
+                                      if (detail && detail.headers) {
+                                        setRevealedHeaders(detail.headers);
+                                      }
+                                    } catch {}
+                                  }
+                                  setUnmaskedHeaders((prev) => {
+                                    const next = new Set(prev);
+                                    next.add(key);
+                                    return next;
+                                  });
+                                }
+                              }}
+                              className="inline-flex items-center gap-1 text-[11px] font-medium text-zinc-600 hover:text-zinc-900 px-1.5 py-0.5 rounded hover:bg-zinc-200 transition-colors"
+                              aria-label={isUnmasked ? `Sembunyikan ${key}` : `Tampilkan ${key}`}
+                            >
+                              {isUnmasked ? (
+                                <>
+                                  <EyeOff className="w-3 h-3 text-zinc-500" />
+                                  <span>Sembunyikan</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Eye className="w-3 h-3 text-zinc-500" />
+                                  <span>Tampilkan</span>
+                                </>
+                              )}
+                            </button>
+                          )}
+                        </div>
+                        <span
+                          className={`font-mono select-text text-xs ${
+                            sensitive && !isUnmasked ? 'text-zinc-400 tracking-widest' : 'text-zinc-900'
+                          }`}
+                          style={{ overflowWrap: 'anywhere' }}
+                        >
+                          {displayVal}
+                        </span>
+                      </div>
+                    );
+                  })
                 ) : (
-                  <div className="p-4 text-center text-xs text-[#71717a]">
+                  <div className="p-4 text-center text-xs text-zinc-500">
                     Tidak ada headers yang terdata.
                   </div>
                 )}
@@ -496,34 +766,34 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
         </div>
       </div>
 
-      {/* Invalid Signature Replay Confirmation Modal */}
-      {showInvalidReplayConfirm && (
+      {/* Re-verify & Replay Confirmation Modal */}
+      {showReverifyConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-xs">
-          <div className="w-full max-w-sm bg-white border border-[#e4e4e7] rounded-xl p-5 shadow-xl animate-in fade-in zoom-in-95 duration-150">
+          <div className="w-full max-w-sm bg-white border border-zinc-200 rounded-xl p-5 shadow-xl animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center gap-2.5 mb-2">
-              <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
-              <h3 className="text-sm font-bold text-[#18181b]">
-                Peringatan: Signature Tidak Valid
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+              <h3 className="text-sm font-bold text-zinc-900">
+                Konfirmasi Verifikasi Ulang
               </h3>
             </div>
-            <p className="text-xs text-[#52525b] mb-4 leading-relaxed">
-              Event ini memiliki signature kriptografis yang tidak cocok dengan secret endpoint.
-              Replay hampir pasti akan gagal kembali kecuali konfigurasi secret key pada endpoint telah diperbarui.
+            <p className="text-xs text-zinc-600 mb-4 leading-relaxed">
+              Verifikasi akan dijalankan ulang terhadap konfigurasi secret endpoint saat ini.
+              Jika konfigurasi belum diperbaiki, event tetap ditolak.
             </p>
             <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setShowInvalidReplayConfirm(false)}
-                className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-[#f4f4f5] border border-[#e4e4e7] text-[#18181b] rounded-lg transition-colors"
+                onClick={() => setShowReverifyConfirm(false)}
+                className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-zinc-100 border border-zinc-200 text-zinc-900 rounded-lg transition-colors"
               >
                 Batal
               </button>
               <button
                 type="button"
-                onClick={handleConfirmInvalidReplay}
-                className="px-3.5 py-1.5 text-xs font-semibold bg-rose-700 hover:bg-rose-800 text-white rounded-lg transition-colors shadow-xs"
+                onClick={triggerReplayAction}
+                className="px-3.5 py-1.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg transition-colors shadow-xs"
               >
-                Tetap Replay
+                Verifikasi Ulang & Kirim
               </button>
             </div>
           </div>

@@ -2,6 +2,7 @@ package storage_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -418,22 +419,40 @@ func TestStorage_ListEventsAndStats(t *testing.T) {
 		LastError:  "max retries exceeded",
 	})
 
+	// Insert pending
+	_ = db.SaveEvent(ctx, &model.WebhookEvent{
+		ID:         "e-pending",
+		EndpointID: ep.ID,
+		Provider:   model.ProviderGeneric,
+		SourceIP:   "4.4.4.4",
+		Headers:    map[string]string{},
+		Payload:    []byte(`{"payment":"queued"}`),
+		Status:     model.StatusPending,
+	})
+
 	// 1. Stats test
 	stats, err := db.GetStats(ctx)
 	if err != nil {
 		t.Fatalf("GetStats failed: %v", err)
 	}
-	if stats.TotalEvents != 3 {
-		t.Errorf("expected 3 total events, got %d", stats.TotalEvents)
+	if stats.TotalEvents != 4 {
+		t.Errorf("expected 4 total events, got %d", stats.TotalEvents)
 	}
 	if stats.DeliveredEvents != 1 {
 		t.Errorf("expected 1 delivered, got %d", stats.DeliveredEvents)
+	}
+	if stats.PendingEvents != 1 {
+		t.Errorf("expected 1 pending, got %d", stats.PendingEvents)
 	}
 	if stats.RetryingEvents != 1 {
 		t.Errorf("expected 1 retrying, got %d", stats.RetryingEvents)
 	}
 	if stats.FailedEvents != 1 {
 		t.Errorf("expected 1 failed, got %d", stats.FailedEvents)
+	}
+	if stats.DeliveredEvents+stats.PendingEvents+stats.RetryingEvents+stats.FailedEvents != stats.TotalEvents {
+		t.Errorf("expected sum of status counts to equal TotalEvents (%d), got %d",
+			stats.TotalEvents, stats.DeliveredEvents+stats.PendingEvents+stats.RetryingEvents+stats.FailedEvents)
 	}
 
 	// 2. Filter by status
@@ -688,6 +707,109 @@ func TestStorage_EmailVerificationOperations(t *testing.T) {
 	_, err = db.GetEmailVerification(ctx, "user@example.com")
 	if err == nil {
 		t.Errorf("expected error after deleting verification, got nil")
+	}
+
+	// 6. Verify email verification default max_attempts is independent of webhook DefaultMaxAttempts
+	origWebhookMax := model.DefaultMaxAttempts
+	defer func() {
+		model.DefaultMaxAttempts = origWebhookMax
+	}()
+	model.DefaultMaxAttempts = 9
+
+	vDefault := &model.EmailVerification{
+		Email:        "indep@example.com",
+		Name:         "Independent User",
+		PasswordHash: "hashedpass",
+		Code:         "999888",
+		Attempts:     0,
+		MaxAttempts:  0,
+	}
+	if err := db.SaveEmailVerification(ctx, vDefault); err != nil {
+		t.Fatalf("SaveEmailVerification failed: %v", err)
+	}
+	fetchedIndep, err := db.GetEmailVerification(ctx, "indep@example.com")
+	if err != nil {
+		t.Fatalf("GetEmailVerification failed: %v", err)
+	}
+	if fetchedIndep.MaxAttempts != model.DefaultVerificationMaxAttempts || fetchedIndep.MaxAttempts == model.DefaultMaxAttempts {
+		t.Errorf("expected email verification MaxAttempts to remain %d when DefaultMaxAttempts=%d, got %d", model.DefaultVerificationMaxAttempts, model.DefaultMaxAttempts, fetchedIndep.MaxAttempts)
+	}
+}
+
+func TestStorage_SessionAndAuditRevealOperations(t *testing.T) {
+	db, cleanup := createTempDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// 1. Test Session CRUD
+	sess := &model.Session{
+		Token:     "test_token_12345",
+		UserID:    "usr_admin",
+		UserEmail: "admin@relaygate.local",
+		Role:      "admin",
+		ExpiresAt: time.Now().UTC().Add(1 * time.Hour),
+		CreatedAt: time.Now().UTC(),
+	}
+
+	if err := db.SaveSession(ctx, sess); err != nil {
+		t.Fatalf("SaveSession failed: %v", err)
+	}
+
+	fetchedSess, err := db.GetSession(ctx, "test_token_12345")
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
+	}
+	if fetchedSess.UserID != "usr_admin" || fetchedSess.Role != "admin" {
+		t.Errorf("expected user_id=usr_admin, role=admin, got id=%s, role=%s", fetchedSess.UserID, fetchedSess.Role)
+	}
+
+	// Verify raw token is NOT stored in database plaintext, but rather as SHA-256 hash
+	expectedHash := fmt.Sprintf("%x", sha256.Sum256([]byte("test_token_12345")))
+	var dbHash string
+	if err := db.RawDB().QueryRowContext(ctx, "SELECT token_hash FROM sessions WHERE user_id = ?;", "usr_admin").Scan(&dbHash); err != nil {
+		t.Fatalf("failed to query sessions table directly: %v", err)
+	}
+	if dbHash != expectedHash {
+		t.Errorf("expected token_hash in DB to be %s, got %s", expectedHash, dbHash)
+	}
+
+	// 2. Test Audit Reveal
+	audit := &model.AuditReveal{
+		ID:                  "audit_1",
+		EventID:             "ev_test_1",
+		UserID:              "usr_admin",
+		UserEmail:           "admin@relaygate.local",
+		RevealedHeaderNames: "Authorization,Cookie,X-Api-Key",
+		IPAddress:           "127.0.0.1",
+		CreatedAt:           time.Now().UTC(),
+	}
+
+	if err := db.SaveAuditReveal(ctx, audit); err != nil {
+		t.Fatalf("SaveAuditReveal failed: %v", err)
+	}
+
+	reveals, err := db.ListAuditReveals(ctx, "ev_test_1")
+	if err != nil {
+		t.Fatalf("ListAuditReveals failed: %v", err)
+	}
+	if len(reveals) != 1 {
+		t.Fatalf("expected 1 audit reveal, got %d", len(reveals))
+	}
+	if reveals[0].RevealedHeaderNames != "Authorization,Cookie,X-Api-Key" {
+		t.Errorf("unexpected revealed headers: %s", reveals[0].RevealedHeaderNames)
+	}
+	if reveals[0].UserEmail != "admin@relaygate.local" {
+		t.Errorf("expected user_email admin@relaygate.local, got %s", reveals[0].UserEmail)
+	}
+
+	// 3. Test Session Deletion
+	if err := db.DeleteSession(ctx, "test_token_12345"); err != nil {
+		t.Fatalf("DeleteSession failed: %v", err)
+	}
+	_, err = db.GetSession(ctx, "test_token_12345")
+	if err == nil {
+		t.Errorf("expected error after deleting session, got nil")
 	}
 }
 
