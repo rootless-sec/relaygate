@@ -29,6 +29,9 @@ Thumbs.db
 # Test & verification artifacts
 *.mjs
 *.png
+!ui/public/*.png
+!ui/dist/*.png
+!screenshots/*.png
 .edge_*
 .temp_chrome_profile/
 e2e-output/

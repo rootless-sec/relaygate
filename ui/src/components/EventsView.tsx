@@ -788,10 +788,14 @@ export const EventsView: React.FC<EventsViewProps> = ({
                   <div className="flex flex-col items-center justify-center gap-2">
                     <Inbox className="w-7 h-7 text-zinc-400" />
                     <p className="text-sm font-medium text-zinc-800">
-                      Tidak ada event yang cocok dengan filter.
+                      {events.length === 0
+                        ? 'Belum ada webhook event'
+                        : 'Tidak ada event yang cocok dengan filter.'}
                     </p>
                     <p className="text-xs text-zinc-500">
-                      Coba ubah kata kunci pencarian atau reset filter.
+                      {events.length === 0
+                        ? 'Kirimkan webhook ke rute endpoint untuk mulai memonitor payload.'
+                        : 'Coba ubah kata kunci pencarian atau reset filter.'}
                     </p>
                     {activeFilterCount > 0 && (
                       <button
