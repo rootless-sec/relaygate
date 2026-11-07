@@ -1662,67 +1662,13 @@ code, kbd, pre, .mono, .font-mono {
   }
 }
 
-/* Interactive Webhook Routing Pipeline Animations */
-@keyframes rg-flow-dash {
-  to {
-    stroke-dashoffset: -24;
-  }
-}
-
-.rg-flow-wire {
-  stroke-dasharray: 6 6;
-  animation: rg-flow-dash 1.2s linear infinite;
-}
-
-@keyframes rg-node-glow {
-  0%, 100% {
-    box-shadow: 0 0 0 0 rgba(24, 24, 27, 0.08);
-  }
-  50% {
-    box-shadow: 0 0 0 6px rgba(24, 24, 27, 0.04);
-  }
-}
-
-@keyframes rg-packet-travel-h {
-  0% {
-    transform: translateX(0px);
-    opacity: 0;
-  }
-  15% {
-    opacity: 1;
-  }
-  85% {
-    opacity: 1;
-  }
-  100% {
-    transform: translateX(64px);
-    opacity: 0;
-  }
-}
-
-.rg-packet-ping {
-  animation: rg-packet-travel-h 0.85s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-}
-
-@keyframes rg-packet-travel-v {
-  0% {
-    transform: translateY(0px);
-    opacity: 0;
-  }
-  15% {
-    opacity: 1;
-  }
-  85% {
-    opacity: 1;
-  }
-  100% {
-    transform: translateY(28px);
-    opacity: 0;
-  }
-}
-
-.rg-packet-ping-v {
-  animation: rg-packet-travel-v 0.85s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+/* Clean Dashboard Window Preview live engine badge */
+.rg-engine-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background-color: rgb(16, 185, 129);
+  display: inline-block;
 }
 
 @media (prefers-reduced-motion: reduce) {

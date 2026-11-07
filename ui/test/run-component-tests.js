@@ -2138,14 +2138,14 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(html, /polygon\s+points="12\s+2\.5\s+20\.2\s+7\.25\s+20\.2\s+16\.75\s+12\s+21\.5\s+3\.8\s+16\.75\s+3\.8\s+7\.25"/, 'Must render authentic polygon hexagon geometry');
     assert.match(html, /circle\s+cx="12"\s+cy="12"\s+r="3\.5"/, 'Must render centered circle core');
 
-    // 3. Interactive Webhook Routing Pipeline centerpiece & removal of casino roulette
+    // 3. Clean Dashboard Window Preview centerpiece & removal of casino roulette
     assert.doesNotMatch(html, /hero-roulette\.webp/, 'Must NOT reference casino roulette image');
-    assert.match(html, /data-testid="webhook-pipeline"/, 'Must render interactive Webhook Routing Pipeline centerpiece');
-    assert.match(html, /data-testid="send-test-webhook"/, 'Must render Send Test Webhook interactive trigger');
-    assert.match(html, /src="\/dashboard-preview\.png"/, 'Must render real RelayGate dashboard preview screenshot');
+    assert.match(html, /data-testid="dashboard-window-preview"/, 'Must render clean Dashboard Window Preview centerpiece');
+    assert.match(html, /http:\/\/127\.0\.0\.1:8080\/dashboard/, 'Must render local dashboard address bar');
+    assert.match(html, /src="\/shots\/dashboard\.png"/, 'Must render real RelayGate dashboard preview screenshot');
 
-    const dashboardAssetPath = path.join(__dirname, '../public/dashboard-preview.png');
-    assert.ok(fs.existsSync(dashboardAssetPath), 'ui/public/dashboard-preview.png must exist on disk');
+    const dashboardAssetPath = path.join(__dirname, '../public/shots/dashboard.png');
+    assert.ok(fs.existsSync(dashboardAssetPath), 'ui/public/shots/dashboard.png must exist on disk');
 
     // 4. Optical White Canvas theme verification
     assert.match(html, /bg-white/, 'Must render white background canvas');
@@ -2195,9 +2195,10 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     const tailwindSource = fs.readFileSync(path.join(__dirname, '../tailwind.config.js'), 'utf8');
     assert.doesNotMatch(tailwindSource, /casino:/, 'tailwind.config.js must NOT contain casino palette');
 
-    // 8. Fluid packet ping animations
-    assert.match(landingSource, /rg-packet-ping/, 'LandingPage must include desktop packet ping pulse');
-    assert.match(landingSource, /rg-packet-ping-v/, 'LandingPage must include mobile vertical packet ping pulse');
+    // 8. Zero packet ping animations & solid 60 FPS performance
+    assert.doesNotMatch(landingSource, /rg-packet-ping/, 'LandingPage must NOT include desktop packet ping pulse');
+    assert.doesNotMatch(landingSource, /rg-packet-ping-v/, 'LandingPage must NOT include mobile vertical packet ping pulse');
+    assert.match(landingSource, /ProductDashboardPreview/, 'LandingPage must include ProductDashboardPreview');
 
     // 9. Zero-fluff authentic engineering assertions (no marketing overclaim)
     assert.match(html, />Webhook gateway<\/span>/, 'Top pill must say "Webhook gateway" without buzzword fluff');
