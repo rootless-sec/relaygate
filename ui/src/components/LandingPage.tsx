@@ -599,7 +599,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
         </header>
 
         {mobileMenuOpen && (
-          <div className="md:hidden relative z-30 mx-6 mb-4 p-4 rounded-xl bg-white border border-zinc-200 space-y-3 shadow-sm">
+          <div className="md:hidden relative z-30 mx-4 sm:mx-6 mb-4 p-4 rounded-xl bg-white border border-zinc-200 space-y-3 shadow-sm">
             <nav aria-label="Mobile navigation" className="flex flex-col space-y-1">
               {[
                 { label: 'Engine', id: 'native' },
@@ -647,7 +647,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
         )}
 
         {/* Hero Copy Stack */}
-        <section id="top" className="relative z-20 max-w-[920px] mx-auto px-6 pt-8 sm:pt-10 pb-6 text-center flex flex-col items-center">
+        <section id="top" className="relative z-20 max-w-[920px] mx-auto px-4 sm:px-6 pt-8 sm:pt-10 pb-6 text-center flex flex-col items-center">
           <button
             type="button"
             onClick={() => scrollToSection('native')}

@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   Webhook,
   ArrowLeft,
+  Menu,
 } from 'lucide-react';
 import { LoginPage } from './components/LoginPage';
 import { LandingPage } from './components/LandingPage';
@@ -56,6 +57,7 @@ export const App: React.FC = () => {
   });
 
   const [sessionExpiredMessage, setSessionExpiredMessage] = useState<string | null>(null);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
     try {
       const stored = localStorage.getItem('relaygate_auth');
@@ -79,7 +81,10 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const handleExpired = (e: any) => {
-      const msg = e?.detail?.message || 'Sesi berakhir';
+      const rawMsg = e?.detail?.message;
+      const msg = rawMsg && !/sesi berakhir/i.test(rawMsg)
+        ? rawMsg
+        : 'Sesi Anda telah berakhir demi keamanan. Silakan masuk kembali.';
       setUserEmail(null);
       setCurrentUser(null);
       setShowProfileModal(false);
@@ -416,14 +421,14 @@ export const App: React.FC = () => {
 
     return (
       <div className="relative min-h-dvh">
-        <div className="fixed top-4 left-4 z-50">
+        <div className="fixed top-4 left-4 z-50 pt-[env(safe-area-inset-top,0px)] pl-[env(safe-area-inset-left,0px)]">
           <button
             type="button"
             onClick={() => {
               setShowAuthView(false);
               setSessionExpiredMessage(null);
             }}
-            className="min-h-[40px] px-3.5 py-2 rounded-lg border border-zinc-200 bg-white/95 hover:bg-zinc-100 active:scale-[0.97] text-zinc-800 text-xs font-medium shadow-xs inline-flex items-center gap-1.5 transition-transform cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
+            className="min-h-[44px] px-3.5 py-2 rounded-lg border border-zinc-200 bg-white/95 hover:bg-zinc-100 active:scale-[0.97] text-zinc-800 text-xs font-medium shadow-xs inline-flex items-center gap-1.5 transition-transform cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 backdrop-blur-xs"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>Kembali ke Beranda</span>
@@ -436,7 +441,8 @@ export const App: React.FC = () => {
             setUserEmail(email);
             fetchProfile().then((p) => setCurrentUser(p)).catch(() => {});
           }}
-          initialError={sessionExpiredMessage}
+          sessionNotice={sessionExpiredMessage}
+          onDismissNotice={() => setSessionExpiredMessage(null)}
         />
       </div>
     );
@@ -503,15 +509,25 @@ export const App: React.FC = () => {
           handleTabChange('events');
           setTimeout(() => searchInputRef.current?.focus(), 60);
         }}
+        isMobileOpen={mobileSidebarOpen}
+        onCloseMobile={() => setMobileSidebarOpen(false)}
       />
 
       {/* Main Content Canvas */}
       <main className="flex-1 flex flex-col min-w-0 min-h-0 relative overflow-hidden bg-white">
         {/* Top 56px Breadcrumb Header Bar (Navattic Pattern: "Section / [Active View v]") */}
-        <header className="h-14 border-b border-zinc-200/80 flex items-center justify-between px-4 lg:px-7 gap-3 shrink-0 bg-white select-none">
-          <div className="flex items-center gap-2.5 min-w-0 text-xs">
-            <span className="text-zinc-500 font-medium">{activeBreadcrumb.group}</span>
-            <span className="text-zinc-300">/</span>
+        <header className="h-14 border-b border-zinc-200/80 flex items-center justify-between px-3 sm:px-4 lg:px-7 gap-2 sm:gap-3 shrink-0 bg-white select-none">
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 text-xs">
+            <button
+              type="button"
+              onClick={() => setMobileSidebarOpen(true)}
+              className="md:hidden size-8 -ml-1 rounded-md border border-zinc-200/90 bg-white hover:bg-zinc-50 active:scale-[0.97] flex items-center justify-center text-zinc-700 shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 shadow-2xs"
+              aria-label="Buka menu navigasi"
+            >
+              <Menu className="w-4 h-4" />
+            </button>
+            <span className="text-zinc-500 font-medium hidden sm:inline">{activeBreadcrumb.group}</span>
+            <span className="text-zinc-300 hidden sm:inline">/</span>
 
             {/* Navattic View Selector Pill */}
             <div className="relative inline-flex items-center shrink-0">

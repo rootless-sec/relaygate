@@ -1,16 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Eye, EyeOff, Lock, Mail, ArrowRight, User, AlertCircle } from 'lucide-react';
+import { Eye, EyeOff, Lock, Mail, ArrowRight, User, AlertCircle, Clock, X } from 'lucide-react';
 import { loginUser, registerUser, verifyRegistrationCode, resendVerificationCode } from '../api';
 import { RelayGateLogo } from './RelayGateLogo';
 
 interface LoginPageProps {
   onLoginSuccess: (email: string) => void;
   initialError?: string | null;
+  sessionNotice?: string | null;
+  onDismissNotice?: () => void;
 }
 
 type AuthMode = 'login' | 'register' | 'verify';
 
-export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialError }) => {
+export const LoginPage: React.FC<LoginPageProps> = ({
+  onLoginSuccess,
+  initialError,
+  sessionNotice,
+  onDismissNotice,
+}) => {
   const [mode, setMode] = useState<AuthMode>('login');
 
   // Form states
@@ -29,13 +36,39 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialErr
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(initialError || null);
+
+  // Separate session state notice from form submission errors
+  const [sessionNoticeState, setSessionNoticeState] = useState<string | null>(() => {
+    if (sessionNotice) return sessionNotice;
+    if (initialError && /sesi|session/i.test(initialError)) {
+      return 'Sesi Anda telah berakhir demi keamanan. Silakan masuk kembali.';
+    }
+    return null;
+  });
+
+  const [error, setError] = useState<string | null>(() => {
+    if (initialError && !/sesi|session/i.test(initialError)) {
+      return initialError;
+    }
+    return null;
+  });
 
   useEffect(() => {
-    if (initialError) {
-      setError(initialError);
+    if (sessionNotice) {
+      setSessionNoticeState(sessionNotice);
+    } else if (initialError) {
+      if (/sesi|session/i.test(initialError)) {
+        setSessionNoticeState('Sesi Anda telah berakhir demi keamanan. Silakan masuk kembali.');
+      } else {
+        setError(initialError);
+      }
     }
-  }, [initialError]);
+  }, [sessionNotice, initialError]);
+
+  const handleDismissNotice = () => {
+    setSessionNoticeState(null);
+    onDismissNotice?.();
+  };
 
   // Countdown timer for resend OTP
   useEffect(() => {
@@ -240,11 +273,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialErr
   };
 
   return (
-    <div className="min-h-screen bg-zinc-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-sm bg-white border border-zinc-200 rounded-xl p-8 shadow-sm">
+    <div className="min-h-dvh bg-zinc-50 flex items-center justify-center p-4 sm:p-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] px-[max(1rem,env(safe-area-inset-left))]">
+      <div className="w-full max-w-sm mx-auto bg-white border border-zinc-200 rounded-xl p-5 sm:p-8 shadow-sm">
         {/* Header with Authentic Brand Mark */}
-        <div className="flex flex-col items-center text-center mb-6">
-          <div className="flex items-center justify-center mb-4">
+        <div className="flex flex-col items-center text-center mb-5 sm:mb-6">
+          <div className="flex items-center justify-center mb-3 sm:mb-4">
             <RelayGateLogo height={32} className="text-zinc-950" />
           </div>
           {mode === 'login' ? (
@@ -280,13 +313,35 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialErr
           )}
         </div>
 
+        {/* Polished Session State Notification Banner */}
+        {sessionNoticeState && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="mb-5 p-3 rounded-lg bg-amber-50/90 border border-amber-200/90 text-amber-950 flex items-start gap-2.5 shadow-2xs animate-in"
+          >
+            <Clock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+            <div className="flex-1 text-xs leading-relaxed font-medium">
+              {sessionNoticeState}
+            </div>
+            <button
+              type="button"
+              onClick={handleDismissNotice}
+              className="text-amber-800/70 hover:text-amber-950 p-1 -mr-1 -mt-0.5 rounded transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-500 cursor-pointer min-h-[24px] min-w-[24px] flex items-center justify-center"
+              aria-label="Tutup pemberitahuan"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
         {/* Tab Toggle (only visible in login or register mode) */}
         {mode !== 'verify' && (
           <div className="flex p-1 bg-zinc-100 rounded-lg mb-5 border border-zinc-200">
             <button
               type="button"
               onClick={() => switchMode('login')}
-              className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${
+              className={`flex-1 min-h-[44px] sm:min-h-[38px] py-2 px-3 text-xs font-semibold rounded-md transition-all cursor-pointer ${
                 mode === 'login'
                   ? 'bg-white text-zinc-900 shadow-xs'
                   : 'text-zinc-500 hover:text-zinc-900'
@@ -297,7 +352,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialErr
             <button
               type="button"
               onClick={() => switchMode('register')}
-              className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${
+              className={`flex-1 min-h-[44px] sm:min-h-[38px] py-2 px-3 text-xs font-semibold rounded-md transition-all cursor-pointer ${
                 mode === 'register'
                   ? 'bg-white text-zinc-900 shadow-xs'
                   : 'text-zinc-500 hover:text-zinc-900'
@@ -326,7 +381,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialErr
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="nama@perusahaan.com"
-                  className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors"
+                  className="w-full pl-9 pr-3 py-2.5 sm:py-2 min-h-[44px] text-base sm:text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors"
                   autoFocus
                 />
               </div>
@@ -343,7 +398,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialErr
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center gap-1"
+                  className="min-h-[36px] px-2 py-1 -mr-2 text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center gap-1 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-900 rounded"
                 >
                   {showPassword ? (
                     <>
@@ -364,7 +419,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialErr
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full pl-9 pr-10 py-2 text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors font-mono"
+                  className="w-full pl-9 pr-10 py-2.5 sm:py-2 min-h-[44px] text-base sm:text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors font-mono"
                 />
               </div>
             </div>
@@ -379,7 +434,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialErr
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 px-4 bg-zinc-900 hover:bg-zinc-800 text-white text-sm font-semibold rounded-lg shadow-sm disabled:opacity-60 transition-all flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-zinc-900"
+              className="w-full min-h-[44px] py-2.5 px-4 bg-zinc-900 hover:bg-zinc-800 active:scale-[0.98] text-white text-sm font-semibold rounded-lg shadow-sm disabled:opacity-60 transition-all flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-zinc-900 cursor-pointer"
             >
               {loading ? (
                 <span className="flex items-center gap-2">
@@ -411,7 +466,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialErr
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="cth. John Doe atau johndoe"
-                  className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors"
+                  className="w-full pl-9 pr-3 py-2.5 sm:py-2 min-h-[44px] text-base sm:text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors"
                   autoFocus
                 />
               </div>
@@ -432,7 +487,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialErr
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="nama@perusahaan.com"
-                  className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors"
+                  className="w-full pl-9 pr-3 py-2.5 sm:py-2 min-h-[44px] text-base sm:text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors"
                 />
               </div>
             </div>
@@ -448,7 +503,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialErr
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center gap-1"
+                  className="min-h-[36px] px-2 py-1 -mr-2 text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center gap-1 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-900 rounded"
                 >
                   {showPassword ? (
                     <>
@@ -469,7 +524,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialErr
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Minimal 6 karakter"
-                  className="w-full pl-9 pr-10 py-2 text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors font-mono"
+                  className="w-full pl-9 pr-10 py-2.5 sm:py-2 min-h-[44px] text-base sm:text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors font-mono"
                 />
               </div>
             </div>
@@ -485,7 +540,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialErr
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center gap-1"
+                  className="min-h-[36px] px-2 py-1 -mr-2 text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center gap-1 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-900 rounded"
                 >
                   {showConfirmPassword ? (
                     <>
@@ -506,7 +561,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialErr
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Ulangi password"
-                  className="w-full pl-9 pr-10 py-2 text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors font-mono"
+                  className="w-full pl-9 pr-10 py-2.5 sm:py-2 min-h-[44px] text-base sm:text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors font-mono"
                 />
               </div>
             </div>
@@ -521,7 +576,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialErr
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 px-4 bg-zinc-900 hover:bg-zinc-800 text-white text-sm font-semibold rounded-lg shadow-sm disabled:opacity-60 transition-all flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-zinc-900"
+              className="w-full min-h-[44px] py-2.5 px-4 bg-zinc-900 hover:bg-zinc-800 active:scale-[0.98] text-white text-sm font-semibold rounded-lg shadow-sm disabled:opacity-60 transition-all flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-zinc-900 cursor-pointer"
             >
               {loading ? (
                 <span className="flex items-center gap-2">
@@ -561,7 +616,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialErr
                       otpInputs.current[5]?.focus();
                       otpInputs.current[5]?.select();
                     }}
-                    className="text-xs text-zinc-900 font-medium underline hover:text-zinc-700"
+                    className="text-xs text-zinc-900 font-medium underline hover:text-zinc-700 min-h-[36px] inline-flex items-center cursor-pointer"
                   >
                     Isi Otomatis
                   </button>
@@ -571,7 +626,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialErr
 
             {/* 6-Digit Code Input Boxes */}
             <div
-              className="flex items-center justify-between gap-1.5 mb-5"
+              className="flex items-center justify-between gap-1 sm:gap-1.5 mb-5"
               onPaste={handleOtpPaste}
             >
               {otp.map((digit, idx) => (
@@ -587,7 +642,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialErr
                   onChange={(e) => handleOtpChange(idx, e.target.value)}
                   onKeyDown={(e) => handleOtpKeyDown(idx, e)}
                   onPaste={handleOtpPaste}
-                  className="w-11 h-12 text-center text-lg font-mono font-semibold bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors"
+                  className="w-10 sm:w-11 h-12 text-center text-lg font-mono font-semibold bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors"
                 />
               ))}
             </div>
@@ -602,7 +657,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialErr
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 px-4 bg-zinc-900 hover:bg-zinc-800 text-white text-sm font-semibold rounded-lg shadow-sm disabled:opacity-60 transition-all flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-zinc-900"
+              className="w-full min-h-[44px] py-2.5 px-4 bg-zinc-900 hover:bg-zinc-800 active:scale-[0.98] text-white text-sm font-semibold rounded-lg shadow-sm disabled:opacity-60 transition-all flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-zinc-900 cursor-pointer"
             >
               {loading ? (
                 <span className="flex items-center gap-2">
@@ -630,7 +685,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialErr
                     type="button"
                     onClick={handleResend}
                     disabled={resending}
-                    className="font-semibold text-zinc-900 hover:underline disabled:opacity-50"
+                    className="min-h-[36px] inline-flex items-center font-semibold text-zinc-900 hover:underline disabled:opacity-50 cursor-pointer"
                   >
                     {resending ? 'Mengirim...' : 'Kirim Ulang Kode'}
                   </button>
@@ -639,7 +694,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialErr
               <button
                 type="button"
                 onClick={handleChangeEmail}
-                className="text-xs text-zinc-500 hover:text-zinc-900 transition-colors"
+                className="min-h-[36px] inline-flex items-center text-xs text-zinc-500 hover:text-zinc-900 transition-colors cursor-pointer"
               >
                 Ubah Alamat Email
               </button>

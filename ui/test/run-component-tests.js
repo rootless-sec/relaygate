@@ -2231,6 +2231,58 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.ok(fs.existsSync(dockerignorePath), '.dockerignore must exist on disk to prevent local node_modules leak');
   });
 
+  await suite.test('LoginPage Session Notice Redesign and Mobile Ergonomics (iPhone & Android)', async () => {
+    const loginSource = fs.readFileSync(path.join(__dirname, '../src/components/LoginPage.tsx'), 'utf8');
+    const loginFile = path.join(outDir, 'login-bundle.mjs');
+    await build({
+      entryPoints: [path.join(__dirname, '../src/components/LoginPage.tsx')],
+      bundle: true,
+      format: 'esm',
+      outfile: loginFile,
+      external: ['react', 'react-dom', 'lucide-react'],
+      jsx: 'transform',
+      loader: { '.tsx': 'tsx', '.ts': 'ts' },
+    });
+
+    const { LoginPage } = await import(`file://${loginFile.replace(/\\/g, '/')}`);
+
+    // 1. Render with session notice
+    const htmlWithNotice = renderToString(
+      React.createElement(LoginPage, {
+        onLoginSuccess: () => {},
+        sessionNotice: 'Sesi Anda telah berakhir demi keamanan. Silakan masuk kembali.',
+      })
+    );
+
+    assert.match(htmlWithNotice, /Sesi Anda telah berakhir demi keamanan\. Silakan masuk kembali\./, 'Must render dignified session expiration notice');
+    assert.match(htmlWithNotice, /bg-amber-50\/90/, 'Session notice banner must use warm dignified amber-50 background');
+    assert.match(htmlWithNotice, /text-amber-950/, 'Session notice banner must use accessible text-amber-950');
+    assert.match(htmlWithNotice, /aria-label="Tutup pemberitahuan"/, 'Session notice must provide dismissible close action with aria-label');
+
+    // 2. Render with initialError="Sesi berakhir" backwards-compatibility
+    const htmlWithCompat = renderToString(
+      React.createElement(LoginPage, {
+        onLoginSuccess: () => {},
+        initialError: 'Sesi berakhir',
+      })
+    );
+    assert.match(htmlWithCompat, /Sesi Anda telah berakhir demi keamanan\. Silakan masuk kembali\./, 'Sesi berakhir initialError must map to dignified session banner');
+
+    // 3. Mobile responsiveness invariants
+    assert.match(loginSource, /p-5 sm:p-8/, 'LoginPage modal must use mobile-responsive p-5 sm:p-8 padding');
+    assert.match(loginSource, /max-w-sm mx-auto/, 'LoginPage modal must center cleanly on mobile');
+    assert.match(loginSource, /safe-area-inset/, 'LoginPage must respect viewport safe-area-insets');
+    assert.match(loginSource, /min-h-\[44px\]/, 'Interactive form controls must enforce 44px minimum touch targets');
+    assert.match(loginSource, /text-base sm:text-sm/, 'Mobile inputs must use text-base (16px) to prevent iOS Safari auto-zoom');
+
+    // 4. Sidebar mobile drawer invariants
+    const sidebarSource = fs.readFileSync(path.join(__dirname, '../src/components/Sidebar.tsx'), 'utf8');
+    assert.match(sidebarSource, /isMobileOpen/, 'Sidebar must support isMobileOpen prop');
+    assert.match(sidebarSource, /onCloseMobile/, 'Sidebar must support onCloseMobile handler');
+    assert.match(sidebarSource, /hidden md:flex/, 'Desktop sidebar must be hidden on mobile screens');
+    assert.match(sidebarSource, /md:hidden/, 'Mobile drawer overlay must be hidden on desktop screens');
+  });
+
   // Cleanup temp files
   try {
     fs.rmSync(outDir, { recursive: true, force: true, maxRetries: 0 });
