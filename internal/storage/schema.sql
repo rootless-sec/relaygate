@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'viewer',
+    avatar_url TEXT DEFAULT '',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

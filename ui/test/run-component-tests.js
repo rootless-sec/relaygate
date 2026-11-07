@@ -69,6 +69,18 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     loader: { '.tsx': 'tsx', '.ts': 'ts' },
   });
 
+  const profileFile = path.join(outDir, 'profile-bundle.mjs');
+
+  await build({
+    entryPoints: [path.join(__dirname, '../src/components/ProfileModal.tsx')],
+    bundle: true,
+    format: 'esm',
+    outfile: profileFile,
+    external: ['react', 'react-dom', 'lucide-react'],
+    jsx: 'transform',
+    loader: { '.tsx': 'tsx', '.ts': 'ts' },
+  });
+
   const { InspectorDrawer } = await import(`file://${drawerFile.replace(/\\/g, '/')}`);
   const { 
     isSensitiveHeader, 
@@ -82,6 +94,7 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
   const { DeadLetterView } = await import(`file://${dlqFile.replace(/\\/g, '/')}`);
   const { BulkReplayModal } = await import(`file://${bulkFile.replace(/\\/g, '/')}`);
   const { EventsView } = await import(`file://${eventsFile.replace(/\\/g, '/')}`);
+  const { ProfileModal } = await import(`file://${profileFile.replace(/\\/g, '/')}`);
   const React = (await import('react')).default;
   const { renderToString } = await import('react-dom/server');
 
@@ -1828,6 +1841,62 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
         );
       }
     }
+  });
+
+  await suite.test('ProfileModal Component & Architecture Hygiene', async () => {
+    const mockUser = {
+      id: 'usr-dev-999',
+      name: 'Dev Lead',
+      email: 'lead@relaygate.local',
+      role: 'admin',
+      avatar_url: '',
+      created_at: '2026-11-01T00:00:00Z',
+    };
+
+    // Render open modal
+    const openHtml = renderToString(
+      React.createElement(ProfileModal, {
+        isOpen: true,
+        onClose: () => {},
+        currentUser: mockUser,
+        onProfileUpdated: () => {},
+        onToast: () => {},
+      })
+    );
+    assert.match(openHtml, /Pengaturan Profil/, 'Modal title must be rendered');
+    assert.match(openHtml, /Profil Pengguna/, 'Profil tab button must exist');
+    assert.match(openHtml, /Keamanan Akun/, 'Keamanan tab button must exist');
+    assert.match(openHtml, /lead@relaygate\.local/, 'User email must be rendered in profile view');
+    assert.match(openHtml, /Dev Lead/, 'User name must be present in nickname input');
+    assert.match(openHtml, /admin/, 'User role pill must display role');
+
+    // Render closed modal
+    const closedHtml = renderToString(
+      React.createElement(ProfileModal, {
+        isOpen: false,
+        onClose: () => {},
+        currentUser: mockUser,
+      })
+    );
+    assert.equal(closedHtml, '', 'ProfileModal must return null when isOpen is false');
+
+    // Zero unicode em dash check across entire src directory
+    const srcDir = path.join(__dirname, '../src');
+    const checkEmDash = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          checkEmDash(full);
+        } else if (/\.(tsx?|css|html)$/.test(entry.name)) {
+          const text = fs.readFileSync(full, 'utf8');
+          assert.ok(
+            !text.includes('\u2014'),
+            `Found forbidden unicode em dash in ${path.relative(srcDir, full)}`
+          );
+        }
+      }
+    };
+    checkEmDash(srcDir);
   });
 
   // Cleanup temp files

@@ -10,6 +10,7 @@ import {
   Radio,
 } from 'lucide-react';
 import { NavTab, Endpoint } from '../types';
+import { UserProfile } from '../api';
 
 interface SidebarProps {
   currentTab: NavTab;
@@ -17,6 +18,8 @@ interface SidebarProps {
   totalEventsCount: number;
   failedEventsCount: number;
   userEmail: string;
+  currentUser?: UserProfile | null;
+  onOpenProfile?: () => void;
   onLogout: () => void;
   endpoints?: Endpoint[];
   isLive?: boolean;
@@ -30,6 +33,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   totalEventsCount,
   failedEventsCount,
   userEmail,
+  currentUser,
+  onOpenProfile,
   onLogout,
   endpoints = [],
   isLive = true,
@@ -215,12 +220,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <Radio className={`w-3.5 h-3.5 ${isLive ? 'text-emerald-600' : 'text-zinc-400'}`} />
           </button>
 
-          <div
-            className="size-7 rounded-full bg-zinc-200 text-zinc-800 font-semibold text-[11px] flex items-center justify-center ring-1 ring-zinc-300"
-            title={userEmail}
+          <button
+            type="button"
+            onClick={onOpenProfile}
+            className="size-7 rounded-full bg-zinc-200 text-zinc-800 font-semibold text-[11px] flex items-center justify-center ring-1 ring-zinc-300 hover:ring-zinc-400 overflow-hidden cursor-pointer transition-transform active:scale-95"
+            title="Kelola Profil & Keamanan Akun"
+            aria-label="Kelola Profil & Keamanan Akun"
           >
-            {userEmail.slice(0, 1).toUpperCase()}
-          </div>
+            {currentUser?.avatar_url ? (
+              <img
+                src={currentUser.avatar_url}
+                alt={currentUser.name || userEmail}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              (currentUser?.name || userEmail).slice(0, 1).toUpperCase()
+            )}
+          </button>
         </div>
       </div>
 
@@ -305,18 +321,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </span>
           </div>
 
-          <button
-            type="button"
-            onClick={onLogout}
-            title="Keluar Sesi"
-            aria-label="Keluar Sesi"
-            className="w-full h-8 px-2.5 rounded-md text-xs font-medium text-zinc-600 hover:text-zinc-950 hover:bg-zinc-100 flex items-center justify-between transition-colors cursor-pointer"
-          >
-            <span className="truncate" title={userEmail}>
-              {userEmail}
-            </span>
-            <LogOut className="w-3.5 h-3.5 text-zinc-400 shrink-0 ml-2" />
-          </button>
+          <div className="flex items-center gap-1.5 w-full">
+            <button
+              type="button"
+              onClick={onOpenProfile}
+              title="Kelola Profil & Keamanan Akun"
+              aria-label="Buka Pengaturan Profil"
+              className="flex-1 min-w-0 h-8 px-2 rounded-md text-xs font-medium text-zinc-700 hover:text-zinc-950 hover:bg-zinc-100 flex items-center gap-2 transition-colors cursor-pointer text-left"
+            >
+              <div className="size-5 rounded-full bg-zinc-200 text-zinc-800 text-[10px] font-semibold flex items-center justify-center shrink-0 overflow-hidden ring-1 ring-zinc-300">
+                {currentUser?.avatar_url ? (
+                  <img
+                    src={currentUser.avatar_url}
+                    alt=""
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  (currentUser?.name || userEmail).slice(0, 1).toUpperCase()
+                )}
+              </div>
+              <span className="truncate text-[11px]" title={currentUser?.name ? `${currentUser.name} (${userEmail})` : userEmail}>
+                {currentUser?.name || userEmail}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={onLogout}
+              title="Keluar Sesi"
+              aria-label="Keluar Sesi"
+              className="size-8 rounded-md text-zinc-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition-colors cursor-pointer shrink-0"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </div>
     </aside>

@@ -125,9 +125,24 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-200/70">
-            {endpoints.map((ep) => {
-              const ingestUrl = `${window.location.origin}/webhooks/${ep.id}`;
-              const isSecretVisible = visibleSecrets.has(ep.id);
+            {endpoints.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="py-12 px-4 text-center">
+                  <div className="flex flex-col items-center justify-center space-y-2">
+                    <div className="size-9 rounded-full bg-zinc-100 border border-zinc-200/80 flex items-center justify-center text-zinc-400">
+                      <Webhook className="w-4 h-4" />
+                    </div>
+                    <p className="text-xs font-medium text-zinc-900">Belum ada endpoint terdaftar</p>
+                    <p className="text-xs text-zinc-500 max-w-sm">
+                      Klik tombol "Tambah Endpoint" di atas untuk mendaftarkan rute webhook downstream baru.
+                    </p>
+                  </div>
+                </td>
+              </tr>
+            ) : (
+              endpoints.map((ep) => {
+                const ingestUrl = `${window.location.origin}/ingest/${ep.id}`;
+                const isSecretVisible = visibleSecrets.has(ep.id);
 
               return (
                 <tr key={ep.id} className="divide-x divide-zinc-100 hover:bg-zinc-50/70">
@@ -224,7 +239,7 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                   </td>
                 </tr>
               );
-            })}
+            }))}
           </tbody>
         </table>
       </div>

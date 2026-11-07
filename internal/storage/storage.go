@@ -47,6 +47,8 @@ type Repository interface {
 	SaveUser(ctx context.Context, user *model.User) error
 	GetUserByEmail(ctx context.Context, email string) (*model.User, error)
 	GetUserByID(ctx context.Context, id string) (*model.User, error)
+	UpdateUserProfile(ctx context.Context, id string, name string, avatarURL string) error
+	UpdateUserPassword(ctx context.Context, id string, passwordHash string) error
 
 	// Session methods
 	SaveSession(ctx context.Context, session *model.Session) error
@@ -187,10 +189,11 @@ func (d *DB) Migrate(ctx context.Context) error {
 		}
 	}
 
-	// Additive migration: check users table for role column
+	// Additive migration: check users table for role and avatar_url columns
 	userColRows, uErr := d.db.QueryContext(ctx, "PRAGMA table_info(users);")
 	if uErr == nil {
 		hasRole := false
+		hasAvatarURL := false
 		var uColCount int
 		for userColRows.Next() {
 			uColCount++
@@ -202,11 +205,19 @@ func (d *DB) Migrate(ctx context.Context) error {
 				if strings.EqualFold(name, "role") {
 					hasRole = true
 				}
+				if strings.EqualFold(name, "avatar_url") {
+					hasAvatarURL = true
+				}
 			}
 		}
 		userColRows.Close()
-		if uColCount > 0 && !hasRole {
-			_, _ = d.db.ExecContext(ctx, "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'viewer';")
+		if uColCount > 0 {
+			if !hasRole {
+				_, _ = d.db.ExecContext(ctx, "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'viewer';")
+			}
+			if !hasAvatarURL {
+				_, _ = d.db.ExecContext(ctx, "ALTER TABLE users ADD COLUMN avatar_url TEXT DEFAULT '';")
+			}
 		}
 	}
 
@@ -428,13 +439,14 @@ func (d *DB) SaveUser(ctx context.Context, user *model.User) error {
 	defer d.mu.Unlock()
 
 	query := `
-		INSERT INTO users (id, name, email, password_hash, role, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO users (id, name, email, password_hash, role, avatar_url, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name = excluded.name,
 			email = excluded.email,
 			password_hash = excluded.password_hash,
-			role = excluded.role;
+			role = excluded.role,
+			avatar_url = excluded.avatar_url;
 	`
 
 	createdAtStr := user.CreatedAt.UTC().Format("2006-01-02 15:04:05")
@@ -444,6 +456,7 @@ func (d *DB) SaveUser(ctx context.Context, user *model.User) error {
 		user.Email,
 		user.PasswordHash,
 		user.Role,
+		user.AvatarURL,
 		createdAtStr,
 	)
 	if err != nil {
@@ -460,7 +473,7 @@ func (d *DB) GetUserByEmail(ctx context.Context, email string) (*model.User, err
 
 	normEmail := strings.ToLower(strings.TrimSpace(email))
 	query := `
-		SELECT id, name, email, password_hash, role, created_at
+		SELECT id, name, email, password_hash, role, COALESCE(avatar_url, ''), created_at
 		FROM users
 		WHERE LOWER(email) = LOWER(?);
 	`
@@ -475,6 +488,7 @@ func (d *DB) GetUserByEmail(ctx context.Context, email string) (*model.User, err
 		&u.Email,
 		&u.PasswordHash,
 		&u.Role,
+		&u.AvatarURL,
 		&createdAtRaw,
 	)
 	if err != nil {
@@ -494,7 +508,7 @@ func (d *DB) GetUserByID(ctx context.Context, id string) (*model.User, error) {
 	defer d.mu.RUnlock()
 
 	query := `
-		SELECT id, name, email, password_hash, role, created_at
+		SELECT id, name, email, password_hash, role, COALESCE(avatar_url, ''), created_at
 		FROM users
 		WHERE id = ?;
 	`
@@ -509,6 +523,7 @@ func (d *DB) GetUserByID(ctx context.Context, id string) (*model.User, error) {
 		&u.Email,
 		&u.PasswordHash,
 		&u.Role,
+		&u.AvatarURL,
 		&createdAtRaw,
 	)
 	if err != nil {
@@ -520,6 +535,40 @@ func (d *DB) GetUserByID(ctx context.Context, id string) (*model.User, error) {
 
 	u.CreatedAt = parseSQLTime(createdAtRaw)
 	return &u, nil
+}
+
+// UpdateUserProfile updates user's nickname/name and optional avatar URL
+func (d *DB) UpdateUserProfile(ctx context.Context, id string, name string, avatarURL string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	query := `UPDATE users SET name = ?, avatar_url = ? WHERE id = ?;`
+	res, err := d.db.ExecContext(ctx, query, strings.TrimSpace(name), strings.TrimSpace(avatarURL), id)
+	if err != nil {
+		return fmt.Errorf("failed to update user profile: %w", err)
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err == nil && rowsAffected == 0 {
+		return fmt.Errorf("user not found with id: %s", id)
+	}
+	return nil
+}
+
+// UpdateUserPassword updates a user's password hash
+func (d *DB) UpdateUserPassword(ctx context.Context, id string, passwordHash string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	query := `UPDATE users SET password_hash = ? WHERE id = ?;`
+	res, err := d.db.ExecContext(ctx, query, passwordHash, id)
+	if err != nil {
+		return fmt.Errorf("failed to update user password: %w", err)
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err == nil && rowsAffected == 0 {
+		return fmt.Errorf("user not found with id: %s", id)
+	}
+	return nil
 }
 
 func hashSessionToken(token string) string {

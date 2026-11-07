@@ -40,6 +40,7 @@ type Handler struct {
 	repo        storage.Repository
 	pool        *worker.Pool
 	broadcaster model.Broadcaster
+	ipResolver  func(r *http.Request) string
 }
 
 // NewHandler creates a new Ingest HTTP handler
@@ -53,6 +54,11 @@ func NewHandler(repo storage.Repository, pool *worker.Pool) *Handler {
 // SetBroadcaster configures a real-time event broadcaster
 func (h *Handler) SetBroadcaster(b model.Broadcaster) {
 	h.broadcaster = b
+}
+
+// SetIPResolver configures a custom client IP resolver (e.g. api.ResolveClientIP)
+func (h *Handler) SetIPResolver(fn func(r *http.Request) string) {
+	h.ipResolver = fn
 }
 
 // ServeHTTP handles POST /ingest/{endpoint_id}
@@ -101,7 +107,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	signature := extractSignature(headers, payload)
 
 	// Extract source IP
-	sourceIP := extractSourceIP(r)
+	sourceIP := h.extractSourceIP(r)
 
 	// Create WebhookEvent
 	eventID := uuid.NewString()
@@ -154,11 +160,11 @@ func extractEndpointID(r *http.Request) string {
 		return val
 	}
 
-	// Manual path fallback: /ingest/{endpoint_id}
+	// Manual path fallback: /ingest/{endpoint_id} or /webhooks/{endpoint_id}
 	path := strings.Trim(r.URL.Path, "/")
 	parts := strings.Split(path, "/")
 	for i, part := range parts {
-		if part == "ingest" && i+1 < len(parts) {
+		if (part == "ingest" || part == "webhooks") && i+1 < len(parts) {
 			return parts[i+1]
 		}
 	}
@@ -166,7 +172,11 @@ func extractEndpointID(r *http.Request) string {
 	return ""
 }
 
-func extractSourceIP(r *http.Request) string {
+func (h *Handler) extractSourceIP(r *http.Request) string {
+	if h.ipResolver != nil {
+		return h.ipResolver(r)
+	}
+
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		parts := strings.Split(xff, ",")
 		return strings.TrimSpace(parts[0])

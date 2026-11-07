@@ -16,6 +16,7 @@ import { InspectorDrawer } from './components/InspectorDrawer';
 import { OverviewView } from './components/OverviewView';
 import { DeadLetterView } from './components/DeadLetterView';
 import { EndpointsView } from './components/EndpointsView';
+import { ProfileModal } from './components/ProfileModal';
 import { Toast, ToastMessage } from './components/Toast';
 import {
   Endpoint,
@@ -29,11 +30,13 @@ import {
   fetchEndpoints,
   fetchEvents,
   fetchOverview,
+  fetchProfile,
   fetchStats,
   replayEvent,
   bulkReplay,
   createEndpoint,
   updateEndpoint,
+  UserProfile,
 } from './api';
 
 export const App: React.FC = () => {
@@ -50,11 +53,15 @@ export const App: React.FC = () => {
   });
 
   const [sessionExpiredMessage, setSessionExpiredMessage] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
 
   useEffect(() => {
     const handleExpired = (e: any) => {
       const msg = e?.detail?.message || 'Sesi berakhir';
       setUserEmail(null);
+      setCurrentUser(null);
+      setShowProfileModal(false);
       setSelectedEvent(null);
       setSessionExpiredMessage(msg);
       setToast({ id: Date.now().toString(), message: msg, type: 'error' });
@@ -136,50 +143,17 @@ export const App: React.FC = () => {
       setEvents(eventsData.events || []);
       setStats(statsData);
       setOverviewData(overview);
-
-      if (endpointsData.length === 0) {
-        seedDefaultEndpoints();
-      }
     } catch (err) {
       console.error('Initial data load error:', err);
     }
   }, []);
 
-  const seedDefaultEndpoints = async () => {
-    const defaultList = [
-      {
-        name: 'orders-api',
-        provider: 'midtrans' as ProviderType,
-        target_url: 'https://api.toko.id/hooks/midtrans',
-      },
-      {
-        name: 'license-svc',
-        provider: 'stripe' as ProviderType,
-        target_url: 'https://license.toko.id/stripe',
-      },
-      {
-        name: 'billing-hook',
-        provider: 'xendit' as ProviderType,
-        target_url: 'https://billing.toko.id/xendit',
-      },
-      {
-        name: 'deploy-hook',
-        provider: 'github' as ProviderType,
-        target_url: 'https://ci.toko.id/github',
-      },
-    ];
-    for (const item of defaultList) {
-      try {
-        await createEndpoint(item);
-      } catch {}
-    }
-    const freshEndpoints = await fetchEndpoints().catch(() => []);
-    setEndpoints(freshEndpoints);
-  };
-
   useEffect(() => {
     if (userEmail) {
       loadInitialData();
+      fetchProfile()
+        .then((profile) => setCurrentUser(profile))
+        .catch(() => {});
     }
   }, [userEmail, loadInitialData]);
 
@@ -392,6 +366,8 @@ export const App: React.FC = () => {
   const handleLogout = () => {
     localStorage.removeItem('relaygate_auth');
     setUserEmail(null);
+    setCurrentUser(null);
+    setShowProfileModal(false);
     setSelectedEvent(null);
   };
 
@@ -401,6 +377,7 @@ export const App: React.FC = () => {
         onLoginSuccess={(email) => {
           setSessionExpiredMessage(null);
           setUserEmail(email);
+          fetchProfile().then((p) => setCurrentUser(p)).catch(() => {});
         }}
         initialError={sessionExpiredMessage}
       />
@@ -452,6 +429,8 @@ export const App: React.FC = () => {
         totalEventsCount={totalEventsCount}
         failedEventsCount={failedEventsCount}
         userEmail={userEmail}
+        currentUser={currentUser}
+        onOpenProfile={() => setShowProfileModal(true)}
         onLogout={handleLogout}
         endpoints={endpoints}
         isLive={isLive}
@@ -606,6 +585,20 @@ export const App: React.FC = () => {
           )}
         </div>
       </main>
+
+      {/* Profile & Account Settings Modal */}
+      {showProfileModal && (
+        <ProfileModal
+          isOpen={showProfileModal}
+          onClose={() => setShowProfileModal(false)}
+          currentUser={currentUser}
+          onProfileUpdated={(updated) => {
+            setCurrentUser(updated);
+            if (updated.email) setUserEmail(updated.email);
+          }}
+          onToast={(msg, type) => showToast(msg, type)}
+        />
+      )}
 
       {/* Toast Feedback */}
       <Toast toast={toast} onClose={() => setToast(null)} />

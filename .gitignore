@@ -30,5 +30,6 @@ Thumbs.db
 *.mjs
 *.png
 .edge_*
+.temp_chrome_profile/
 e2e-output/
 verify.txt

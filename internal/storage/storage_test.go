@@ -813,4 +813,61 @@ func TestStorage_SessionAndAuditRevealOperations(t *testing.T) {
 	}
 }
 
+func TestStorage_UpdateUserProfileAndPassword(t *testing.T) {
+	db, cleanup := createTempDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	u := &model.User{
+		ID:           "usr_update_test",
+		Name:         "Original Name",
+		Email:        "original@example.com",
+		Role:         "viewer",
+		AvatarURL:    "",
+		PasswordHash: "orig_hash",
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := db.SaveUser(ctx, u); err != nil {
+		t.Fatalf("SaveUser failed: %v", err)
+	}
+
+	// 1. Update Profile (Name & AvatarURL)
+	if err := db.UpdateUserProfile(ctx, u.ID, "Updated Name", "/api/v1/profile/avatar/test.png"); err != nil {
+		t.Fatalf("UpdateUserProfile failed: %v", err)
+	}
+
+	fetched, err := db.GetUserByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetUserByID failed: %v", err)
+	}
+	if fetched.Name != "Updated Name" {
+		t.Errorf("expected name 'Updated Name', got %s", fetched.Name)
+	}
+	if fetched.AvatarURL != "/api/v1/profile/avatar/test.png" {
+		t.Errorf("expected avatar_url '/api/v1/profile/avatar/test.png', got %s", fetched.AvatarURL)
+	}
+
+	// 2. Update Password Hash
+	if err := db.UpdateUserPassword(ctx, u.ID, "new_hashed_password"); err != nil {
+		t.Fatalf("UpdateUserPassword failed: %v", err)
+	}
+
+	fetched2, err := db.GetUserByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetUserByID failed: %v", err)
+	}
+	if fetched2.PasswordHash != "new_hashed_password" {
+		t.Errorf("expected password_hash 'new_hashed_password', got %s", fetched2.PasswordHash)
+	}
+
+	// 3. Update non-existent user returns error
+	if err := db.UpdateUserProfile(ctx, "nonexistent_id", "Name", ""); err == nil {
+		t.Errorf("expected error when updating nonexistent user profile, got nil")
+	}
+	if err := db.UpdateUserPassword(ctx, "nonexistent_id", "hash"); err == nil {
+		t.Errorf("expected error when updating nonexistent user password, got nil")
+	}
+}
+
 

@@ -365,10 +365,18 @@ func NewRouter(repo storage.Repository, pool *worker.Pool, hub *Hub, mailerOpt .
 	// Auth Endpoints
 	mux.HandleFunc("POST /api/v1/auth/register", api.Register)
 	mux.HandleFunc("POST /api/v1/auth/verify", api.VerifyCode)
-	mux.HandleFunc("POST /api/v1/auth/verify-code", api.VerifyCode)
 	mux.HandleFunc("POST /api/v1/auth/resend-code", api.ResendCode)
 	mux.HandleFunc("POST /api/v1/auth/login", api.Login)
 	mux.HandleFunc("POST /api/v1/auth/logout", api.Logout)
+
+	// Profile Management Endpoints
+	mux.HandleFunc("GET /api/v1/profile", api.GetProfile)
+	mux.HandleFunc("PATCH /api/v1/profile", api.UpdateProfile)
+	mux.HandleFunc("PUT /api/v1/profile", api.UpdateProfile)
+	mux.HandleFunc("POST /api/v1/profile/password", api.UpdatePassword)
+	mux.HandleFunc("POST /api/v1/profile/avatar", api.UploadAvatar)
+	mux.HandleFunc("DELETE /api/v1/profile/avatar", api.DeleteAvatar)
+	mux.HandleFunc("GET /api/v1/profile/avatar/{filename}", api.ServeAvatar)
 
 	return &Router{
 		api: api,

@@ -10,6 +10,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -154,6 +156,17 @@ type AuthResponse struct {
 	Token   string      `json:"token,omitempty"`
 	User    *model.User `json:"user"`
 	Message string      `json:"message,omitempty"`
+}
+
+// UpdateProfileRequest represents request body to update user profile
+type UpdateProfileRequest struct {
+	Name string `json:"name"`
+}
+
+// UpdatePasswordRequest represents request body to update account password
+type UpdatePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
 }
 
 // KeyedMutex provides per-key mutual exclusion without holding a global lock across multiple operations
@@ -1158,6 +1171,315 @@ func (a *API) Logout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
 		"message": "Sesi telah berakhir",
 	})
+}
+
+var (
+	avatarsDirMu sync.RWMutex
+	avatarsDir   = "./data/avatars"
+)
+
+// SetAvatarsDir overrides the storage path for avatar files (useful for tests)
+func SetAvatarsDir(dir string) {
+	avatarsDirMu.Lock()
+	defer avatarsDirMu.Unlock()
+	avatarsDir = dir
+}
+
+// GetAvatarsDir returns the current avatars storage directory
+func GetAvatarsDir() string {
+	avatarsDirMu.RLock()
+	defer avatarsDirMu.RUnlock()
+	return avatarsDir
+}
+
+// GetProfile handles GET /api/v1/profile
+func (a *API) GetProfile(w http.ResponseWriter, r *http.Request) {
+	sess := a.getSession(r)
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "Sesi tidak valid atau telah kedaluwarsa", nil)
+		return
+	}
+
+	user, err := a.repo.GetUserByID(r.Context(), sess.UserID)
+	if err != nil || user == nil {
+		user, err = a.repo.GetUserByEmail(r.Context(), sess.UserEmail)
+		if err != nil || user == nil {
+			writeError(w, http.StatusNotFound, "Pengguna tidak ditemukan", nil)
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, user)
+}
+
+// UpdateProfile handles PATCH/PUT /api/v1/profile
+func (a *API) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	sess := a.getSession(r)
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "Sesi tidak valid atau telah kedaluwarsa", nil)
+		return
+	}
+
+	var req UpdateProfileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json payload", err)
+		return
+	}
+
+	req.Name = strings.TrimSpace(req.Name)
+	if len(req.Name) < 2 {
+		writeError(w, http.StatusBadRequest, "Nama atau nickname minimal 2 karakter", nil)
+		return
+	}
+	if len(req.Name) > 50 {
+		writeError(w, http.StatusBadRequest, "Nama atau nickname maksimal 50 karakter", nil)
+		return
+	}
+
+	user, err := a.repo.GetUserByID(r.Context(), sess.UserID)
+	if err != nil || user == nil {
+		user, err = a.repo.GetUserByEmail(r.Context(), sess.UserEmail)
+		if err != nil || user == nil {
+			writeError(w, http.StatusNotFound, "Pengguna tidak ditemukan", nil)
+			return
+		}
+	}
+
+	user.Name = req.Name
+	if err := a.repo.UpdateUserProfile(r.Context(), user.ID, user.Name, user.AvatarURL); err != nil {
+		writeError(w, http.StatusInternalServerError, "Gagal memperbarui profil pengguna", err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, user)
+}
+
+// UpdatePassword handles POST /api/v1/profile/password
+func (a *API) UpdatePassword(w http.ResponseWriter, r *http.Request) {
+	sess := a.getSession(r)
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "Sesi tidak valid atau telah kedaluwarsa", nil)
+		return
+	}
+
+	var req UpdatePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json payload", err)
+		return
+	}
+
+	req.CurrentPassword = strings.TrimSpace(req.CurrentPassword)
+	req.NewPassword = strings.TrimSpace(req.NewPassword)
+
+	if req.CurrentPassword == "" {
+		writeError(w, http.StatusBadRequest, "Password saat ini wajib diisi", nil)
+		return
+	}
+	if len(req.NewPassword) < 8 {
+		writeError(w, http.StatusBadRequest, "Password baru minimal 8 karakter", nil)
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(req.CurrentPassword), []byte(req.NewPassword)) == 1 {
+		writeError(w, http.StatusBadRequest, "Password baru tidak boleh sama dengan password saat ini", nil)
+		return
+	}
+
+	user, err := a.repo.GetUserByID(r.Context(), sess.UserID)
+	if err != nil || user == nil {
+		user, err = a.repo.GetUserByEmail(r.Context(), sess.UserEmail)
+		if err != nil || user == nil {
+			writeError(w, http.StatusNotFound, "Pengguna tidak ditemukan", nil)
+			return
+		}
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.CurrentPassword)); err != nil {
+		writeError(w, http.StatusBadRequest, "Password saat ini tidak sesuai", nil)
+		return
+	}
+
+	newHash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Gagal memproses password baru", err)
+		return
+	}
+
+	if err := a.repo.UpdateUserPassword(r.Context(), user.ID, string(newHash)); err != nil {
+		writeError(w, http.StatusInternalServerError, "Gagal memperbarui password", err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"message": "Password berhasil diperbarui",
+	})
+}
+
+// UploadAvatar handles POST /api/v1/profile/avatar
+func (a *API) UploadAvatar(w http.ResponseWriter, r *http.Request) {
+	sess := a.getSession(r)
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "Sesi tidak valid atau telah kedaluwarsa", nil)
+		return
+	}
+
+	// Restrict payload to 2MB maximum
+	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
+	if err := r.ParseMultipartForm(2 << 20); err != nil {
+		writeError(w, http.StatusBadRequest, "Ukuran file avatar melebihi batas maksimal 2MB atau format tidak valid", err)
+		return
+	}
+
+	file, _, err := r.FormFile("avatar")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Field 'avatar' wajib disertakan dalam form upload", err)
+		return
+	}
+	defer file.Close()
+
+	buf := make([]byte, 512)
+	n, err := file.Read(buf)
+	if err != nil && err != io.EOF {
+		writeError(w, http.StatusBadRequest, "Gagal membaca file avatar", err)
+		return
+	}
+
+	contentType := http.DetectContentType(buf[:n])
+	var ext string
+	switch contentType {
+	case "image/jpeg":
+		ext = ".jpg"
+	case "image/png":
+		ext = ".png"
+	case "image/webp":
+		ext = ".webp"
+	case "image/gif":
+		ext = ".gif"
+	default:
+		writeError(w, http.StatusBadRequest, "Format file tidak didukung. Harap unggah file gambar PNG, JPG, WebP, atau GIF", nil)
+		return
+	}
+
+	user, err := a.repo.GetUserByID(r.Context(), sess.UserID)
+	if err != nil || user == nil {
+		user, err = a.repo.GetUserByEmail(r.Context(), sess.UserEmail)
+		if err != nil || user == nil {
+			writeError(w, http.StatusNotFound, "Pengguna tidak ditemukan", nil)
+			return
+		}
+	}
+
+	dir := GetAvatarsDir()
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		writeError(w, http.StatusInternalServerError, "Gagal menyiapkan direktori penyimpanan avatar", err)
+		return
+	}
+
+	randBytes := make([]byte, 16)
+	_, _ = rand.Read(randBytes)
+	filename := fmt.Sprintf("avatar_%s_%x%s", user.ID, randBytes, ext)
+	targetPath := filepath.Join(dir, filename)
+
+	dst, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Gagal menyimpan file avatar", err)
+		return
+	}
+
+	if _, err := dst.Write(buf[:n]); err != nil {
+		_ = dst.Close()
+		_ = os.Remove(targetPath)
+		writeError(w, http.StatusInternalServerError, "Gagal menulis file avatar", err)
+		return
+	}
+
+	if _, err := io.Copy(dst, file); err != nil {
+		_ = dst.Close()
+		_ = os.Remove(targetPath)
+		writeError(w, http.StatusInternalServerError, "Gagal menyimpan seluruh file avatar", err)
+		return
+	}
+	_ = dst.Close()
+
+	// Clean up old avatar file if present
+	if user.AvatarURL != "" && strings.HasPrefix(user.AvatarURL, "/api/v1/profile/avatar/") {
+		oldFilename := strings.TrimPrefix(user.AvatarURL, "/api/v1/profile/avatar/")
+		oldFilename = filepath.Base(oldFilename)
+		if oldFilename != "" && !strings.Contains(oldFilename, "..") {
+			_ = os.Remove(filepath.Join(dir, oldFilename))
+		}
+	}
+
+	avatarURL := "/api/v1/profile/avatar/" + filename
+	user.AvatarURL = avatarURL
+
+	if err := a.repo.UpdateUserProfile(r.Context(), user.ID, user.Name, avatarURL); err != nil {
+		writeError(w, http.StatusInternalServerError, "Gagal memperbarui profil pengguna dengan avatar baru", err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, user)
+}
+
+// DeleteAvatar handles DELETE /api/v1/profile/avatar
+func (a *API) DeleteAvatar(w http.ResponseWriter, r *http.Request) {
+	sess := a.getSession(r)
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "Sesi tidak valid atau telah kedaluwarsa", nil)
+		return
+	}
+
+	user, err := a.repo.GetUserByID(r.Context(), sess.UserID)
+	if err != nil || user == nil {
+		user, err = a.repo.GetUserByEmail(r.Context(), sess.UserEmail)
+		if err != nil || user == nil {
+			writeError(w, http.StatusNotFound, "Pengguna tidak ditemukan", nil)
+			return
+		}
+	}
+
+	if user.AvatarURL != "" && strings.HasPrefix(user.AvatarURL, "/api/v1/profile/avatar/") {
+		oldFilename := strings.TrimPrefix(user.AvatarURL, "/api/v1/profile/avatar/")
+		oldFilename = filepath.Base(oldFilename)
+		if oldFilename != "" && !strings.Contains(oldFilename, "..") {
+			_ = os.Remove(filepath.Join(GetAvatarsDir(), oldFilename))
+		}
+	}
+
+	user.AvatarURL = ""
+	if err := a.repo.UpdateUserProfile(r.Context(), user.ID, user.Name, ""); err != nil {
+		writeError(w, http.StatusInternalServerError, "Gagal menghapus avatar dari profil", err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, user)
+}
+
+// ServeAvatar handles GET /api/v1/profile/avatar/{filename}
+func (a *API) ServeAvatar(w http.ResponseWriter, r *http.Request) {
+	filename := extractPathID(r, "filename", "avatar")
+	if filename == "" || strings.Contains(filename, "..") || strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
+		http.NotFound(w, r)
+		return
+	}
+
+	dir := GetAvatarsDir()
+	cleanPath := filepath.Clean(filepath.Join(dir, filename))
+	absDir, err1 := filepath.Abs(dir)
+	absPath, err2 := filepath.Abs(cleanPath)
+	if err1 != nil || err2 != nil || !strings.HasPrefix(absPath, absDir) {
+		http.NotFound(w, r)
+		return
+	}
+
+	info, err := os.Stat(cleanPath)
+	if err != nil || info.IsDir() {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	http.ServeFile(w, r, cleanPath)
 }
 
 func (a *API) getSession(r *http.Request) *model.Session {

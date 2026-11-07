@@ -82,6 +82,7 @@ func main() {
 	// Initialize HTTP Ingest handler
 	ingestHandler := ingest.NewHandler(repo, pool)
 	ingestHandler.SetBroadcaster(hub)
+	ingestHandler.SetIPResolver(api.ResolveClientIP)
 
 	// Initialize transactional mailer
 	emailSender := mailer.NewMailerFromEnv()
@@ -108,11 +109,13 @@ func main() {
 		})
 	})
 
-	// Public ingest receiver
+	// Public ingest receiver (supports both /ingest/ and /webhooks/ path prefixes)
 	mux.Handle("POST /ingest/{endpoint_id}", ingestHandler)
-	// Fallback route for subpaths if router needs it
 	mux.Handle("/ingest/", ingestHandler)
 	mux.Handle("/ingest", ingestHandler)
+	mux.Handle("POST /webhooks/{endpoint_id}", ingestHandler)
+	mux.Handle("/webhooks/", ingestHandler)
+	mux.Handle("/webhooks", ingestHandler)
 
 	// Mount REST and SSE API control plane routes
 	mux.Handle("/api/v1/", apiRouter)

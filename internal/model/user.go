@@ -8,6 +8,7 @@ type User struct {
 	Name         string    `json:"name"`
 	Email        string    `json:"email"`
 	Role         string    `json:"role"` // "admin" or "viewer"
+	AvatarURL    string    `json:"avatar_url,omitempty"`
 	PasswordHash string    `json:"-"`
 	CreatedAt    time.Time `json:"created_at"`
 }

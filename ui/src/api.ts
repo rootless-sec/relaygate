@@ -171,7 +171,94 @@ export interface UserProfile {
   name: string;
   email: string;
   role?: string;
+  avatar_url?: string;
   created_at?: string;
+}
+
+export function getAuthHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
+  try {
+    const stored = localStorage.getItem('relaygate_auth');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (parsed.token) {
+        headers['Authorization'] = `Bearer ${parsed.token}`;
+      }
+    }
+  } catch {}
+  return headers;
+}
+
+export async function fetchProfile(): Promise<UserProfile> {
+  const res = await fetch(`${BASE_URL}/profile`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    throw await parseErrorResponse(res, 'Gagal memuat profil pengguna.');
+  }
+  return res.json();
+}
+
+export async function updateProfileName(name: string): Promise<UserProfile> {
+  const res = await fetch(`${BASE_URL}/profile`, {
+    method: 'PATCH',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) {
+    throw await parseErrorResponse(res, 'Gagal memperbarui nickname.');
+  }
+  return res.json();
+}
+
+export async function updatePassword(
+  currentPassword: string,
+  newPassword: string
+): Promise<{ message: string }> {
+  const res = await fetch(`${BASE_URL}/profile/password`, {
+    method: 'POST',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+  });
+  if (!res.ok) {
+    throw await parseErrorResponse(res, 'Gagal memperbarui password.');
+  }
+  return res.json();
+}
+
+export async function uploadAvatar(file: File): Promise<UserProfile> {
+  const formData = new FormData();
+  formData.append('avatar', file);
+
+  const res = await fetch(`${BASE_URL}/profile/avatar`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: formData,
+  });
+  if (!res.ok) {
+    throw await parseErrorResponse(res, 'Gagal mengunggah foto profil.');
+  }
+  return res.json();
+}
+
+export async function deleteAvatar(): Promise<UserProfile> {
+  const res = await fetch(`${BASE_URL}/profile/avatar`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    throw await parseErrorResponse(res, 'Gagal menghapus foto profil.');
+  }
+  return res.json();
 }
 
 export interface RegisterResult {
