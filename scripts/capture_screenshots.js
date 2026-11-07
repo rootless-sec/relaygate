@@ -103,7 +103,7 @@ async function run() {
       throw new Error('Neither Chrome nor Edge found on system.');
     }
 
-    const userDataDir = path.join(os.tmpdir(), 'rg_chrome_' + Date.now());
+    const userDataDir = path.join(__dirname, '..', 'data', 'rg_chrome_' + Date.now());
     if (!fs.existsSync(userDataDir)) {
       fs.mkdirSync(userDataDir, { recursive: true });
     }
@@ -111,9 +111,11 @@ async function run() {
     console.log('[Script] Launching browser at:', chromePath);
     const browserProc = spawn(chromePath, [
       '--headless=new',
+      '--no-sandbox',
+      '--remote-allow-origins=*',
       `--remote-debugging-port=${CDP_PORT}`,
       `--user-data-dir=${userDataDir}`,
-      '--window-size=1440,900',
+      '--window-size=1440,920',
       '--force-device-scale-factor=2',
       '--no-first-run',
       '--no-default-browser-check',
@@ -175,6 +177,48 @@ async function run() {
     console.log('[Script] Navigating to http://127.0.0.1:' + PORT);
     await send('Page.navigate', { url: `http://127.0.0.1:${PORT}` });
     await wait(1500);
+
+    // 0. Capture Public Landing Page (Before Login) at 2x Retina
+    console.log('[Script] Capturing 00_landing_hero_desktop.png');
+    const snapHero = await send('Page.captureScreenshot', { format: 'png' });
+    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '00_landing_hero_desktop.png'), Buffer.from(snapHero.data, 'base64'));
+
+    // Scroll to below-the-fold #native & #product sections
+    await send('Runtime.evaluate', {
+      expression: `document.getElementById('native')?.scrollIntoView({ behavior: 'instant' });`,
+    });
+    await wait(600);
+    console.log('[Script] Capturing 00b_landing_sections_desktop.png');
+    const snapSections = await send('Page.captureScreenshot', { format: 'png' });
+    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '00b_landing_sections_desktop.png'), Buffer.from(snapSections.data, 'base64'));
+
+    // Scroll to #workspace & details sections
+    await send('Runtime.evaluate', {
+      expression: `document.getElementById('workspace')?.scrollIntoView({ behavior: 'instant' });`,
+    });
+    await wait(600);
+    console.log('[Script] Capturing 00c_landing_workspace_desktop.png');
+    const snapWs = await send('Page.captureScreenshot', { format: 'png' });
+    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '00c_landing_workspace_desktop.png'), Buffer.from(snapWs.data, 'base64'));
+
+    // Check horizontal overflow at 1440
+    const overflowCheck = await send('Runtime.evaluate', {
+      expression: `JSON.stringify({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth })`,
+    });
+    console.log('[Script] Overflow check:', overflowCheck.result.value);
+
+    // Test clicking "Open Console" -> LoginPage
+    await send('Runtime.evaluate', {
+      expression: `
+        window.scrollTo(0, 0);
+        const openBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim() === 'Open Console');
+        if (openBtn) openBtn.click();
+      `,
+    });
+    await wait(700);
+    console.log('[Script] Capturing 00d_landing_to_auth.png');
+    const snapAuth = await send('Page.captureScreenshot', { format: 'png' });
+    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '00d_landing_to_auth.png'), Buffer.from(snapAuth.data, 'base64'));
 
     // Set auth in localStorage and reload
     const authPayload = JSON.stringify({

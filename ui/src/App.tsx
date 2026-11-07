@@ -8,8 +8,10 @@ import {
   Layers,
   LayoutDashboard,
   Webhook,
+  ArrowLeft,
 } from 'lucide-react';
 import { LoginPage } from './components/LoginPage';
+import { LandingPage } from './components/LandingPage';
 import { Sidebar } from './components/Sidebar';
 import { EventsView } from './components/EventsView';
 import { InspectorDrawer } from './components/InspectorDrawer';
@@ -381,6 +383,14 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [userEmail, currentTab, events, selectedEvent]);
 
+  const [showAuthView, setShowAuthView] = useState<boolean>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('auth') === 'login' || params.get('auth') === 'register';
+    } catch {}
+    return false;
+  });
+
   // Auth Logout
   const handleLogout = async () => {
     try {
@@ -391,18 +401,44 @@ export const App: React.FC = () => {
     setCurrentUser(null);
     setShowProfileModal(false);
     setSelectedEvent(null);
+    setShowAuthView(false);
   };
 
   if (!userEmail) {
+    if (!showAuthView && !sessionExpiredMessage) {
+      return (
+        <LandingPage
+          onOpenLogin={() => setShowAuthView(true)}
+          onOpenRegister={() => setShowAuthView(true)}
+        />
+      );
+    }
+
     return (
-      <LoginPage
-        onLoginSuccess={(email) => {
-          setSessionExpiredMessage(null);
-          setUserEmail(email);
-          fetchProfile().then((p) => setCurrentUser(p)).catch(() => {});
-        }}
-        initialError={sessionExpiredMessage}
-      />
+      <div className="relative min-h-dvh">
+        <div className="fixed top-4 left-4 z-50">
+          <button
+            type="button"
+            onClick={() => {
+              setShowAuthView(false);
+              setSessionExpiredMessage(null);
+            }}
+            className="min-h-[40px] px-3.5 py-2 rounded-lg border border-zinc-200 bg-white/95 hover:bg-zinc-100 active:scale-[0.97] text-zinc-800 text-xs font-medium shadow-xs inline-flex items-center gap-1.5 transition-transform cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Kembali ke Beranda</span>
+          </button>
+        </div>
+        <LoginPage
+          onLoginSuccess={(email) => {
+            setSessionExpiredMessage(null);
+            setShowAuthView(false);
+            setUserEmail(email);
+            fetchProfile().then((p) => setCurrentUser(p)).catch(() => {});
+          }}
+          initialError={sessionExpiredMessage}
+        />
+      </div>
     );
   }
 

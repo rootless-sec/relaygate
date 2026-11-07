@@ -2097,6 +2097,80 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     );
   });
 
+  await suite.test('LandingPage Hero (dtnuyvc-casino-hero-section) + Body (kybern.treshnanda.tech) Adapted to RelayGate & Zero Rainbow Slop', async () => {
+    const landingSource = fs.readFileSync(path.join(__dirname, '../src/components/LandingPage.tsx'), 'utf8');
+    const landingFile = path.join(outDir, 'landing-bundle.mjs');
+    await build({
+      entryPoints: [path.join(__dirname, '../src/components/LandingPage.tsx')],
+      bundle: true,
+      format: 'esm',
+      outfile: landingFile,
+      external: ['react', 'react-dom', 'lucide-react'],
+      jsx: 'transform',
+      loader: { '.tsx': 'tsx', '.ts': 'ts' },
+    });
+
+    const { LandingPage } = await import(`file://${landingFile.replace(/\\/g, '/')}`);
+    const html = renderToString(
+      React.createElement(LandingPage, {
+        onOpenLogin: () => {},
+        onOpenRegister: () => {},
+      })
+    );
+
+    // 1. Top Hero adapted to RelayGate (keeping dtnuyvc-casino-hero-section visual structure & centerpiece)
+    assert.match(html, />RelayGate<\/span>/, 'Must render RelayGate brand wordmark in hero header');
+    assert.doesNotMatch(html, />Casino<\/span>/, 'Must NOT copy literal Casino brand name');
+    assert.doesNotMatch(html, /Kybern/i, 'Must NOT copy literal Kybern brand name');
+    assert.match(html, />Engine<\/a>/, 'Must render Engine nav link');
+    assert.match(html, />Product<\/a>/, 'Must render Product nav link');
+    assert.match(html, />Workspace<\/a>/, 'Must render Workspace nav link');
+    assert.match(html, />Deploy<\/a>/, 'Must render Deploy nav link');
+    assert.match(html, />Questions<\/a>/, 'Must render Questions nav link');
+    assert.match(html, />Sign in<\/button>/, 'Must render Sign in header button');
+    assert.match(html, />Get started<\/button>/, 'Must render Get started header button');
+    assert.match(html, />New<\/span>/, 'Must render New pill badge');
+    assert.match(html, /Every webhook\.<br\s*\/?>Zero dropped events\./, 'Must render 2-line RelayGate H1');
+    assert.match(html, />Open Console<\/button>/, 'Must render Open Console hero CTA');
+    assert.match(html, />Explore Engine<\/button>/, 'Must render Explore Engine hero CTA');
+    assert.match(html, /src="\/hero-roulette\.webp"/, 'Must render hero centerpiece illustration /hero-roulette.webp');
+
+    const heroAssetPath = path.join(__dirname, '../public/hero-roulette.webp');
+    assert.ok(fs.existsSync(heroAssetPath), 'ui/public/hero-roulette.webp must exist on disk');
+
+    // 2. Body sections following kybern.treshnanda.tech structure adapted for RelayGate
+    for (const secId of ['agents', 'native', 'product', 'workspace', 'faq', 'download']) {
+      assert.match(
+        html,
+        new RegExp(`id="${secId}"`),
+        `LandingPage must include section id="${secId}"`
+      );
+    }
+    assert.match(html, /No Redis\./, 'Must render No Redis statement');
+    assert.match(html, /No Kafka\./, 'Must render No Kafka statement');
+    assert.match(html, /Workers that retry and isolate automatically\./, 'Must render Feature 1 headline');
+    assert.match(html, /Failures you can inspect and replay\./, 'Must render Feature 2 headline');
+    assert.match(html, /The rest of the pipeline, in the same window\./, 'Must render Workspace headline');
+    assert.match(html, /Nothing leaves your server\./, 'Must render self-hosted topology statement');
+    assert.match(html, /Any server becomes the ingestion edge\./, 'Must render environment statement');
+    assert.match(html, /Run RelayGate\./, 'Must render download/quickstart display heading');
+    assert.match(html, /class="footer__word">relaygate<\/div>/, 'Must render giant footer wordmark relaygate');
+
+    // 3. Zero green/yellow/red rainbow slop classes in LandingPage.tsx
+    assert.doesNotMatch(
+      landingSource,
+      /\b(emerald|amber|rose|green|yellow|red)-\d{2,3}\b/,
+      'LandingPage.tsx must not use green/yellow/red (emerald/amber/rose) classes'
+    );
+
+    // 4. Mobile navigation & accessibility invariants
+    assert.match(html, />Menu<\/span>/, 'Mobile navigation trigger must have visible "Menu" label');
+    assert.match(html, /min-h-\[44px\]/, 'Interactive controls must enforce 44px minimum touch target');
+    assert.match(html, /active:scale-\[0\.97\]/, 'Buttons must include tactile active:scale-[0.97] press state');
+    assert.match(html, /focus-visible:ring-2/, 'Interactive controls must include visible focus-visible ring');
+    assert.doesNotMatch(html, /animate-pulse|animate-ping/, 'LandingPage must not use infinite pulsing/pinging animations');
+  });
+
   // Cleanup temp files
   try {
     fs.rmSync(outDir, { recursive: true, force: true, maxRetries: 0 });
