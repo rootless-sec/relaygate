@@ -7,9 +7,24 @@ const http = require('http');
 const PORT = 8099;
 const CDP_PORT = 9333;
 const SCREENSHOTS_DIR = path.join(__dirname, '..', 'screenshots');
+const BRAIN_DIR = 'C:\\Users\\ASUS\\.gemini\\antigravity\\brain\\0f626320-fda7-4886-b746-3f6e3d439983';
+const PUBLIC_SHOTS_DIR = path.join(__dirname, '..', 'ui', 'public', 'shots');
+const PUBLIC_DIR = path.join(__dirname, '..', 'ui', 'public');
 
 if (!fs.existsSync(SCREENSHOTS_DIR)) {
   fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
+}
+if (!fs.existsSync(BRAIN_DIR)) {
+  try { fs.mkdirSync(BRAIN_DIR, { recursive: true }); } catch {}
+}
+
+function saveScreenshot(filename, base64Data) {
+  const buf = Buffer.isBuffer(base64Data) ? base64Data : Buffer.from(base64Data, 'base64');
+  fs.writeFileSync(path.join(SCREENSHOTS_DIR, filename), buf);
+  if (fs.existsSync(BRAIN_DIR)) {
+    fs.writeFileSync(path.join(BRAIN_DIR, filename), buf);
+  }
+  return buf;
 }
 
 function wait(ms) {
@@ -196,7 +211,7 @@ async function run() {
     // 0. Capture Public Landing Page (Before Login) at 2x Retina
     console.log('[Script] Capturing 00_landing_hero_desktop.png');
     const snapHero = await send('Page.captureScreenshot', { format: 'png' });
-    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '00_landing_hero_desktop.png'), Buffer.from(snapHero.data, 'base64'));
+    saveScreenshot('00_landing_hero_desktop.png', snapHero.data);
 
     // Scroll to below-the-fold #native & #product sections
     await send('Runtime.evaluate', {
@@ -205,7 +220,7 @@ async function run() {
     await wait(600);
     console.log('[Script] Capturing 00b_landing_sections_desktop.png');
     const snapSections = await send('Page.captureScreenshot', { format: 'png' });
-    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '00b_landing_sections_desktop.png'), Buffer.from(snapSections.data, 'base64'));
+    saveScreenshot('00b_landing_sections_desktop.png', snapSections.data);
 
     // Scroll to #product section
     await send('Runtime.evaluate', {
@@ -214,7 +229,7 @@ async function run() {
     await wait(600);
     console.log('[Script] Capturing 00b2_landing_product_desktop.png');
     const snapProduct = await send('Page.captureScreenshot', { format: 'png' });
-    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '00b2_landing_product_desktop.png'), Buffer.from(snapProduct.data, 'base64'));
+    saveScreenshot('00b2_landing_product_desktop.png', snapProduct.data);
 
     // Test scrolled floating navbar (expanded state via real CDP mouseMoved event)
     const isleBox = await send('Runtime.evaluate', {
@@ -233,7 +248,7 @@ async function run() {
     await wait(700);
     console.log('[Script] Capturing 00a_scrolled_floating_navbar.png');
     const snapNav = await send('Page.captureScreenshot', { format: 'png' });
-    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '00a_scrolled_floating_navbar.png'), Buffer.from(snapNav.data, 'base64'));
+    saveScreenshot('00a_scrolled_floating_navbar.png', snapNav.data);
 
     // Scroll to #workspace section
     await send('Runtime.evaluate', {
@@ -242,7 +257,7 @@ async function run() {
     await wait(600);
     console.log('[Script] Capturing 00c_landing_workspace_desktop.png');
     const snapWs = await send('Page.captureScreenshot', { format: 'png' });
-    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '00c_landing_workspace_desktop.png'), Buffer.from(snapWs.data, 'base64'));
+    saveScreenshot('00c_landing_workspace_desktop.png', snapWs.data);
 
     // Scroll to #details section (substantive architecture workbench)
     await send('Runtime.evaluate', {
@@ -251,7 +266,7 @@ async function run() {
     await wait(600);
     console.log('[Script] Capturing 00c2_landing_details_desktop.png');
     const snapDetails = await send('Page.captureScreenshot', { format: 'png' });
-    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '00c2_landing_details_desktop.png'), Buffer.from(snapDetails.data, 'base64'));
+    saveScreenshot('00c2_landing_details_desktop.png', snapDetails.data);
 
     // Scroll to #download section (Run RelayGate)
     await send('Runtime.evaluate', {
@@ -260,7 +275,7 @@ async function run() {
     await wait(600);
     console.log('[Script] Capturing 00e_landing_download_desktop.png');
     const snapDownload = await send('Page.captureScreenshot', { format: 'png' });
-    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '00e_landing_download_desktop.png'), Buffer.from(snapDownload.data, 'base64'));
+    saveScreenshot('00e_landing_download_desktop.png', snapDownload.data);
 
     // Scroll to footer
     await send('Runtime.evaluate', {
@@ -269,7 +284,7 @@ async function run() {
     await wait(600);
     console.log('[Script] Capturing 00f_landing_footer_desktop.png');
     const snapFooter = await send('Page.captureScreenshot', { format: 'png' });
-    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '00f_landing_footer_desktop.png'), Buffer.from(snapFooter.data, 'base64'));
+    saveScreenshot('00f_landing_footer_desktop.png', snapFooter.data);
 
     // Check horizontal overflow at 1440
     const overflowCheck = await send('Runtime.evaluate', {
@@ -288,7 +303,7 @@ async function run() {
     await wait(700);
     console.log('[Script] Capturing 00d_landing_to_auth.png');
     const snapAuth = await send('Page.captureScreenshot', { format: 'png' });
-    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '00d_landing_to_auth.png'), Buffer.from(snapAuth.data, 'base64'));
+    saveScreenshot('00d_landing_to_auth.png', snapAuth.data);
 
     // Set auth in localStorage and reload
     const authPayload = JSON.stringify({
@@ -333,7 +348,9 @@ async function run() {
     // 1. Dashboard Screenshot
     console.log('[Script] Capturing 01_dashboard.png');
     const snap1 = await send('Page.captureScreenshot', { format: 'png' });
-    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '01_dashboard.png'), Buffer.from(snap1.data, 'base64'));
+    const dashBuf = saveScreenshot('01_dashboard.png', snap1.data);
+    fs.writeFileSync(path.join(PUBLIC_SHOTS_DIR, 'dashboard.png'), dashBuf);
+    fs.writeFileSync(path.join(PUBLIC_DIR, 'dashboard-preview.png'), dashBuf);
 
     // 2. Open Profile Modal
     console.log('[Script] Opening Profile Modal');
@@ -349,7 +366,7 @@ async function run() {
 
     console.log('[Script] Capturing 02_profile_modal.png');
     const snap2 = await send('Page.captureScreenshot', { format: 'png' });
-    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '02_profile_modal.png'), Buffer.from(snap2.data, 'base64'));
+    saveScreenshot('02_profile_modal.png', snap2.data);
 
     // 3. Switch to Security Tab in Profile Modal
     console.log('[Script] Switching to Keamanan Akun tab');
@@ -363,7 +380,7 @@ async function run() {
 
     console.log('[Script] Capturing 03_security_modal.png');
     const snap3 = await send('Page.captureScreenshot', { format: 'png' });
-    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '03_security_modal.png'), Buffer.from(snap3.data, 'base64'));
+    saveScreenshot('03_security_modal.png', snap3.data);
 
     // 4. Close modal and navigate to Endpoints view
     console.log('[Script] Navigating to Endpoints view');
@@ -385,7 +402,7 @@ async function run() {
 
     console.log('[Script] Capturing 04_endpoints_view.png');
     const snap4 = await send('Page.captureScreenshot', { format: 'png' });
-    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '04_endpoints_view.png'), Buffer.from(snap4.data, 'base64'));
+    saveScreenshot('04_endpoints_view.png', snap4.data);
 
     // 4b. Open Tambah Endpoint Modal
     console.log('[Script] Opening Tambah Endpoint Modal');
@@ -399,7 +416,7 @@ async function run() {
 
     console.log('[Script] Capturing 04b_add_endpoint_modal.png');
     const snapModal = await send('Page.captureScreenshot', { format: 'png' });
-    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '04b_add_endpoint_modal.png'), Buffer.from(snapModal.data, 'base64'));
+    saveScreenshot('04b_add_endpoint_modal.png', snapModal.data);
 
     // Close Tambah Endpoint Modal
     await send('Runtime.evaluate', {
@@ -422,7 +439,7 @@ async function run() {
 
     console.log('[Script] Capturing 05_dlq_view.png');
     const snap5 = await send('Page.captureScreenshot', { format: 'png' });
-    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '05_dlq_view.png'), Buffer.from(snap5.data, 'base64'));
+    saveScreenshot('05_dlq_view.png', snap5.data);
 
     ws.close();
     browserProc.kill();

@@ -307,46 +307,63 @@ export function ProductDashboardPreview({ onOpenConsole }: ProductDashboardPrevi
     >
       {/* Window Header / Browser Chrome */}
       <div className="bg-zinc-50 border-b border-zinc-200 px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5" aria-hidden="true">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-1.5 shrink-0" aria-hidden="true">
             <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
             <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
             <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
           </div>
           {/* Address Bar Pill */}
-          <div className="flex items-center gap-2 px-3 py-1 rounded-md bg-white border border-zinc-200/80 text-zinc-600 font-mono text-[11px] sm:text-xs shadow-2xs">
-            <Lock className="w-3 h-3 text-zinc-400" />
-            <span className="text-zinc-800 font-medium">http://127.0.0.1:8080/dashboard</span>
-          </div>
+          <button
+            type="button"
+            onClick={onOpenConsole}
+            className="flex items-center gap-2 px-3 py-1 rounded-md bg-white hover:bg-zinc-100/80 border border-zinc-200/80 text-zinc-600 font-mono text-[11px] sm:text-xs shadow-2xs min-w-0 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
+            title="Buka Console Dashboard"
+          >
+            <Lock className="w-3 h-3 text-zinc-400 shrink-0" />
+            <span className="text-zinc-800 font-medium truncate">http://127.0.0.1:8080/dashboard</span>
+          </button>
         </div>
 
-        <div className="flex items-center gap-2 font-mono text-[11px] text-zinc-500">
-          <span className="rg-engine-live-dot inline-block" aria-hidden="true" />
+        <div className="flex items-center gap-2 font-mono text-[11px] text-zinc-500 shrink-0">
+          <span className="rg-engine-live-dot inline-block shrink-0" aria-hidden="true" />
           <span className="text-zinc-700 font-medium">Engine Online (UID 1000) · SQLite WAL</span>
         </div>
       </div>
 
       {/* Window Body: Authentic High-Resolution Retina Dashboard Screenshot */}
-      <div className="relative bg-zinc-100 overflow-hidden">
+      <div
+        className="relative bg-zinc-100 overflow-hidden cursor-pointer"
+        onClick={onOpenConsole}
+        role={onOpenConsole ? "button" : undefined}
+        tabIndex={onOpenConsole ? 0 : undefined}
+        onKeyDown={(e) => {
+          if (onOpenConsole && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault();
+            onOpenConsole();
+          }
+        }}
+        aria-label={onOpenConsole ? "Buka Console Interaktif RelayGate" : undefined}
+      >
         <img
           src="/shots/dashboard.png"
           alt="RelayGate Live Production Dashboard"
+          width={2844}
+          height={1536}
           className="w-full h-auto object-cover object-top block transition-transform duration-300 group-hover:scale-[1.005]"
           loading="eager"
           decoding="async"
         />
 
         {/* Subtle Interactive Overlay on Hover / Action */}
-        <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/20 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none flex items-end justify-center pb-6 sm:pb-8">
+        <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/20 via-transparent to-transparent opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200 pointer-events-none flex items-end justify-center pb-6 sm:pb-8">
           {onOpenConsole && (
-            <button
-              type="button"
-              onClick={onOpenConsole}
+            <div
               className="pointer-events-auto min-h-[44px] px-4 py-2 rounded-lg bg-zinc-950/90 hover:bg-zinc-950 text-white font-medium text-xs sm:text-sm shadow-lg backdrop-blur-sm transition-all duration-150 inline-flex items-center gap-2 cursor-pointer active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
             >
               <span>Buka Console Interaktif</span>
               <ArrowUpRight className="w-3.5 h-3.5 text-zinc-300" />
-            </button>
+            </div>
           )}
         </div>
       </div>
@@ -448,7 +465,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
     <div className="rg-landing min-h-screen text-zinc-900 selection:bg-zinc-900 selection:text-white">
       {/* =====================================================================
           TOP HEADER & HERO SECTION
-          Subtle Cool-Tinted Soft Blue Canvas & Interactive Routing Pipeline Centerpiece
+          Subtle Cool-Tinted Soft Blue Canvas & Clean Dashboard Window Preview Centerpiece
       ===================================================================== */}
       <div className="relative overflow-hidden rg-canvas-pattern pt-20">
         <header className="nav-fixed w-full">

@@ -2198,7 +2198,13 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     // 8. Zero packet ping animations & solid 60 FPS performance
     assert.doesNotMatch(landingSource, /rg-packet-ping/, 'LandingPage must NOT include desktop packet ping pulse');
     assert.doesNotMatch(landingSource, /rg-packet-ping-v/, 'LandingPage must NOT include mobile vertical packet ping pulse');
+    assert.doesNotMatch(landingSource, /animate-pulse|animate-ping/, 'LandingPage must not use infinite pulsing/pinging animations');
     assert.match(landingSource, /ProductDashboardPreview/, 'LandingPage must include ProductDashboardPreview');
+    assert.match(html, /data-testid="dashboard-window-preview"/, 'Must render clean Dashboard Window Preview centerpiece');
+    assert.match(html, /http:\/\/127\.0\.0\.1:8080\/dashboard/, 'Must render local dashboard address bar in window chrome');
+    assert.match(html, /src="\/shots\/dashboard\.png"/, 'Must render real RelayGate dashboard preview screenshot');
+    const cssSource = fs.readFileSync(path.join(__dirname, '../src/index.css'), 'utf8');
+    assert.doesNotMatch(cssSource, /@keyframes\s+rg-(node-pulse|packet-ping|laser-sweep|flow-dash|node-glow)/, 'index.css must not contain GPU-intensive continuous keyframe animations');
 
     // 9. Zero-fluff authentic engineering assertions (no marketing overclaim)
     assert.match(html, />Webhook gateway<\/span>/, 'Top pill must say "Webhook gateway" without buzzword fluff');
