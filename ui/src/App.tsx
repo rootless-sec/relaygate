@@ -1,4 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  RotateCw,
+  Shield,
+  Search,
+  Pause,
+  Play,
+  AlertOctagon,
+} from 'lucide-react';
 import { LoginPage } from './components/LoginPage';
 import { Sidebar } from './components/Sidebar';
 import { EventsView } from './components/EventsView';
@@ -7,23 +15,23 @@ import { OverviewView } from './components/OverviewView';
 import { DeadLetterView } from './components/DeadLetterView';
 import { EndpointsView } from './components/EndpointsView';
 import { Toast, ToastMessage } from './components/Toast';
-import { 
-  Endpoint, 
-  NavTab, 
-  OverviewData, 
-  ProviderType, 
-  StatsSummary, 
-  WebhookEvent 
+import {
+  Endpoint,
+  NavTab,
+  OverviewData,
+  ProviderType,
+  StatsSummary,
+  WebhookEvent,
 } from './types';
-import { 
-  fetchEndpoints, 
-  fetchEvents, 
-  fetchOverview, 
-  fetchStats, 
-  replayEvent, 
+import {
+  fetchEndpoints,
+  fetchEvents,
+  fetchOverview,
+  fetchStats,
+  replayEvent,
   bulkReplay,
   createEndpoint,
-  updateEndpoint 
+  updateEndpoint,
 } from './api';
 
 export const App: React.FC = () => {
@@ -127,7 +135,6 @@ export const App: React.FC = () => {
       setStats(statsData);
       setOverviewData(overview);
 
-      // If no endpoints exist yet (brand new database), auto-seed the canonical demo endpoints
       if (endpointsData.length === 0) {
         seedDefaultEndpoints();
       }
@@ -138,10 +145,26 @@ export const App: React.FC = () => {
 
   const seedDefaultEndpoints = async () => {
     const defaultList = [
-      { name: 'orders-api', provider: 'midtrans' as ProviderType, target_url: 'https://api.toko.id/hooks/midtrans' },
-      { name: 'license-svc', provider: 'stripe' as ProviderType, target_url: 'https://license.toko.id/stripe' },
-      { name: 'billing-hook', provider: 'xendit' as ProviderType, target_url: 'https://billing.toko.id/xendit' },
-      { name: 'deploy-hook', provider: 'github' as ProviderType, target_url: 'https://ci.toko.id/github' },
+      {
+        name: 'orders-api',
+        provider: 'midtrans' as ProviderType,
+        target_url: 'https://api.toko.id/hooks/midtrans',
+      },
+      {
+        name: 'license-svc',
+        provider: 'stripe' as ProviderType,
+        target_url: 'https://license.toko.id/stripe',
+      },
+      {
+        name: 'billing-hook',
+        provider: 'xendit' as ProviderType,
+        target_url: 'https://billing.toko.id/xendit',
+      },
+      {
+        name: 'deploy-hook',
+        provider: 'github' as ProviderType,
+        target_url: 'https://ci.toko.id/github',
+      },
     ];
     for (const item of defaultList) {
       try {
@@ -199,7 +222,9 @@ export const App: React.FC = () => {
           setEvents((prev) =>
             prev.map((ev) => (ev.id === updatedEvent.id ? { ...ev, ...updatedEvent } : ev))
           );
-          setSelectedEvent((prev) => (prev?.id === updatedEvent.id ? { ...prev, ...updatedEvent } : prev));
+          setSelectedEvent((prev) =>
+            prev?.id === updatedEvent.id ? { ...prev, ...updatedEvent } : prev
+          );
           refreshStats();
         } catch (err) {
           console.error('SSE event_updated error:', err);
@@ -252,11 +277,11 @@ export const App: React.FC = () => {
         }
       }
       setEvents((prev) =>
-        prev.map((item) =>
-          item.id === ev.id ? { ...item, status: 'PENDING' } : item
-        )
+        prev.map((item) => (item.id === ev.id ? { ...item, status: 'PENDING' } : item))
       );
-      setStats((prev) => prev ? { ...prev, failed_events: Math.max(0, prev.failed_events - 1) } : prev);
+      setStats((prev) =>
+        prev ? { ...prev, failed_events: Math.max(0, prev.failed_events - 1) } : prev
+      );
       if (selectedEvent?.id === ev.id) {
         setSelectedEvent((prev) => (prev ? { ...prev, status: 'PENDING' } : null));
       }
@@ -270,11 +295,13 @@ export const App: React.FC = () => {
     try {
       const res = await bulkReplay({ ids: targetIds, all_failed: allFailed });
       setEvents((prev) =>
-        prev.map((item) =>
-          targetIds.includes(item.id) ? { ...item, status: 'PENDING' } : item
-        )
+        prev.map((item) => (targetIds.includes(item.id) ? { ...item, status: 'PENDING' } : item))
       );
-      setStats((prev) => prev ? { ...prev, failed_events: Math.max(0, prev.failed_events - targetIds.length) } : prev);
+      setStats((prev) =>
+        prev
+          ? { ...prev, failed_events: Math.max(0, prev.failed_events - targetIds.length) }
+          : prev
+      );
       loadInitialData();
       return res;
     } catch (err: any) {
@@ -284,7 +311,12 @@ export const App: React.FC = () => {
   };
 
   // 4. Endpoint Actions
-  const handleAddEndpoint = async (data: { name: string; provider: ProviderType; target_url: string; secret_key?: string }) => {
+  const handleAddEndpoint = async (data: {
+    name: string;
+    provider: ProviderType;
+    target_url: string;
+    secret_key?: string;
+  }) => {
     await createEndpoint(data);
     const updated = await fetchEndpoints();
     setEndpoints(updated);
@@ -294,7 +326,10 @@ export const App: React.FC = () => {
     try {
       const updated = await updateEndpoint(ep.id, { is_active: !ep.is_active });
       setEndpoints((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
-      showToast(`Endpoint ${ep.name} ${updated.is_active ? 'diaktifkan' : 'dinonaktifkan'}`, 'info');
+      showToast(
+        `Endpoint ${ep.name} ${updated.is_active ? 'diaktifkan' : 'dinonaktifkan'}`,
+        'info'
+      );
     } catch (err: any) {
       showToast(err?.message || 'Gagal mengubah status endpoint', 'error');
     }
@@ -305,8 +340,11 @@ export const App: React.FC = () => {
     if (!userEmail) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if user is currently typing in an input or select
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        e.target instanceof HTMLSelectElement
+      ) {
         if (e.key === 'Escape') {
           (e.target as HTMLElement).blur();
         }
@@ -367,14 +405,24 @@ export const App: React.FC = () => {
     );
   }
 
-  const failedEventsCount = events.length > 0
-    ? events.filter((e) => e.status === 'FAILED').length
-    : (stats ? stats.failed_events : 0);
+  const failedEventsCount =
+    events.length > 0
+      ? events.filter((e) => e.status === 'FAILED').length
+      : stats
+      ? stats.failed_events
+      : 0;
   const totalEventsCount = stats ? stats.total_events : events.length;
 
+  const routeLabel: Record<NavTab, string> = {
+    overview: 'relaygate.internal/workspace/overview',
+    events: 'relaygate.internal/workspace/events',
+    dead: 'relaygate.internal/workspace/dead-letter-queue',
+    endpoints: 'relaygate.internal/workspace/endpoints',
+  };
+
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-zinc-50 text-zinc-900 antialiased">
-      {/* Sidebar Navigation */}
+    <div className="flex h-screen w-screen overflow-hidden bg-gradient-to-b from-sky-100/45 via-zinc-100/85 to-zinc-100 text-zinc-950 antialiased md:p-1.5 md:gap-1.5">
+      {/* Left Sidebar in Aside Outer Frame */}
       <Sidebar
         currentTab={currentTab}
         onTabChange={handleTabChange}
@@ -382,75 +430,154 @@ export const App: React.FC = () => {
         failedEventsCount={failedEventsCount}
         userEmail={userEmail}
         onLogout={handleLogout}
+        endpoints={endpoints}
+        isLive={isLive}
       />
 
-      {/* Main Content Area */}
-      <main className="flex-1 flex flex-row min-w-0 min-h-0 relative overflow-hidden bg-zinc-50">
-        <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
-          {currentTab === 'overview' && (
-            <OverviewView
-              data={overviewData}
-              onSelectEvent={(ev) => setSelectedEvent(ev)}
-            />
-          )}
+      {/* Right Inset Floating Content Canvas (Aside Window Frame) */}
+      <main className="flex-1 flex flex-col min-w-0 min-h-0 relative overflow-hidden bg-white md:rounded-[16px] shadow-xs ring-1 ring-zinc-950/[0.08]">
+        {/* Top 42px Aside Browser / Command Toolbar */}
+        <header className="h-[42px] border-b border-zinc-200/75 flex items-center justify-between px-3 gap-2 shrink-0 bg-white/95 backdrop-blur-xs select-none">
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              type="button"
+              onClick={loadInitialData}
+              className="size-7 rounded-lg flex items-center justify-center text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 active:scale-[0.96] transition-all duration-150 cursor-pointer"
+              title="Segarkan Data"
+              aria-label="Segarkan data"
+            >
+              <RotateCw className="w-3.5 h-3.5" />
+            </button>
+          </div>
 
-          {currentTab === 'events' && (
-            <EventsView
-              events={events}
-              stats={stats}
-              endpoints={endpoints}
-              selectedEventId={selectedEvent?.id || null}
-              onSelectEvent={(ev) => setSelectedEvent(ev)}
-              onReplayEvent={handleReplaySingle}
-              onBulkReplayFailed={() => handleBulkReplay([], true)}
-              onBulkReplay={(targetIds, allFailed) => handleBulkReplay(targetIds, allFailed)}
-              isLive={isLive}
-              onToggleLive={() => setIsLive(!isLive)}
-              bufferedCount={bufferedEvents.length}
-              onFlushBuffer={handleFlushBuffer}
-              searchInputRef={searchInputRef}
-            />
-          )}
+          {/* Center Unified Aside Omnibox Pill */}
+          <button
+            type="button"
+            onClick={() => {
+              handleTabChange('events');
+              setTimeout(() => searchInputRef.current?.focus(), 60);
+            }}
+            className="flex-1 max-w-xl mx-auto h-7 rounded-lg bg-zinc-100/80 hover:bg-zinc-200/60 ring-1 ring-inset ring-zinc-950/[0.05] px-2.5 flex items-center justify-between text-xs text-zinc-500 transition-colors cursor-pointer group"
+            title="Cari event atau filter (tekan /)"
+          >
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Shield className="w-3 h-3 text-zinc-400 shrink-0" />
+              <span className="font-mono text-[11px] text-zinc-600 truncate">
+                {routeLabel[currentTab]}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Search className="w-3 h-3 text-zinc-400 group-hover:text-zinc-700 transition-colors" />
+              <kbd className="px-1.5 py-0.2 text-[10px] font-mono bg-white rounded shadow-2xs ring-1 ring-zinc-950/[0.06] text-zinc-500">
+                /
+              </kbd>
+            </div>
+          </button>
 
-          {currentTab === 'dead' && (
-            <DeadLetterView
-              events={events}
+          {/* Right Toolbar Controls */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {failedEventsCount > 0 && currentTab !== 'dead' && (
+              <button
+                type="button"
+                onClick={() => handleTabChange('dead')}
+                className="flex items-center gap-1.5 h-7 px-2.5 rounded-lg bg-rose-50 hover:bg-rose-100/80 text-rose-700 ring-1 ring-rose-200/80 text-[11px] font-semibold tabular-nums active:scale-[0.97] transition-all duration-150 cursor-pointer"
+                title="Buka Dead-Letter Queue"
+              >
+                <AlertOctagon className="w-3 h-3 text-rose-600" />
+                <span>{failedEventsCount} DLQ</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setIsLive(!isLive)}
+              className="flex items-center gap-1.5 h-7 px-2.5 rounded-lg bg-white hover:bg-zinc-100 text-zinc-700 ring-1 ring-zinc-950/[0.08] shadow-2xs text-[11px] font-medium active:scale-[0.97] transition-all duration-150 cursor-pointer"
+              title={isLive ? 'Jeda stream real-time' : 'Lanjutkan stream real-time'}
+            >
+              {isLive ? (
+                <>
+                  <Pause className="w-3 h-3 text-zinc-500" />
+                  <span className="hidden sm:inline">Pause Stream</span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-3 h-3 text-emerald-600" />
+                  <span className="hidden sm:inline">Resume Stream</span>
+                </>
+              )}
+            </button>
+          </div>
+        </header>
+
+        {/* Active View Content + Split Inspector */}
+        <div className="flex-1 flex flex-row min-w-0 min-h-0 relative overflow-hidden">
+          <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
+            {currentTab === 'overview' && (
+              <OverviewView
+                data={overviewData}
+                onSelectEvent={(ev) => setSelectedEvent(ev)}
+                onNavigate={handleTabChange}
+              />
+            )}
+
+            {currentTab === 'events' && (
+              <EventsView
+                events={events}
+                stats={stats}
+                endpoints={endpoints}
+                selectedEventId={selectedEvent?.id || null}
+                onSelectEvent={(ev) => setSelectedEvent(ev)}
+                onReplayEvent={handleReplaySingle}
+                onBulkReplayFailed={() => handleBulkReplay([], true)}
+                onBulkReplay={(targetIds, allFailed) => handleBulkReplay(targetIds, allFailed)}
+                isLive={isLive}
+                onToggleLive={() => setIsLive(!isLive)}
+                bufferedCount={bufferedEvents.length}
+                onFlushBuffer={handleFlushBuffer}
+                searchInputRef={searchInputRef}
+              />
+            )}
+
+            {currentTab === 'dead' && (
+              <DeadLetterView
+                events={events}
+                endpoints={endpoints}
+                selectedEventId={selectedEvent?.id || null}
+                onSelectEvent={(ev) => setSelectedEvent(ev)}
+                onReplaySingle={handleReplaySingle}
+                onBulkReplay={(targetIds, allFailed) => handleBulkReplay(targetIds, allFailed)}
+                onNavigateToEndpoint={() => {
+                  handleTabChange('endpoints');
+                }}
+                onToast={(msg, type) => showToast(msg, type)}
+              />
+            )}
+
+            {currentTab === 'endpoints' && (
+              <EndpointsView
+                endpoints={endpoints}
+                onAddEndpoint={handleAddEndpoint}
+                onToggleActive={handleToggleEndpointActive}
+                onToast={(msg) => showToast(msg, 'info')}
+              />
+            )}
+          </div>
+
+          {/* Inspector Slide-over / Split Panel */}
+          {selectedEvent && (
+            <InspectorDrawer
+              event={selectedEvent}
               endpoints={endpoints}
-              selectedEventId={selectedEvent?.id || null}
-              onSelectEvent={(ev) => setSelectedEvent(ev)}
-              onReplaySingle={handleReplaySingle}
-              onBulkReplay={(targetIds, allFailed) => handleBulkReplay(targetIds, allFailed)}
+              onClose={() => setSelectedEvent(null)}
+              onReplay={handleReplaySingle}
+              onToast={(msg) => showToast(msg, 'info')}
               onNavigateToEndpoint={() => {
                 handleTabChange('endpoints');
               }}
-              onToast={(msg, type) => showToast(msg, type)}
-            />
-          )}
-
-          {currentTab === 'endpoints' && (
-            <EndpointsView
-              endpoints={endpoints}
-              onAddEndpoint={handleAddEndpoint}
-              onToggleActive={handleToggleEndpointActive}
-              onToast={(msg) => showToast(msg, 'info')}
+              isSplitView={true}
             />
           )}
         </div>
-
-        {/* Inspector Slide-over / Split Panel */}
-        {selectedEvent && (
-          <InspectorDrawer
-            event={selectedEvent}
-            endpoints={endpoints}
-            onClose={() => setSelectedEvent(null)}
-            onReplay={handleReplaySingle}
-            onToast={(msg) => showToast(msg, 'info')}
-            onNavigateToEndpoint={() => {
-              handleTabChange('endpoints');
-            }}
-            isSplitView={true}
-          />
-        )}
       </main>
 
       {/* Toast Feedback */}
@@ -458,3 +585,4 @@ export const App: React.FC = () => {
     </div>
   );
 };
+export default App;

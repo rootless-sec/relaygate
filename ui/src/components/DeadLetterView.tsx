@@ -690,62 +690,64 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
   );
 
   return (
-    <div className="flex-1 overflow-hidden p-4 flex flex-col bg-zinc-50">
+    <div className="flex-1 overflow-hidden p-4 flex flex-col bg-zinc-50/50">
       {/* 1. Header & Accurate Page Description */}
-      <div className="mb-3 shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <AlertOctagon className="w-5 h-5 text-rose-600 shrink-0" />
-          <h1 className="text-base font-bold text-zinc-900 tracking-tight whitespace-nowrap truncate">
-            Dead-Letter Queue (DLQ)
-          </h1>
-          <span className="ml-1 text-xs font-mono font-medium px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-full shrink-0">
-            {mergedFailed.length} event gagal
-          </span>
+      <div className="mb-3 shrink-0 flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 min-w-0">
+            <AlertOctagon className="w-4 h-4 text-rose-600 shrink-0" />
+            <h1 className="text-base font-semibold text-zinc-950 tracking-tight whitespace-nowrap truncate">
+              Dead-Letter Queue (DLQ)
+            </h1>
+            <span className="ml-1 text-[11px] font-mono font-semibold px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200/80 rounded-full shrink-0 tabular-nums">
+              {mergedFailed.length} event gagal
+            </span>
+          </div>
+          <p className={`text-xs text-zinc-500 mt-1 leading-relaxed ${selectedEventId ? 'hidden xl:block xl:line-clamp-2' : 'line-clamp-2'}`}>
+            Daftar webhook yang memerlukan tindakan: event yang ditolak di verifikasi awal (0 percobaan) dan event yang gagal terkirim setelah kuota percobaan habis.
+          </p>
         </div>
-        <p className={`text-xs text-zinc-600 mt-1 leading-relaxed ${selectedEventId ? 'hidden xl:block xl:line-clamp-2' : 'line-clamp-2'}`}>
-          Daftar webhook yang memerlukan tindakan: event yang ditolak di verifikasi awal (0 percobaan) dan event yang gagal terkirim setelah kuota percobaan habis.
-        </p>
-      </div>
 
-      {/* 2. Class Filter Tabs (Ditolak saat verifikasi vs Pengiriman gagal) */}
-      <div className="flex items-center gap-1 border-b border-zinc-200 mb-3 shrink-0 overflow-x-auto whitespace-nowrap py-0.5">
-        <button
-          type="button"
-          onClick={() => setClassFilter('all')}
-          className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
-            classFilter === 'all'
-              ? 'border-zinc-900 text-zinc-900 font-bold'
-              : 'border-transparent text-zinc-500 hover:text-zinc-900'
-          }`}
-        >
-          Semua ({mergedFailed.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setClassFilter('rejected')}
-          className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
-            classFilter === 'rejected'
-              ? 'border-zinc-900 text-zinc-900 font-bold'
-              : 'border-transparent text-zinc-500 hover:text-zinc-900'
-          }`}
-        >
-          Ditolak saat verifikasi ({rejectedCount})
-        </button>
-        <button
-          type="button"
-          onClick={() => setClassFilter('delivery_failed')}
-          className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
-            classFilter === 'delivery_failed'
-              ? 'border-zinc-900 text-zinc-900 font-bold'
-              : 'border-transparent text-zinc-500 hover:text-zinc-900'
-          }`}
-        >
-          Pengiriman gagal ({deliveryFailedCount})
-        </button>
+        {/* 2. Aside Segmented Class Filter Tabs */}
+        <div className="inline-flex items-center gap-1 p-1 bg-zinc-900/[0.05] ring-1 ring-inset ring-zinc-950/[0.04] rounded-xl shrink-0 overflow-x-auto whitespace-nowrap">
+          <button
+            type="button"
+            onClick={() => setClassFilter('all')}
+            className={`px-2.5 py-1 text-xs rounded-lg transition-all duration-150 cursor-pointer tabular-nums ${
+              classFilter === 'all'
+                ? 'bg-white text-zinc-950 font-medium shadow-xs ring-1 ring-zinc-950/[0.08]'
+                : 'text-zinc-600 hover:text-zinc-950 font-normal'
+            }`}
+          >
+            Semua ({mergedFailed.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setClassFilter('rejected')}
+            className={`px-2.5 py-1 text-xs rounded-lg transition-all duration-150 cursor-pointer tabular-nums ${
+              classFilter === 'rejected'
+                ? 'bg-white text-zinc-950 font-medium shadow-xs ring-1 ring-zinc-950/[0.08]'
+                : 'text-zinc-600 hover:text-zinc-950 font-normal'
+            }`}
+          >
+            Ditolak saat verifikasi ({rejectedCount})
+          </button>
+          <button
+            type="button"
+            onClick={() => setClassFilter('delivery_failed')}
+            className={`px-2.5 py-1 text-xs rounded-lg transition-all duration-150 cursor-pointer tabular-nums ${
+              classFilter === 'delivery_failed'
+                ? 'bg-white text-zinc-950 font-medium shadow-xs ring-1 ring-zinc-950/[0.08]'
+                : 'text-zinc-600 hover:text-zinc-950 font-normal'
+            }`}
+          >
+            Pengiriman gagal ({deliveryFailedCount})
+          </button>
+        </div>
       </div>
 
       {/* 3. Filter and Control Bar */}
-      <div className="mb-3 bg-white p-3 border border-zinc-200 rounded-lg shadow-2xs space-y-2.5 shrink-0">
+      <div className="mb-3 bg-white p-3 ring-1 ring-zinc-950/[0.08] rounded-xl shadow-2xs space-y-2.5 shrink-0">
         <div className="flex flex-wrap items-center gap-2">
           {/* Search by ID / Error / Payload */}
           <div className="relative flex-1 min-w-[200px]">
@@ -935,9 +937,9 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
       </div>
 
       {/* 4. DLQ Table Container */}
-      <div className="flex-1 bg-white border border-zinc-200 rounded-lg overflow-auto shadow-2xs relative">
+      <div className="flex-1 bg-white ring-1 ring-zinc-950/[0.08] rounded-xl overflow-auto shadow-2xs relative">
         <table className="w-full text-left text-xs border-collapse">
-          <thead className="sticky top-0 bg-zinc-50 border-b border-zinc-200 text-[11px] font-bold text-zinc-600 uppercase tracking-wider select-none z-10">
+          <thead className="sticky top-0 bg-zinc-50/95 backdrop-blur-xs border-b border-zinc-200/80 text-[11px] font-semibold text-zinc-500 select-none z-10">
             <tr>
               {/* Indeterminate Select All Checkbox */}
               <th className="py-2.5 px-3 w-10 border-l-4 border-l-transparent">
