@@ -168,6 +168,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       setPasswordError('Password baru minimal 8 karakter.');
       return;
     }
+    if (newPassword.length > 72) {
+      setPasswordError('Password baru maksimal 72 karakter.');
+      return;
+    }
     if (newPassword !== confirmPassword) {
       setPasswordError('Konfirmasi password tidak cocok.');
       return;

@@ -321,4 +321,14 @@ export async function resendVerificationCode(
   return res.json();
 }
 
+export async function logoutUser(): Promise<void> {
+  try {
+    await fetch(`${BASE_URL}/auth/logout`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+  } catch {}
+}
+
+
 

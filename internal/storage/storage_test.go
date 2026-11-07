@@ -870,4 +870,83 @@ func TestStorage_UpdateUserProfileAndPassword(t *testing.T) {
 	}
 }
 
+func TestStorage_DeleteSessionsByUserIDExcept(t *testing.T) {
+	db, cleanup := createTempDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	userID := "usr_session_revocation_test"
+	user := &model.User{
+		ID:           userID,
+		Name:         "Session User",
+		Email:        "user@example.com",
+		Role:         "admin",
+		PasswordHash: "hashed_pass",
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := db.SaveUser(ctx, user); err != nil {
+		t.Fatalf("SaveUser failed: %v", err)
+	}
+
+	sess1 := &model.Session{
+		Token:        "token_1_keep",
+		UserID:       userID,
+		UserEmail:    "user@example.com",
+		Role:         "admin",
+		ExpiresAt:    time.Now().UTC().Add(2 * time.Hour),
+		LastActiveAt: time.Now().UTC(),
+		CreatedAt:    time.Now().UTC(),
+	}
+	sess2 := &model.Session{
+		Token:        "token_2_revoke",
+		UserID:       userID,
+		UserEmail:    "user@example.com",
+		Role:         "admin",
+		ExpiresAt:    time.Now().UTC().Add(2 * time.Hour),
+		LastActiveAt: time.Now().UTC(),
+		CreatedAt:    time.Now().UTC(),
+	}
+	sess3 := &model.Session{
+		Token:        "token_3_revoke",
+		UserID:       userID,
+		UserEmail:    "user@example.com",
+		Role:         "admin",
+		ExpiresAt:    time.Now().UTC().Add(2 * time.Hour),
+		LastActiveAt: time.Now().UTC(),
+		CreatedAt:    time.Now().UTC(),
+	}
+
+	if err := db.SaveSession(ctx, sess1); err != nil {
+		t.Fatalf("SaveSession sess1 failed: %v", err)
+	}
+	if err := db.SaveSession(ctx, sess2); err != nil {
+		t.Fatalf("SaveSession sess2 failed: %v", err)
+	}
+	if err := db.SaveSession(ctx, sess3); err != nil {
+		t.Fatalf("SaveSession sess3 failed: %v", err)
+	}
+
+	keepHash := storage.HashSessionToken("token_1_keep")
+	if err := db.DeleteSessionsByUserIDExcept(ctx, userID, keepHash); err != nil {
+		t.Fatalf("DeleteSessionsByUserIDExcept failed: %v", err)
+	}
+
+	// Verify sess1 still exists
+	gotSess1, err := db.GetSession(ctx, "token_1_keep")
+	if err != nil || gotSess1 == nil {
+		t.Errorf("expected kept session to still exist, got err: %v", err)
+	}
+
+	// Verify sess2 and sess3 were deleted
+	gotSess2, err := db.GetSession(ctx, "token_2_revoke")
+	if err == nil && gotSess2 != nil {
+		t.Errorf("expected sess2 to be deleted, but still found")
+	}
+	gotSess3, err := db.GetSession(ctx, "token_3_revoke")
+	if err == nil && gotSess3 != nil {
+		t.Errorf("expected sess3 to be deleted, but still found")
+	}
+}
+
 

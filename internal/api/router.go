@@ -372,7 +372,6 @@ func NewRouter(repo storage.Repository, pool *worker.Pool, hub *Hub, mailerOpt .
 	// Profile Management Endpoints
 	mux.HandleFunc("GET /api/v1/profile", api.GetProfile)
 	mux.HandleFunc("PATCH /api/v1/profile", api.UpdateProfile)
-	mux.HandleFunc("PUT /api/v1/profile", api.UpdateProfile)
 	mux.HandleFunc("POST /api/v1/profile/password", api.UpdatePassword)
 	mux.HandleFunc("POST /api/v1/profile/avatar", api.UploadAvatar)
 	mux.HandleFunc("DELETE /api/v1/profile/avatar", api.DeleteAvatar)

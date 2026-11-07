@@ -55,6 +55,7 @@ type Repository interface {
 	GetSession(ctx context.Context, token string) (*model.Session, error)
 	TouchSession(ctx context.Context, token string, activeAt time.Time) error
 	DeleteSession(ctx context.Context, token string) error
+	DeleteSessionsByUserIDExcept(ctx context.Context, userID string, keepTokenHash string) error
 
 	// Audit Reveal methods
 	SaveAuditReveal(ctx context.Context, audit *model.AuditReveal) error
@@ -112,7 +113,7 @@ func Open(dbPath string) (*DB, error) {
 
 	storageDB := &DB{db: db}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	if err := storageDB.Migrate(ctx); err != nil {
@@ -571,9 +572,14 @@ func (d *DB) UpdateUserPassword(ctx context.Context, id string, passwordHash str
 	return nil
 }
 
-func hashSessionToken(token string) string {
+// HashSessionToken computes SHA-256 hex string of a session token
+func HashSessionToken(token string) string {
 	h := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(h[:])
+}
+
+func hashSessionToken(token string) string {
+	return HashSessionToken(token)
 }
 
 // SaveSession persists an active session token (persisted as SHA-256 hash)
@@ -696,6 +702,19 @@ func (d *DB) DeleteSession(ctx context.Context, token string) error {
 	_, err := d.db.ExecContext(ctx, "DELETE FROM sessions WHERE token_hash = ?;", tokenHash)
 	if err != nil {
 		return fmt.Errorf("failed to delete session: %w", err)
+	}
+	return nil
+}
+
+// DeleteSessionsByUserIDExcept removes all sessions for a user except the one matching keepTokenHash
+func (d *DB) DeleteSessionsByUserIDExcept(ctx context.Context, userID string, keepTokenHash string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	query := `DELETE FROM sessions WHERE user_id = ? AND token_hash != ?;`
+	_, err := d.db.ExecContext(ctx, query, userID, keepTokenHash)
+	if err != nil {
+		return fmt.Errorf("failed to revoke user sessions: %w", err)
 	}
 	return nil
 }

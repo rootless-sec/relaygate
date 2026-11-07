@@ -36,6 +36,7 @@ import {
   bulkReplay,
   createEndpoint,
   updateEndpoint,
+  logoutUser,
   UserProfile,
 } from './api';
 
@@ -363,7 +364,10 @@ export const App: React.FC = () => {
   }, [userEmail, currentTab, events, selectedEvent]);
 
   // Auth Logout
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await logoutUser();
+    } catch {}
     localStorage.removeItem('relaygate_auth');
     setUserEmail(null);
     setCurrentUser(null);
@@ -595,6 +599,14 @@ export const App: React.FC = () => {
           onProfileUpdated={(updated) => {
             setCurrentUser(updated);
             if (updated.email) setUserEmail(updated.email);
+            try {
+              const stored = localStorage.getItem('relaygate_auth');
+              if (stored) {
+                const parsed = JSON.parse(stored);
+                parsed.user = { ...parsed.user, ...updated };
+                localStorage.setItem('relaygate_auth', JSON.stringify(parsed));
+              }
+            } catch {}
           }}
           onToast={(msg, type) => showToast(msg, type)}
         />

@@ -152,21 +152,48 @@ func TestProfile_UpdateProfile(t *testing.T) {
 		t.Errorf("expected updated name 'Raden Mas Budi', got %s", updated.Name)
 	}
 
-	// 4. PUT method alias also works
+	// 4. Reject name containing control characters
+	controlCharBody := []byte(`{"name":"Budi\x00Santoso\r\n"}`)
+	reqControl := httptest.NewRequest(http.MethodPatch, "/api/v1/profile", bytes.NewReader(controlCharBody))
+	reqControl.Header.Set("Content-Type", "application/json")
+	reqControl.Header.Set("Authorization", "Bearer "+token)
+	recControl := httptest.NewRecorder()
+	router.ServeHTTP(recControl, reqControl)
+	if recControl.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request for name with control characters, got %d", recControl.Code)
+	}
+
+	// 5. Verify duplicate PUT route is removed (must return 405 Method Not Allowed or 404)
 	putBody := []byte(`{"name":"Budi Santoso S.Kom"}`)
 	reqPut := httptest.NewRequest(http.MethodPut, "/api/v1/profile", bytes.NewReader(putBody))
 	reqPut.Header.Set("Content-Type", "application/json")
 	reqPut.Header.Set("Authorization", "Bearer "+token)
 	recPut := httptest.NewRecorder()
 	router.ServeHTTP(recPut, reqPut)
-	if recPut.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK for PUT update, got %d", recPut.Code)
+	if recPut.Code != http.StatusMethodNotAllowed && recPut.Code != http.StatusNotFound {
+		t.Errorf("expected 405 or 404 for removed duplicate PUT endpoint, got %d", recPut.Code)
 	}
 }
 
 func TestProfile_UpdatePassword(t *testing.T) {
-	_, router, user, token, cleanup := setupProfileTestEnv(t)
+	api.ResetRateLimits()
+	db, router, user, token, cleanup := setupProfileTestEnv(t)
 	defer cleanup()
+
+	// Setup a second active session for the same user to test multi-session revocation
+	secondToken := "sess_second_device_token_9876543210"
+	secondSess := &model.Session{
+		Token:        secondToken,
+		UserID:       user.ID,
+		UserEmail:    user.Email,
+		Role:         user.Role,
+		ExpiresAt:    time.Now().UTC().Add(12 * time.Hour),
+		LastActiveAt: time.Now().UTC(),
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := db.SaveSession(context.Background(), secondSess); err != nil {
+		t.Fatalf("failed to save second session: %v", err)
+	}
 
 	// 1. Wrong current password -> 400
 	wrongPassBody, _ := json.Marshal(map[string]string{
@@ -196,7 +223,22 @@ func TestProfile_UpdatePassword(t *testing.T) {
 		t.Errorf("expected 400 for new password < 8 chars, got %d", recShort.Code)
 	}
 
-	// 3. New password same as current password -> 400
+	// 3. New password too long (> 72 chars) -> 400
+	longPass := strings.Repeat("A", 73)
+	longPassBody, _ := json.Marshal(map[string]string{
+		"current_password": "InitialPassword123!",
+		"new_password":     longPass,
+	})
+	reqLong := httptest.NewRequest(http.MethodPost, "/api/v1/profile/password", bytes.NewReader(longPassBody))
+	reqLong.Header.Set("Content-Type", "application/json")
+	reqLong.Header.Set("Authorization", "Bearer "+token)
+	recLong := httptest.NewRecorder()
+	router.ServeHTTP(recLong, reqLong)
+	if recLong.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for password > 72 chars, got %d", recLong.Code)
+	}
+
+	// 4. New password same as current password -> 400
 	samePassBody, _ := json.Marshal(map[string]string{
 		"current_password": "InitialPassword123!",
 		"new_password":     "InitialPassword123!",
@@ -210,7 +252,7 @@ func TestProfile_UpdatePassword(t *testing.T) {
 		t.Errorf("expected 400 when new password equals current password, got %d", recSame.Code)
 	}
 
-	// 4. Successful password update -> 200 OK
+	// 5. Successful password update -> 200 OK
 	validPassBody, _ := json.Marshal(map[string]string{
 		"current_password": "InitialPassword123!",
 		"new_password":     "BrandNewSecurePassword456!",
@@ -224,7 +266,25 @@ func TestProfile_UpdatePassword(t *testing.T) {
 		t.Fatalf("expected 200 OK for valid password update, got %d: %s", recSuccess.Code, recSuccess.Body.String())
 	}
 
-	// 5. Verify login with old password now fails
+	// 6. Verify current session (token) remains valid
+	reqCheckSess1 := httptest.NewRequest(http.MethodGet, "/api/v1/profile", nil)
+	reqCheckSess1.Header.Set("Authorization", "Bearer "+token)
+	recCheckSess1 := httptest.NewRecorder()
+	router.ServeHTTP(recCheckSess1, reqCheckSess1)
+	if recCheckSess1.Code != http.StatusOK {
+		t.Errorf("expected current session to remain active after password change, got %d", recCheckSess1.Code)
+	}
+
+	// 7. Verify second session (secondToken) has been revoked -> 401
+	reqCheckSess2 := httptest.NewRequest(http.MethodGet, "/api/v1/profile", nil)
+	reqCheckSess2.Header.Set("Authorization", "Bearer "+secondToken)
+	recCheckSess2 := httptest.NewRecorder()
+	router.ServeHTTP(recCheckSess2, reqCheckSess2)
+	if recCheckSess2.Code != http.StatusUnauthorized {
+		t.Errorf("expected second session to be revoked after password change, got %d", recCheckSess2.Code)
+	}
+
+	// 8. Verify login with old password now fails
 	oldLoginBody, _ := json.Marshal(map[string]string{
 		"email":    user.Email,
 		"password": "InitialPassword123!",
@@ -237,7 +297,7 @@ func TestProfile_UpdatePassword(t *testing.T) {
 		t.Errorf("expected old password login to fail with 401, got %d", recOldLogin.Code)
 	}
 
-	// 6. Verify login with new password succeeds
+	// 9. Verify login with new password succeeds
 	newLoginBody, _ := json.Marshal(map[string]string{
 		"email":    user.Email,
 		"password": "BrandNewSecurePassword456!",
@@ -248,6 +308,71 @@ func TestProfile_UpdatePassword(t *testing.T) {
 	router.ServeHTTP(recNewLogin, reqNewLogin)
 	if recNewLogin.Code != http.StatusOK {
 		t.Fatalf("expected new password login to succeed with 200, got %d: %s", recNewLogin.Code, recNewLogin.Body.String())
+	}
+}
+
+func TestProfile_RateLimiting(t *testing.T) {
+	api.ResetRateLimits()
+	_, router, user, token, cleanup := setupProfileTestEnv(t)
+	defer cleanup()
+
+	// 1. Password update rate limiting: 5 failed attempts allowed, 6th should return 429
+	for i := 1; i <= 5; i++ {
+		wrongBody, _ := json.Marshal(map[string]string{
+			"current_password": "WrongPasswordAttempt!",
+			"new_password":     "SomeNewPassword123!",
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/profile/password", bytes.NewReader(wrongBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("attempt %d: expected 400, got %d", i, rec.Code)
+		}
+	}
+
+	// 6th attempt should be blocked by rate limiter
+	blockedBody, _ := json.Marshal(map[string]string{
+		"current_password": "WrongPasswordAttempt!",
+		"new_password":     "SomeNewPassword123!",
+	})
+	reqBlocked := httptest.NewRequest(http.MethodPost, "/api/v1/profile/password", bytes.NewReader(blockedBody))
+	reqBlocked.Header.Set("Content-Type", "application/json")
+	reqBlocked.Header.Set("Authorization", "Bearer "+token)
+	recBlocked := httptest.NewRecorder()
+	router.ServeHTTP(recBlocked, reqBlocked)
+	if recBlocked.Code != http.StatusTooManyRequests {
+		t.Errorf("expected 429 Too Many Requests after 5 failed attempts, got %d", recBlocked.Code)
+	}
+
+	// 2. Login rate limiting: 5 failed attempts allowed, 6th should return 429
+	api.ResetRateLimits()
+	for i := 1; i <= 5; i++ {
+		wrongLogin, _ := json.Marshal(map[string]string{
+			"email":    user.Email,
+			"password": "WrongLoginPassword!",
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(wrongLogin))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("login attempt %d: expected 401, got %d", i, rec.Code)
+		}
+	}
+
+	// 6th login attempt should be blocked with 429
+	loginBlocked, _ := json.Marshal(map[string]string{
+		"email":    user.Email,
+		"password": "WrongLoginPassword!",
+	})
+	reqLoginBlocked := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(loginBlocked))
+	reqLoginBlocked.Header.Set("Content-Type", "application/json")
+	recLoginBlocked := httptest.NewRecorder()
+	router.ServeHTTP(recLoginBlocked, reqLoginBlocked)
+	if recLoginBlocked.Code != http.StatusTooManyRequests {
+		t.Errorf("expected 429 Too Many Requests after 5 failed login attempts, got %d", recLoginBlocked.Code)
 	}
 }
 

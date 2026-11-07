@@ -160,11 +160,11 @@ func extractEndpointID(r *http.Request) string {
 		return val
 	}
 
-	// Manual path fallback: /ingest/{endpoint_id} or /webhooks/{endpoint_id}
+	// Manual path fallback: /ingest/{endpoint_id}
 	path := strings.Trim(r.URL.Path, "/")
 	parts := strings.Split(path, "/")
 	for i, part := range parts {
-		if (part == "ingest" || part == "webhooks") && i+1 < len(parts) {
+		if part == "ingest" && i+1 < len(parts) {
 			return parts[i+1]
 		}
 	}

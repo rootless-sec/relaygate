@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -237,6 +238,57 @@ func (km *KeyedMutex) Lock(key string) func() {
 			delete(km.locks, key)
 		}
 	}
+}
+
+type authAttemptTracker struct {
+	mu       sync.Mutex
+	attempts map[string][]time.Time
+}
+
+var (
+	loginAttempts = &authAttemptTracker{attempts: make(map[string][]time.Time)}
+	passAttempts  = &authAttemptTracker{attempts: make(map[string][]time.Time)}
+)
+
+// ResetRateLimits resets internal auth rate limit trackers (used for testing and maintenance)
+func ResetRateLimits() {
+	loginAttempts.mu.Lock()
+	loginAttempts.attempts = make(map[string][]time.Time)
+	loginAttempts.mu.Unlock()
+
+	passAttempts.mu.Lock()
+	passAttempts.attempts = make(map[string][]time.Time)
+	passAttempts.mu.Unlock()
+}
+
+func (t *authAttemptTracker) checkLimit(key string, maxAttempts int, window time.Duration) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	now := time.Now().UTC()
+	cutoff := now.Add(-window)
+
+	var valid []time.Time
+	for _, ts := range t.attempts[key] {
+		if ts.After(cutoff) {
+			valid = append(valid, ts)
+		}
+	}
+	t.attempts[key] = valid
+
+	return len(valid) < maxAttempts
+}
+
+func (t *authAttemptTracker) recordFailure(key string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.attempts[key] = append(t.attempts[key], time.Now().UTC())
+}
+
+func (t *authAttemptTracker) clear(key string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.attempts, key)
 }
 
 // API handles control plane REST requests
@@ -564,7 +616,12 @@ func (a *API) CreateEndpoint(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "endpoint name is required", nil)
 		return
 	}
-	if req.TargetURL == "" || (!strings.HasPrefix(req.TargetURL, "http://") && !strings.HasPrefix(req.TargetURL, "https://")) {
+	if req.TargetURL == "" {
+		writeError(w, http.StatusBadRequest, "valid target_url (http:// or https://) is required", nil)
+		return
+	}
+	parsedURL, err := url.ParseRequestURI(req.TargetURL)
+	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Host == "" {
 		writeError(w, http.StatusBadRequest, "valid target_url (http:// or https://) is required", nil)
 		return
 	}
@@ -625,11 +682,18 @@ func (a *API) UpdateEndpoint(w http.ResponseWriter, r *http.Request) {
 	if req.Provider != nil && *req.Provider != "" {
 		existing.Provider = *req.Provider
 	}
-	if req.TargetURL != nil && strings.TrimSpace(*req.TargetURL) != "" {
+	if req.TargetURL != nil {
 		trimmed := strings.TrimSpace(*req.TargetURL)
-		if strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") {
-			existing.TargetURL = trimmed
+		if trimmed == "" {
+			writeError(w, http.StatusBadRequest, "target_url cannot be empty", nil)
+			return
 		}
+		parsedTarget, err := url.ParseRequestURI(trimmed)
+		if err != nil || (parsedTarget.Scheme != "http" && parsedTarget.Scheme != "https") || parsedTarget.Host == "" {
+			writeError(w, http.StatusBadRequest, "valid target_url (http:// or https://) is required", nil)
+			return
+		}
+		existing.TargetURL = trimmed
 	}
 	if req.SecretKey != nil && strings.TrimSpace(*req.SecretKey) != "" {
 		existing.SecretKey = strings.TrimSpace(*req.SecretKey)
@@ -825,12 +889,26 @@ func (a *API) Register(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Nama lengkap atau username wajib diisi", nil)
 		return
 	}
+	if len(req.Name) > 50 {
+		writeError(w, http.StatusBadRequest, "Nama lengkap atau username maksimal 50 karakter", nil)
+		return
+	}
+	for _, r := range req.Name {
+		if r < 32 || r == 127 {
+			writeError(w, http.StatusBadRequest, "Nama mengandung karakter tidak valid", nil)
+			return
+		}
+	}
 	if req.Email == "" || !strings.Contains(req.Email, "@") || !strings.Contains(req.Email, ".") {
 		writeError(w, http.StatusBadRequest, "Format alamat email tidak valid", nil)
 		return
 	}
 	if len(req.Password) < 6 {
 		writeError(w, http.StatusBadRequest, "Password minimal 6 karakter", nil)
+		return
+	}
+	if len(req.Password) > 72 {
+		writeError(w, http.StatusBadRequest, "Password maksimal 72 karakter", nil)
 		return
 	}
 
@@ -1098,17 +1176,32 @@ func (a *API) Login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Email dan password wajib diisi", nil)
 		return
 	}
+	if len(req.Password) > 72 {
+		writeError(w, http.StatusUnauthorized, "Email atau password tidak sesuai.", nil)
+		return
+	}
+
+	ip := ResolveClientIP(r)
+	rateKey := ip + ":" + req.Email
+	if !loginAttempts.checkLimit(rateKey, 5, 15*time.Minute) {
+		writeError(w, http.StatusTooManyRequests, "Terlalu banyak percobaan login yang gagal. Silakan coba lagi setelah beberapa menit.", nil)
+		return
+	}
 
 	user, err := a.repo.GetUserByEmail(r.Context(), req.Email)
 	if err != nil || user == nil {
+		loginAttempts.recordFailure(rateKey)
 		writeError(w, http.StatusUnauthorized, "Email atau password tidak sesuai.", nil)
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+		loginAttempts.recordFailure(rateKey)
 		writeError(w, http.StatusUnauthorized, "Email atau password tidak sesuai.", nil)
 		return
 	}
+
+	loginAttempts.clear(rateKey)
 
 	tokenBytes := make([]byte, 32)
 	_, _ = rand.Read(tokenBytes)
@@ -1235,6 +1328,12 @@ func (a *API) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Nama atau nickname maksimal 50 karakter", nil)
 		return
 	}
+	for _, r := range req.Name {
+		if r < 32 || r == 127 {
+			writeError(w, http.StatusBadRequest, "Nama atau nickname mengandung karakter tidak valid", nil)
+			return
+		}
+	}
 
 	user, err := a.repo.GetUserByID(r.Context(), sess.UserID)
 	if err != nil || user == nil {
@@ -1262,6 +1361,12 @@ func (a *API) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	rateKey := sess.UserID
+	if !passAttempts.checkLimit(rateKey, 5, 15*time.Minute) {
+		writeError(w, http.StatusTooManyRequests, "Terlalu banyak percobaan penggantian password yang gagal. Silakan coba lagi setelah beberapa menit.", nil)
+		return
+	}
+
 	var req UpdatePasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json payload", err)
@@ -1279,6 +1384,10 @@ func (a *API) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Password baru minimal 8 karakter", nil)
 		return
 	}
+	if len(req.NewPassword) > 72 || len(req.CurrentPassword) > 72 {
+		writeError(w, http.StatusBadRequest, "Password maksimal 72 karakter", nil)
+		return
+	}
 	if subtle.ConstantTimeCompare([]byte(req.CurrentPassword), []byte(req.NewPassword)) == 1 {
 		writeError(w, http.StatusBadRequest, "Password baru tidak boleh sama dengan password saat ini", nil)
 		return
@@ -1294,6 +1403,7 @@ func (a *API) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.CurrentPassword)); err != nil {
+		passAttempts.recordFailure(rateKey)
 		writeError(w, http.StatusBadRequest, "Password saat ini tidak sesuai", nil)
 		return
 	}
@@ -1308,6 +1418,16 @@ func (a *API) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Gagal memperbarui password", err)
 		return
 	}
+
+	passAttempts.clear(rateKey)
+
+	// Revoke other active sessions for this user except current session
+	currToken := extractTokenFromRequest(r)
+	var currTokenHash string
+	if currToken != "" {
+		currTokenHash = storage.HashSessionToken(currToken)
+	}
+	_ = a.repo.DeleteSessionsByUserIDExcept(r.Context(), user.ID, currTokenHash)
 
 	writeJSON(w, http.StatusOK, map[string]string{
 		"message": "Password berhasil diperbarui",

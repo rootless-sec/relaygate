@@ -203,23 +203,38 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                           : '(tidak diatur)'}
                       </span>
                       {ep.secret_key && (
-                        <button
-                          type="button"
-                          onClick={() => toggleShowSecret(ep.id)}
-                          className="inline-flex items-center gap-1 text-[11px] font-medium text-zinc-600 hover:text-zinc-950 px-1.5 py-0.5 rounded hover:bg-zinc-100 cursor-pointer"
-                          title={isSecretVisible ? 'Sembunyikan secret' : 'Tampilkan secret'}
-                          aria-label={
-                            isSecretVisible
-                              ? `Sembunyikan secret ${ep.name}`
-                              : `Tampilkan secret ${ep.name}`
-                          }
-                        >
-                          {isSecretVisible ? (
-                            <EyeOff className="w-3 h-3" />
-                          ) : (
-                            <Eye className="w-3 h-3" />
-                          )}
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => toggleShowSecret(ep.id)}
+                            className="inline-flex items-center gap-1 text-[11px] font-medium text-zinc-600 hover:text-zinc-950 px-1.5 py-0.5 rounded hover:bg-zinc-100 cursor-pointer"
+                            title={isSecretVisible ? 'Sembunyikan secret' : 'Tampilkan secret'}
+                            aria-label={
+                              isSecretVisible
+                                ? `Sembunyikan secret ${ep.name}`
+                                : `Tampilkan secret ${ep.name}`
+                            }
+                          >
+                            {isSecretVisible ? (
+                              <EyeOff className="w-3 h-3" />
+                            ) : (
+                              <Eye className="w-3 h-3" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => copyText(ep.secret_key!, `Secret Key ${ep.name}`)}
+                            className="p-1 text-zinc-400 hover:text-zinc-900 rounded transition-colors cursor-pointer"
+                            title="Salin Secret Key"
+                            aria-label={`Salin Secret Key ${ep.name}`}
+                          >
+                            {copiedKey === `Secret Key ${ep.name}` ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-600" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </div>
                       )}
                     </div>
                   </td>
