@@ -133,11 +133,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Brand & Workspace Title */}
         <div className="h-14 px-4 flex items-center justify-between shrink-0 border-b border-zinc-200/80">
           <div className="flex items-center gap-2.5 min-w-0">
-            <img
-              src="/relaygate-icon.png"
-              alt="RelayGate"
-              className="size-7 object-contain shrink-0"
-            />
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-zinc-950 shrink-0"
+              aria-hidden="true"
+            >
+              <polygon points="12 2.5 20.2 7.25 20.2 16.75 12 21.5 3.8 16.75 3.8 7.25" />
+              <circle cx="12" cy="12" r="3.5" />
+            </svg>
             <div className="flex flex-col min-w-0">
               <span className="text-xs font-semibold text-zinc-950 truncate leading-tight">
                 RelayGate

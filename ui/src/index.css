@@ -77,32 +77,31 @@ code, kbd, pre, .mono, .font-mono {
   animation: rg-enter 160ms cubic-bezier(0.23, 1, 0.32, 1) both;
 }
 
-.casino-grain {
-  background-image: radial-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 0),
-    radial-gradient(rgba(246, 131, 124, 0.03) 1px, transparent 0);
-  background-size: 24px 24px, 36px 36px;
-  background-position: 0 0, 12px 12px;
+.rg-canvas-pattern {
+  background-image: radial-gradient(#e4e4e7 1px, transparent 1px);
+  background-size: 24px 24px;
 }
 
 .rg-landing {
-  --bg: #040b0b;
-  --ink: #f5f4ef;
-  --ink-soft: #e7e6e0;
-  --muted: #9a9a93;
-  --faint: #7d7d77;
-  --line: #ffffff1a;
-  --line-strong: #ffffff2b;
-  --bone: #111516;
-  --bone-bar: #161c1d;
-  --bone-line: #ffffff17;
-  --bone-ink: #7d7d77;
-  --dark: #040b0b;
-  --dark-ink: #f5f4ef;
-  --dark-muted: #9a9a93;
-  --dark-line: #ffffff1a;
-  --dark-panel: #111516;
-  --dark-panel-line: #ffffff1a;
-  --dark-panel-ink: #7d7d77;
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --ink: #09090b;
+  --ink-soft: #18181b;
+  --muted: #52525b;
+  --faint: #71717a;
+  --line: #e4e4e7;
+  --line-strong: #d4d4d8;
+  --bone: #ffffff;
+  --bone-bar: #f4f4f5;
+  --bone-line: #e4e4e7;
+  --bone-ink: #71717a;
+  --dark: #09090b;
+  --dark-ink: #ffffff;
+  --dark-muted: #a1a1aa;
+  --dark-line: #27272a;
+  --dark-panel: #18181b;
+  --dark-panel-line: #27272a;
+  --dark-panel-ink: #a1a1aa;
   --font-sans: "Geist Variable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --dur-quick: 0.15s;
@@ -120,12 +119,12 @@ code, kbd, pre, .mono, .font-mono {
   font-size: 16px;
   line-height: 1.5;
   overflow-x: hidden;
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 .rg-landing ::selection {
   background: var(--ink);
-  color: var(--bg);
+  color: #ffffff;
 }
 
 .rg-landing :where([id]) {
@@ -263,49 +262,50 @@ code, kbd, pre, .mono, .font-mono {
 }
 
 .rg-landing .btn--solid {
-  --btn-fg: var(--bg);
-  --btn-bg: var(--ink);
+  --btn-fg: #ffffff;
+  --btn-bg: #18181b;
 }
 
 .rg-landing .btn--solid:hover {
-  --btn-bg: #dedcd4;
+  --btn-bg: #27272a;
 }
 
 .rg-landing .btn--ghost {
   border: 1px solid var(--line-strong);
+  color: var(--ink);
 }
 
 .rg-landing .btn--ghost:hover {
   border-color: var(--ink);
-  background: #ffffff0f;
+  background: #f4f4f5;
 }
 
 .rg-landing .shot {
   border-radius: var(--radius);
-  background: var(--bone);
-  border: 1px solid var(--bone-line);
+  background: #ffffff;
+  border: 1px solid var(--line);
   position: relative;
   overflow: hidden;
-  box-shadow: 0 1px #00000005, 0 40px 80px -52px #00000099;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 16px 36px -16px rgba(0, 0, 0, 0.06);
 }
 
 .rg-landing .shot--bare {
-  background: linear-gradient(135deg, #1b2224 0%, #121719 52%, #191f21 100%);
-  border-color: #ffffff1a;
+  background: #ffffff;
+  border-color: var(--line);
   padding: clamp(14px, 2.2vw, 28px);
 }
 
 .rg-landing .rg-win {
-  background: #0d1213;
-  border: 1px solid #ffffff1c;
-  border-radius: 11px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
   overflow: hidden;
-  box-shadow: 0 24px 60px -20px #000000cc;
+  box-shadow: 0 4px 20px -4px rgba(0, 0, 0, 0.08);
 }
 
 .rg-landing .rg-win__bar {
-  background: #13191b;
-  border-bottom: 1px solid #ffffff14;
+  background: #fafafa;
+  border-bottom: 1px solid var(--line);
   height: 40px;
   padding-inline: 14px;
   display: flex;
@@ -320,7 +320,7 @@ code, kbd, pre, .mono, .font-mono {
 }
 
 .rg-landing .rg-win__dots i {
-  background: #ffffff29;
+  background: #d4d4d8;
   border-radius: 50%;
   width: 8px;
   height: 8px;
@@ -406,10 +406,11 @@ code, kbd, pre, .mono, .font-mono {
 }
 
 .rg-landing .cmp {
-  border: 1px solid var(--line-strong);
-  background: #0d1213;
+  border: 1px solid var(--line);
+  background: #ffffff;
   border-radius: 18px;
   overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 .rg-landing .cmp__row {
@@ -425,6 +426,7 @@ code, kbd, pre, .mono, .font-mono {
 
 .rg-landing .cmp__row--head {
   border-top: 0;
+  background: #fafafa;
 }
 
 .rg-landing .cmp__row--head > * {
@@ -444,7 +446,8 @@ code, kbd, pre, .mono, .font-mono {
 .rg-landing .cmp__col--now {
   color: var(--ink);
   box-shadow: inset 1px 0 0 var(--line);
-  background: #ffffff09;
+  background: #f4f4f5;
+  font-weight: 600;
 }
 
 .rg-landing .cmp__layer {
@@ -465,7 +468,7 @@ code, kbd, pre, .mono, .font-mono {
 .rg-landing .cmp__now {
   color: var(--ink);
   box-shadow: inset 1px 0 0 var(--line);
-  background: #ffffff09;
+  background: #f4f4f5;
   font-size: 0.92rem;
   font-weight: 500;
   line-height: 1.4;
@@ -763,25 +766,29 @@ code, kbd, pre, .mono, .font-mono {
 
 .rg-landing .tile {
   border: 1px solid var(--line);
-  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
-  background: linear-gradient(#ffffff09, #ffffff03);
+  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+  background: #ffffff;
   border-radius: 16px;
   flex: 1;
   padding: 20px 22px 22px;
 }
 
+.rg-landing .tile:hover {
+  border-color: var(--line-strong);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
 .rg-landing .tile__icon {
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--line);
   width: 34px;
   height: 34px;
-  color: var(--ink-soft);
+  color: var(--ink);
   transition: transform var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-  background: #111516;
+  background: #f4f4f5;
   border-radius: 10px;
   place-items: center;
   margin-bottom: 18px;
   display: grid;
-  box-shadow: inset 0 1px #ffffff0f;
 }
 
 .rg-landing .tile__title {
@@ -873,15 +880,16 @@ code, kbd, pre, .mono, .font-mono {
 }
 
 .rg-landing .mach__client {
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--line);
   height: 62px;
   color: var(--muted);
-  background: #0d1213;
+  background: #ffffff;
   border-radius: 14px;
   align-items: center;
   gap: 12px;
   padding-inline: 16px;
   display: flex;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
 }
 
 .rg-landing .mach__client span {
@@ -917,9 +925,9 @@ code, kbd, pre, .mono, .font-mono {
 
 .rg-landing .mach__wire path {
   fill: none;
-  stroke: #ffffff47;
-  stroke-width: 1px;
-  stroke-dasharray: 3 4;
+  stroke: var(--line-strong);
+  stroke-width: 1.5px;
+  stroke-dasharray: 4 4;
   vector-effect: non-scaling-stroke;
 }
 
@@ -938,8 +946,8 @@ code, kbd, pre, .mono, .font-mono {
 }
 
 .rg-landing .mach__box {
-  background: radial-gradient(120% 90% at 0%, #ffffff0d, #0000 60%);
-  border: 1px dashed #ffffff3d;
+  background: #fafafa;
+  border: 1px dashed var(--line-strong);
   border-radius: 22px;
   gap: 18px;
   padding: 30px clamp(18px, 2.4vw, 30px) clamp(20px, 2.4vw, 28px);
@@ -948,7 +956,7 @@ code, kbd, pre, .mono, .font-mono {
 }
 
 .rg-landing .mach__label {
-  background: var(--bg);
+  background: #ffffff;
   font-family: var(--font-mono);
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -959,17 +967,19 @@ code, kbd, pre, .mono, .font-mono {
   top: 0;
   left: 22px;
   transform: translateY(-50%);
+  border: 1px solid var(--line);
+  border-radius: 4px;
 }
 
 .rg-landing .mach__daemon {
-  border: 1px solid var(--line-strong);
-  background: #111516;
+  border: 1px solid var(--line);
+  background: #ffffff;
   border-radius: 14px;
   align-items: center;
   gap: 12px;
   padding: 14px 16px;
   display: flex;
-  box-shadow: 0 18px 40px -24px #000c, inset 0 1px #ffffff0f;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .rg-landing .mach__agents {
@@ -983,6 +993,7 @@ code, kbd, pre, .mono, .font-mono {
 
 .rg-landing .mach__agents li {
   border: 1px solid var(--line);
+  background: #ffffff;
   min-width: 0;
   color: var(--ink-soft);
   white-space: nowrap;
@@ -1182,8 +1193,8 @@ code, kbd, pre, .mono, .font-mono {
 }
 
 .rg-landing .copy {
-  border: 1px solid var(--line-strong);
-  background: #0d1213;
+  border: 1px solid var(--line);
+  background: #f4f4f5;
   border-radius: 12px;
   justify-content: space-between;
   align-items: center;
@@ -1222,7 +1233,7 @@ code, kbd, pre, .mono, .font-mono {
 
 .rg-landing .copy__btn:hover {
   color: var(--ink);
-  background: #ffffff14;
+  background: #e4e4e7;
 }
 
 .rg-landing .copy__btn:active {
@@ -1264,14 +1275,16 @@ code, kbd, pre, .mono, .font-mono {
 }
 
 .rg-landing .dl {
-  border: 1px solid var(--line-strong);
-  background: #0d1213;
+  border: 1px solid var(--line);
+  background: #ffffff;
   border-radius: 18px;
   overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 .rg-landing .dl__bar {
   border-bottom: 1px solid var(--line);
+  background: #fafafa;
   flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
@@ -1306,7 +1319,9 @@ code, kbd, pre, .mono, .font-mono {
 
 .rg-landing .dl__tab[aria-selected="true"] {
   color: var(--ink);
-  background: #ffffff14;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--line);
 }
 
 .rg-landing .dl__panel {
@@ -1382,6 +1397,7 @@ code, kbd, pre, .mono, .font-mono {
 
 .rg-landing .footer {
   border-top: 1px solid var(--line);
+  background: #ffffff;
   padding-top: clamp(40px, 5vw, 64px);
   padding-bottom: clamp(28px, 4vw, 46px);
   overflow: hidden;
@@ -1414,7 +1430,7 @@ code, kbd, pre, .mono, .font-mono {
 
 .rg-landing .footer__word {
   letter-spacing: -0.05em;
-  color: var(--ink);
+  color: #f4f4f5;
   text-align: center;
   user-select: none;
   font-size: clamp(2.75rem, 12vw, 9.5rem);
@@ -1437,6 +1453,44 @@ code, kbd, pre, .mono, .font-mono {
   .rg-landing .footer__links {
     gap: 20px;
   }
+}
+
+/* Interactive Webhook Routing Pipeline Animations */
+@keyframes rg-flow-dash {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+
+.rg-flow-wire {
+  stroke-dasharray: 6 6;
+  animation: rg-flow-dash 1.2s linear infinite;
+}
+
+@keyframes rg-node-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(24, 24, 27, 0.08);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(24, 24, 27, 0.04);
+  }
+}
+
+.rg-node-pulse {
+  animation: rg-node-glow 2.4s ease-in-out infinite;
+}
+
+@keyframes rg-pulse-badge {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.02);
+  }
+}
+
+.rg-badge-pulse {
+  animation: rg-pulse-badge 2s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

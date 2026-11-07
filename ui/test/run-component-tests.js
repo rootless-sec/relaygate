@@ -2118,7 +2118,7 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
       })
     );
 
-    // 1. Top Hero adapted to RelayGate (keeping dtnuyvc-casino-hero-section visual structure & centerpiece)
+    // 1. Top Hero adapted to RelayGate with authentic brand icon and white theme
     assert.match(html, />RelayGate<\/span>/, 'Must render RelayGate brand wordmark in hero header');
     assert.doesNotMatch(html, />Casino<\/span>/, 'Must NOT copy literal Casino brand name');
     assert.doesNotMatch(html, /Kybern/i, 'Must NOT copy literal Kybern brand name');
@@ -2133,10 +2133,23 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(html, /Every webhook\.<br\s*\/?>Zero dropped events\./, 'Must render 2-line RelayGate H1');
     assert.match(html, />Open Console<\/button>/, 'Must render Open Console hero CTA');
     assert.match(html, />Explore Engine<\/button>/, 'Must render Explore Engine hero CTA');
-    assert.match(html, /src="\/hero-roulette\.webp"/, 'Must render hero centerpiece illustration /hero-roulette.webp');
 
-    const heroAssetPath = path.join(__dirname, '../public/hero-roulette.webp');
-    assert.ok(fs.existsSync(heroAssetPath), 'ui/public/hero-roulette.webp must exist on disk');
+    // 2. Authentic RelayGate Brand Icon geometry (hexagon polygon + inner circle stroke-2)
+    assert.match(html, /polygon\s+points="12\s+2\.5\s+20\.2\s+7\.25\s+20\.2\s+16\.75\s+12\s+21\.5\s+3\.8\s+16\.75\s+3\.8\s+7\.25"/, 'Must render authentic polygon hexagon geometry');
+    assert.match(html, /circle\s+cx="12"\s+cy="12"\s+r="3\.5"/, 'Must render centered circle core');
+
+    // 3. Interactive Webhook Routing Pipeline centerpiece & removal of casino roulette
+    assert.doesNotMatch(html, /hero-roulette\.webp/, 'Must NOT reference casino roulette image');
+    assert.match(html, /data-testid="webhook-pipeline"/, 'Must render interactive Webhook Routing Pipeline centerpiece');
+    assert.match(html, /data-testid="send-test-webhook"/, 'Must render Send Test Webhook interactive trigger');
+    assert.match(html, /src="\/dashboard-preview\.png"/, 'Must render real RelayGate dashboard preview screenshot');
+
+    const dashboardAssetPath = path.join(__dirname, '../public/dashboard-preview.png');
+    assert.ok(fs.existsSync(dashboardAssetPath), 'ui/public/dashboard-preview.png must exist on disk');
+
+    // 4. Optical White Canvas theme verification
+    assert.match(html, /bg-white/, 'Must render white background canvas');
+    assert.doesNotMatch(html, /bg-casino-bg/, 'Must NOT use dark casino background');
 
     // 2. Body sections following kybern.treshnanda.tech structure adapted for RelayGate
     for (const secId of ['agents', 'native', 'product', 'workspace', 'faq', 'download']) {

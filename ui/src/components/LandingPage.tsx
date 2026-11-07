@@ -19,6 +19,8 @@ import {
   GitBranch,
   HardDrive,
   Sliders,
+  Play,
+  Server,
 } from 'lucide-react';
 
 interface LandingPageProps {
@@ -62,11 +64,11 @@ const WORKSPACE_STEPS = [
 const FAQ_ITEMS = [
   {
     q: 'What is RelayGate?',
-    a: 'RelayGate is a self-hosted webhook ingestion gateway and dispatch engine compiled into a single Go binary. It verifies cryptographic signatures at the edge, persists payloads in an embedded SQLite WAL queue, and fans out deliveries to your downstream services with automatic exponential backoff.',
+    a: 'RelayGate is a self-hosted webhook ingestion gateway and dispatch engine compiled into a single Go binary. It verifies cryptographic signatures at the edge, persists payloads in an embedded SQLite WAL queue, and fans out deliveries to downstream services with automatic exponential backoff.',
   },
   {
     q: 'Which webhook providers does RelayGate verify?',
-    a: 'Stripe (v1 timestamped HMAC-SHA256), GitHub (X-Hub-Signature-256), Shopify (Base64 HMAC-SHA256), Xendit (static callback token), Midtrans (SHA-512 order signature), and any custom HMAC-SHA256 or static token sender.',
+    a: 'Stripe (v1 timestamped HMAC-SHA256), GitHub (X-Hub-Signature-256), Shopify (Base64 HMAC-SHA256), Xendit (constant-time static callback token), Midtrans (SHA-512 order digest), and any standard HMAC-SHA256 or static token sender.',
   },
   {
     q: 'Does RelayGate require Redis, Postgres, or Kafka?',
@@ -86,19 +88,27 @@ const FAQ_ITEMS = [
   },
 ];
 
-function RelayGateMark({ size = 20 }: { size?: number }) {
+export function RelayGateMark({ size = 20, className = '' }: { size?: number; className?: string }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M12 2L3 7v10l9 5 9-5V7l-9-5zm0 2.18l6.5 3.61v7.22L12 18.62l-6.5-3.61V7.79L12 4.18z"
-        fill="currentColor"
-      />
-      <path d="M12 7.5a4.5 4.5 0 100 9 4.5 4.5 0 000-9zm0 2a2.5 2.5 0 110 5 2.5 2.5 0 010-5z" fill="currentColor" />
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <polygon points="12 2.5 20.2 7.25 20.2 16.75 12 21.5 3.8 16.75 3.8 7.25" />
+      <circle cx="12" cy="12" r="3.5" />
     </svg>
   );
 }
 
-function ProviderMark({ provider, size = 20 }: { provider: string; size?: number }) {
+export function ProviderMark({ provider, size = 20 }: { provider: string; size?: number }) {
   switch (provider) {
     case 'stripe':
       return (
@@ -149,8 +159,8 @@ function TiltFrame({ children }: { children: React.ReactNode }) {
     const px = (e.clientX - rect.left) / rect.width;
     const py = (e.clientY - rect.top) / rect.height;
     setTilt({
-      rx: (0.5 - py) * 6,
-      ry: (px - 0.5) * 6,
+      rx: (0.5 - py) * 4,
+      ry: (px - 0.5) * 4,
       gx: Math.round(px * 100),
       gy: Math.round(py * 100),
       active: true,
@@ -217,17 +227,439 @@ function CopyCommand({
         <>
           <button
             type="button"
-            className="copy__btn focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+            className="copy__btn focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
             onClick={handleCopy}
             aria-label={copied ? 'Copied' : 'Copy command'}
           >
-            {copied ? <Check className="w-4 h-4 text-zinc-100" /> : <Copy className="w-4 h-4" />}
+            {copied ? <Check className="w-4 h-4 text-zinc-900" /> : <Copy className="w-4 h-4" />}
           </button>
           <span className="copy__feedback" role="status" aria-live="polite">
             {copied ? 'Copied to clipboard' : ''}
           </span>
         </>
       )}
+    </div>
+  );
+}
+
+const SIMULATOR_PROVIDERS = [
+  {
+    id: 'stripe',
+    name: 'Stripe',
+    standard: 'v1 timestamped HMAC-SHA256',
+    endpoint: '/v1/webhook/ep_stripe',
+    target: 'https://billing.internal/stripe',
+    headerName: 'Stripe-Signature',
+    samplePayload: {
+      id: 'evt_3Msw2CH8K91X92',
+      object: 'event',
+      type: 'invoice.payment_succeeded',
+      created: 1700000000,
+      data: { amount_paid: 4900, currency: 'usd' },
+    },
+  },
+  {
+    id: 'github',
+    name: 'GitHub',
+    standard: 'X-Hub-Signature-256',
+    endpoint: '/v1/webhook/ep_github',
+    target: 'https://runner.internal/hooks',
+    headerName: 'X-Hub-Signature-256',
+    samplePayload: {
+      action: 'push',
+      ref: 'refs/heads/main',
+      repository: { full_name: 'org/backend-core' },
+      sender: { login: 'developer' },
+    },
+  },
+  {
+    id: 'shopify',
+    name: 'Shopify',
+    standard: 'Base64 HMAC-SHA256',
+    endpoint: '/v1/webhook/ep_shopify',
+    target: 'https://orders.internal/shopify',
+    headerName: 'X-Shopify-Hmac-Sha256',
+    samplePayload: {
+      id: 82098291194615,
+      topic: 'orders/create',
+      order_number: 1042,
+      total_price: '129.50',
+    },
+  },
+  {
+    id: 'xendit',
+    name: 'Xendit',
+    standard: 'Constant-time callback token',
+    endpoint: '/v1/webhook/ep_xendit',
+    target: 'https://ledger.internal/xendit',
+    headerName: 'x-callback-token',
+    samplePayload: {
+      id: 'inv_9981294',
+      status: 'PAID',
+      external_id: 'disbursement_001',
+      paid_amount: 500000,
+    },
+  },
+  {
+    id: 'midtrans',
+    name: 'Midtrans',
+    standard: 'SHA-512 order digest',
+    endpoint: '/v1/webhook/ep_midtrans',
+    target: 'https://payments.internal/midtrans',
+    headerName: 'Signature-Key',
+    samplePayload: {
+      order_id: 'ORDER-2026-9901',
+      transaction_status: 'settlement',
+      gross_amount: '350000.00',
+      status_code: '200',
+    },
+  },
+];
+
+function WebhookRoutingPipeline() {
+  const [activeProvId, setActiveProvId] = useState('stripe');
+  const [isSimulating, setIsSimulating] = useState(false);
+  const [pipelineStep, setPipelineStep] = useState<0 | 1 | 2 | 3 | 4>(0);
+  const [simulateTimeout, setSimulateTimeout] = useState(false);
+  const [lastLatency, setLastLatency] = useState('0.38 ms');
+  const [deliveredCount, setDeliveredCount] = useState(148);
+
+  const activeProvider = SIMULATOR_PROVIDERS.find((p) => p.id === activeProvId) || SIMULATOR_PROVIDERS[0];
+
+  const handleSimulate = () => {
+    if (isSimulating) return;
+    setIsSimulating(true);
+    setPipelineStep(1);
+
+    setTimeout(() => {
+      setPipelineStep(2);
+    }, 400);
+
+    setTimeout(() => {
+      setPipelineStep(3);
+    }, 850);
+
+    setTimeout(() => {
+      setPipelineStep(4);
+      setIsSimulating(false);
+      setLastLatency((0.32 + Math.random() * 0.12).toFixed(2) + ' ms');
+      if (!simulateTimeout) {
+        setDeliveredCount((c) => c + 1);
+      }
+    }, 1300);
+  };
+
+  return (
+    <div
+      data-testid="webhook-pipeline"
+      className="w-full max-w-[1240px] mx-auto mt-6 text-left rounded-2xl border border-zinc-200/90 bg-white shadow-xs overflow-hidden"
+    >
+      {/* Simulator Window Header */}
+      <div className="bg-zinc-50 border-b border-zinc-200 px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5" aria-hidden="true">
+            <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
+            <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
+            <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
+          </div>
+          <span className="font-mono text-xs font-semibold text-zinc-800">
+            relaygate :: interactive routing pipeline
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2 font-mono text-[11px] text-zinc-500">
+          <span className="w-2 h-2 rounded-full bg-zinc-900 inline-block" />
+          <span>ENGINE: ONLINE (UID 1000)</span>
+          <span className="hidden sm:inline text-zinc-300">|</span>
+          <span className="hidden sm:inline">WAL SYNC: {lastLatency}</span>
+        </div>
+      </div>
+
+      {/* Control Bar: Provider Selector & Simulation Trigger */}
+      <div className="p-4 sm:p-6 border-b border-zinc-200 bg-zinc-50/50 flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold text-zinc-700 mr-1">Sender Node:</span>
+          {SIMULATOR_PROVIDERS.map((prov) => {
+            const isSelected = prov.id === activeProvId;
+            return (
+              <button
+                key={prov.id}
+                type="button"
+                onClick={() => {
+                  setActiveProvId(prov.id);
+                  setPipelineStep(0);
+                }}
+                className={`min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 inline-flex items-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 ${
+                  isSelected
+                    ? 'bg-zinc-900 text-white shadow-xs'
+                    : 'bg-white border border-zinc-200 text-zinc-700 hover:bg-zinc-100'
+                }`}
+              >
+                <ProviderMark provider={prov.id} size={15} />
+                <span>{prov.name}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center gap-3">
+          <label className="inline-flex items-center gap-2 text-xs text-zinc-600 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={simulateTimeout}
+              onChange={(e) => setSimulateTimeout(e.target.checked)}
+              className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900"
+            />
+            <span>Simulate 504 Timeout</span>
+          </label>
+
+          <button
+            type="button"
+            data-testid="send-test-webhook"
+            onClick={handleSimulate}
+            disabled={isSimulating}
+            className="min-h-[44px] px-4 py-2 rounded-lg text-xs font-semibold text-white bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 cursor-pointer inline-flex items-center gap-2 shadow-xs"
+          >
+            <Play className={`w-3.5 h-3.5 ${isSimulating ? 'rotate-90' : ''} transition-transform`} />
+            <span>{isSimulating ? 'Routing Delivery...' : 'Send Test Webhook'}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Main Interactive Diagram: Provider -> RelayGate Ingestion Edge -> Target Downstream */}
+      <div className="p-5 sm:p-8 bg-white">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+          {/* Node 1: Ingress Sender */}
+          <div className="lg:col-span-3">
+            <div
+              className={`p-4 rounded-xl border transition-all duration-200 ${
+                pipelineStep >= 1 ? 'border-zinc-900 bg-zinc-50 shadow-xs' : 'border-zinc-200 bg-white'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-400">01. Webhook Sender</span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-zinc-100 text-zinc-700">POST :8080</span>
+              </div>
+              <div className="flex items-center gap-2.5 mb-2">
+                <div className="p-1.5 rounded-md bg-zinc-900 text-white">
+                  <ProviderMark provider={activeProvider.id} size={18} />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-zinc-950 leading-tight">{activeProvider.name}</h4>
+                  <p className="text-[11px] font-mono text-zinc-500">{activeProvider.endpoint}</p>
+                </div>
+              </div>
+              <div className="mt-3 pt-2.5 border-t border-zinc-100 font-mono text-[11px] text-zinc-500 space-y-1">
+                <p className="truncate">Header: {activeProvider.headerName}</p>
+                <p className="truncate">Event: {String(activeProvider.samplePayload.type || activeProvider.samplePayload.topic || activeProvider.samplePayload.status)}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Flow Wire 1 */}
+          <div className="lg:col-span-1 hidden lg:flex flex-col items-center justify-center relative">
+            <svg className="w-full h-8" viewBox="0 0 80 32" fill="none">
+              <path
+                d="M0 16 H80"
+                stroke="currentColor"
+                strokeWidth="2"
+                className={`text-zinc-300 ${isSimulating ? 'rg-flow-wire text-zinc-900' : ''}`}
+              />
+            </svg>
+            {isSimulating && (
+              <span className="absolute text-[10px] font-mono font-semibold text-zinc-900 bg-zinc-100 px-1.5 py-0.5 rounded border border-zinc-300">
+                POST
+              </span>
+            )}
+          </div>
+
+          {/* Node 2: RelayGate Core Engine Node */}
+          <div className="lg:col-span-4">
+            <div
+              className={`p-5 rounded-xl border transition-all duration-200 ${
+                pipelineStep >= 2 ? 'border-zinc-900 bg-zinc-50 shadow-xs rg-node-pulse' : 'border-zinc-200 bg-white'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <RelayGateMark size={20} className="text-zinc-950" />
+                  <span className="font-bold text-sm text-zinc-950">RelayGate Engine</span>
+                </div>
+                <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-zinc-100 text-zinc-800 font-medium">
+                  HTTP 202 Accepted
+                </span>
+              </div>
+
+              <div className="space-y-2.5 font-mono text-xs">
+                {/* Stage A */}
+                <div
+                  className={`p-2.5 rounded-lg border transition-colors ${
+                    pipelineStep >= 2
+                      ? 'bg-white border-zinc-300 text-zinc-900 shadow-2xs'
+                      : 'bg-zinc-50/60 border-zinc-100 text-zinc-500'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5" />
+                      1. Constant-Time HMAC Gate
+                    </span>
+                    <span className="text-[10px] font-bold text-zinc-700">0.12 ms</span>
+                  </div>
+                  <p className="text-[11px] text-zinc-500 mt-1">
+                    Verifies cryptographic signature tolerance window (300s)
+                  </p>
+                </div>
+
+                {/* Stage B */}
+                <div
+                  className={`p-2.5 rounded-lg border transition-colors ${
+                    pipelineStep >= 3
+                      ? 'bg-white border-zinc-300 text-zinc-900 shadow-2xs'
+                      : 'bg-zinc-50/60 border-zinc-100 text-zinc-500'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold flex items-center gap-1.5">
+                      <HardDrive className="w-3.5 h-3.5" />
+                      2. Embedded SQLite WAL
+                    </span>
+                    <span className="text-[10px] font-bold text-zinc-700">0.26 ms</span>
+                  </div>
+                  <p className="text-[11px] text-zinc-500 mt-1">
+                    Append-only fsync journal with zero external broker daemons
+                  </p>
+                </div>
+
+                {/* Stage C */}
+                <div
+                  className={`p-2.5 rounded-lg border transition-colors ${
+                    pipelineStep >= 4
+                      ? 'bg-white border-zinc-300 text-zinc-900 shadow-2xs'
+                      : 'bg-zinc-50/60 border-zinc-100 text-zinc-500'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold flex items-center gap-1.5">
+                      <Sliders className="w-3.5 h-3.5" />
+                      3. Dispatch Worker Pool
+                    </span>
+                    <span className="text-[10px] font-bold text-zinc-700">10 Workers</span>
+                  </div>
+                  <p className="text-[11px] text-zinc-500 mt-1">
+                    Bounded concurrency with exponential backoff &amp; DLQ triage
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Flow Wire 2 */}
+          <div className="lg:col-span-1 hidden lg:flex flex-col items-center justify-center relative">
+            <svg className="w-full h-8" viewBox="0 0 80 32" fill="none">
+              <path
+                d="M0 16 H80"
+                stroke="currentColor"
+                strokeWidth="2"
+                className={`text-zinc-300 ${isSimulating ? 'rg-flow-wire text-zinc-900' : ''}`}
+              />
+            </svg>
+            {pipelineStep >= 3 && (
+              <span className="absolute text-[10px] font-mono font-semibold text-zinc-900 bg-zinc-100 px-1.5 py-0.5 rounded border border-zinc-300">
+                DISPATCH
+              </span>
+            )}
+          </div>
+
+          {/* Node 3: Target Downstream Service */}
+          <div className="lg:col-span-3">
+            <div
+              className={`p-4 rounded-xl border transition-all duration-200 ${
+                pipelineStep === 4
+                  ? simulateTimeout
+                    ? 'border-zinc-700 bg-zinc-50'
+                    : 'border-zinc-900 bg-zinc-50 shadow-xs'
+                  : 'border-zinc-200 bg-white'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-400">03. Target Service</span>
+                <span
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold ${
+                    pipelineStep === 4
+                      ? simulateTimeout
+                        ? 'bg-zinc-200 text-zinc-800'
+                        : 'bg-zinc-900 text-white'
+                      : 'bg-zinc-100 text-zinc-600'
+                  }`}
+                >
+                  {pipelineStep === 4
+                    ? simulateTimeout
+                      ? 'HTTP 504 (Retry 1/5)'
+                      : 'HTTP 200 OK'
+                    : 'AWAITING DISPATCH'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 mb-2">
+                <Server className="w-4 h-4 text-zinc-800" />
+                <h4 className="text-sm font-bold text-zinc-950 truncate">Internal Downstream</h4>
+              </div>
+              <p className="font-mono text-[11px] text-zinc-500 truncate">{activeProvider.target}</p>
+              <div className="mt-3 pt-2.5 border-t border-zinc-100 font-mono text-[11px] text-zinc-600 space-y-1">
+                <div className="flex justify-between">
+                  <span>Delivered:</span>
+                  <span className="font-bold text-zinc-950">{deliveredCount}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Total Latency:</span>
+                  <span className="font-bold text-zinc-950">{pipelineStep === 4 ? lastLatency : '--'}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Live Payload & Execution Trace Bar */}
+        <div className="mt-6 pt-5 border-t border-zinc-200 grid grid-cols-1 md:grid-cols-12 gap-4 text-xs font-mono">
+          <div className="md:col-span-7 p-3 rounded-lg bg-zinc-50 border border-zinc-200">
+            <div className="flex items-center justify-between mb-1.5 text-zinc-400 text-[11px]">
+              <span>INBOUND PAYLOAD (JSON)</span>
+              <span>MASKED CREDS</span>
+            </div>
+            <pre className="text-zinc-800 overflow-x-auto text-[11px] leading-relaxed">
+              {JSON.stringify(activeProvider.samplePayload, null, 2)}
+            </pre>
+          </div>
+
+          <div className="md:col-span-5 p-3 rounded-lg bg-zinc-50 border border-zinc-200 flex flex-col justify-between">
+            <div>
+              <p className="text-zinc-400 text-[11px] mb-2 uppercase">Execution Diagnostics</p>
+              <ul className="space-y-1.5 text-zinc-700 text-[11px]">
+                <li className="flex items-center justify-between">
+                  <span>Cryptographic Gate:</span>
+                  <span className="font-semibold text-zinc-950">Constant-time match</span>
+                </li>
+                <li className="flex items-center justify-between">
+                  <span>WAL Journal Status:</span>
+                  <span className="font-semibold text-zinc-950">Fsynced (zero broker)</span>
+                </li>
+                <li className="flex items-center justify-between">
+                  <span>Worker Queue:</span>
+                  <span className="font-semibold text-zinc-950">10 concurrent workers</span>
+                </li>
+                <li className="flex items-center justify-between">
+                  <span>Downstream Policy:</span>
+                  <span className="font-semibold text-zinc-950">5 attempts with jitter</span>
+                </li>
+              </ul>
+            </div>
+            <div className="mt-3 pt-2 border-t border-zinc-200 flex items-center justify-between text-[11px] text-zinc-500">
+              <span>PID: 1000 (Non-root UID)</span>
+              <span>Memory: 18 MB RSS</span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -244,16 +676,16 @@ function WorkspacePreview({ stepIndex }: { stepIndex: number }) {
               <i />
             </div>
             <span className="rg-win__title">relaygate :: live event stream (ws://127.0.0.1:8080/api/v1/ws)</span>
-            <span className="font-mono text-[11px] text-zinc-400">STREAM ACTIVE</span>
+            <span className="font-mono text-[11px] text-zinc-500">STREAM ACTIVE</span>
           </div>
           <div className="p-5 grid grid-cols-1 sm:grid-cols-12 gap-4 text-left">
-            <div className="sm:col-span-4 border-r border-white/[0.08] pr-4 space-y-2.5">
+            <div className="sm:col-span-4 border-r border-zinc-200 pr-4 space-y-2.5">
               <p className="metaline">Active Routes</p>
               {['ep_stripe_billing', 'ep_github_hooks', 'ep_xendit_payout', 'ep_midtrans_core'].map((ep, idx) => (
                 <div
                   key={ep}
                   className={`px-3 py-2 rounded-lg text-xs font-mono flex items-center justify-between ${
-                    idx === 0 ? 'bg-white/[0.08] text-zinc-100 border border-white/[0.14]' : 'text-zinc-400'
+                    idx === 0 ? 'bg-zinc-100 text-zinc-950 font-semibold border border-zinc-300' : 'text-zinc-600'
                   }`}
                 >
                   <span>{ep}</span>
@@ -262,7 +694,7 @@ function WorkspacePreview({ stepIndex }: { stepIndex: number }) {
               ))}
             </div>
             <div className="sm:col-span-8 space-y-2 font-mono text-xs">
-              <div className="flex items-center justify-between pb-2 border-b border-white/[0.08] text-zinc-400">
+              <div className="flex items-center justify-between pb-2 border-b border-zinc-200 text-zinc-500">
                 <span>EVENT ID / PROVIDER</span>
                 <span>LATENCY / STATUS</span>
               </div>
@@ -274,15 +706,15 @@ function WorkspacePreview({ stepIndex }: { stepIndex: number }) {
               ].map((row) => (
                 <div
                   key={row.id}
-                  className="flex items-center justify-between py-2 px-2.5 rounded bg-white/[0.02] border border-white/[0.05]"
+                  className="flex items-center justify-between py-2 px-2.5 rounded bg-zinc-50 border border-zinc-200"
                 >
                   <div className="flex items-center gap-2.5">
-                    <span className="text-zinc-200">{row.id}</span>
+                    <span className="text-zinc-900 font-medium">{row.id}</span>
                     <span className="text-zinc-500">{row.prov}</span>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-zinc-400">{row.ms}</span>
-                    <span className="px-2 py-0.5 rounded bg-white/[0.07] text-zinc-200 text-[11px]">{row.code}</span>
+                    <span className="text-zinc-500">{row.ms}</span>
+                    <span className="px-2 py-0.5 rounded bg-zinc-200 text-zinc-800 text-[11px] font-medium">{row.code}</span>
                   </div>
                 </div>
               ))}
@@ -304,30 +736,30 @@ function WorkspacePreview({ stepIndex }: { stepIndex: number }) {
               <i />
             </div>
             <span className="rg-win__title">InspectorDrawer :: evt_499cd52a (Headers &amp; Payload)</span>
-            <span className="font-mono text-[11px] text-zinc-400">MASKED BY DEFAULT</span>
+            <span className="font-mono text-[11px] text-zinc-500">MASKED BY DEFAULT</span>
           </div>
           <div className="p-5 space-y-3 font-mono text-xs text-left">
-            <div className="flex items-center justify-between border-b border-white/[0.08] pb-2.5">
-              <span className="text-zinc-300">Headers (Sensitive tokens masked at API boundary)</span>
-              <span className="px-2 py-0.5 rounded border border-white/[0.15] text-zinc-300 text-[11px]">
+            <div className="flex items-center justify-between border-b border-zinc-200 pb-2.5">
+              <span className="text-zinc-700 font-medium">Headers (Sensitive tokens masked at API boundary)</span>
+              <span className="px-2 py-0.5 rounded border border-zinc-300 text-zinc-700 text-[11px]">
                 Copy cURL (&lt;TOKEN&gt;)
               </span>
             </div>
             <div className="grid grid-cols-1 gap-2">
-              <div className="flex justify-between py-1.5 px-3 rounded bg-white/[0.03] border border-white/[0.06]">
-                <span className="text-zinc-400">content-type</span>
-                <span className="text-zinc-200">application/json</span>
+              <div className="flex justify-between py-1.5 px-3 rounded bg-zinc-50 border border-zinc-200">
+                <span className="text-zinc-500">content-type</span>
+                <span className="text-zinc-900">application/json</span>
               </div>
-              <div className="flex justify-between py-1.5 px-3 rounded bg-white/[0.03] border border-white/[0.06]">
-                <span className="text-zinc-400">stripe-signature</span>
-                <span className="text-zinc-200">••••••••</span>
+              <div className="flex justify-between py-1.5 px-3 rounded bg-zinc-50 border border-zinc-200">
+                <span className="text-zinc-500">stripe-signature</span>
+                <span className="text-zinc-900">••••••••</span>
               </div>
-              <div className="flex justify-between py-1.5 px-3 rounded bg-white/[0.03] border border-white/[0.06]">
-                <span className="text-zinc-400">authorization</span>
-                <span className="text-zinc-200">••••••••</span>
+              <div className="flex justify-between py-1.5 px-3 rounded bg-zinc-50 border border-zinc-200">
+                <span className="text-zinc-500">authorization</span>
+                <span className="text-zinc-900">••••••••</span>
               </div>
             </div>
-            <div className="p-3 rounded bg-white/[0.02] border border-white/[0.07] text-zinc-300">
+            <div className="p-3 rounded bg-zinc-50 border border-zinc-200 text-zinc-800">
               {`{"id":"evt_stripe_123","type":"invoice.payment_succeeded","livemode":true}`}
             </div>
           </div>
@@ -347,7 +779,7 @@ function WorkspacePreview({ stepIndex }: { stepIndex: number }) {
               <i />
             </div>
             <span className="rg-win__title">DeadLetterView :: 8 Canonical Failure Families</span>
-            <span className="font-mono text-[11px] text-zinc-400">ELIGIBLE FOR REPLAY</span>
+            <span className="font-mono text-[11px] text-zinc-500">ELIGIBLE FOR REPLAY</span>
           </div>
           <div className="p-5 space-y-2.5 font-mono text-xs text-left">
             {[
@@ -372,15 +804,15 @@ function WorkspacePreview({ stepIndex }: { stepIndex: number }) {
             ].map((item) => (
               <div
                 key={item.id}
-                className="p-3 rounded-lg bg-white/[0.03] border border-white/[0.08] flex flex-wrap items-center justify-between gap-2"
+                className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 flex flex-wrap items-center justify-between gap-2"
               >
                 <div>
-                  <p className="text-zinc-100 font-semibold">{item.family}</p>
-                  <p className="text-zinc-400 text-[11px] mt-0.5">
+                  <p className="text-zinc-900 font-semibold">{item.family}</p>
+                  <p className="text-zinc-500 text-[11px] mt-0.5">
                     {item.id} · {item.detail}
                   </p>
                 </div>
-                <span className="px-2.5 py-1 rounded bg-white/[0.08] text-zinc-200 text-[11px] border border-white/[0.12]">
+                <span className="px-2.5 py-1 rounded bg-zinc-200 text-zinc-800 text-[11px] font-medium border border-zinc-300">
                   {item.action}
                 </span>
               </div>
@@ -401,7 +833,7 @@ function WorkspacePreview({ stepIndex }: { stepIndex: number }) {
             <i />
           </div>
           <span className="rg-win__title">EndpointsView :: Downstream Route Registry</span>
-          <span className="font-mono text-[11px] text-zinc-400">4 ACTIVE ROUTES</span>
+          <span className="font-mono text-[11px] text-zinc-500">4 ACTIVE ROUTES</span>
         </div>
         <div className="p-5 space-y-2.5 font-mono text-xs text-left">
           {[
@@ -411,14 +843,14 @@ function WorkspacePreview({ stepIndex }: { stepIndex: number }) {
           ].map((ep) => (
             <div
               key={ep.name}
-              className="p-3 rounded-lg bg-white/[0.03] border border-white/[0.08] flex items-center justify-between gap-3"
+              className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 flex items-center justify-between gap-3"
             >
               <div>
-                <p className="text-zinc-100 font-semibold">{ep.name}</p>
-                <p className="text-zinc-400 text-[11px] mt-0.5">{ep.target}</p>
+                <p className="text-zinc-900 font-semibold">{ep.name}</p>
+                <p className="text-zinc-500 text-[11px] mt-0.5">{ep.target}</p>
               </div>
               <div className="text-right">
-                <span className="px-2 py-0.5 rounded bg-white/[0.07] text-zinc-200 text-[11px] uppercase">
+                <span className="px-2 py-0.5 rounded bg-zinc-200 text-zinc-800 text-[11px] font-medium uppercase">
                   {ep.provider}
                 </span>
                 <p className="text-zinc-500 text-[11px] mt-1">{ep.max}</p>
@@ -464,19 +896,19 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
   };
 
   return (
-    <div className="rg-landing min-h-screen bg-casino-bg text-zinc-100 selection:bg-white selection:text-casino-bg">
+    <div className="rg-landing min-h-screen bg-white text-zinc-900 selection:bg-zinc-900 selection:text-white">
       {/* =====================================================================
-          TOP HERO SECTION: Faithful to https://recent.design/i/dtnuyvc-casino-hero-section
-          Adapted for RelayGate
+          TOP HEADER & HERO SECTION
+          Optical White Canvas & Interactive Routing Pipeline Centerpiece
       ===================================================================== */}
-      <div className="relative overflow-hidden bg-casino-bg casino-grain">
-        <header className="relative z-30 w-full max-w-[1440px] mx-auto px-6 sm:px-10 lg:px-14 h-20 flex items-center justify-between">
+      <div className="relative overflow-hidden bg-white rg-canvas-pattern">
+        <header className="relative z-30 w-full max-w-[1440px] mx-auto px-6 sm:px-10 lg:px-14 h-20 flex items-center justify-between border-b border-zinc-200/80">
           <div className="flex items-center gap-10">
             <a
               href="#top"
-              className="inline-flex items-center gap-2.5 text-white font-semibold text-base tracking-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 rounded-lg py-1"
+              className="inline-flex items-center gap-2.5 text-zinc-950 font-semibold text-base tracking-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded-lg py-1"
             >
-              <RelayGateMark size={20} />
+              <RelayGateMark size={22} className="text-zinc-950" />
               <span className="font-bold tracking-tight">RelayGate</span>
             </a>
 
@@ -487,7 +919,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                   e.preventDefault();
                   scrollToSection('native');
                 }}
-                className="text-[14px] font-medium text-zinc-400 hover:text-white transition-colors duration-150 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 rounded"
+                className="text-[14px] font-medium text-zinc-600 hover:text-zinc-950 transition-colors duration-150 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded"
               >
                 Engine
               </a>
@@ -497,7 +929,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                   e.preventDefault();
                   scrollToSection('product');
                 }}
-                className="text-[14px] font-medium text-zinc-400 hover:text-white transition-colors duration-150 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 rounded"
+                className="text-[14px] font-medium text-zinc-600 hover:text-zinc-950 transition-colors duration-150 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded"
               >
                 Product
               </a>
@@ -507,7 +939,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                   e.preventDefault();
                   scrollToSection('workspace');
                 }}
-                className="text-[14px] font-medium text-zinc-400 hover:text-white transition-colors duration-150 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 rounded"
+                className="text-[14px] font-medium text-zinc-600 hover:text-zinc-950 transition-colors duration-150 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded"
               >
                 Workspace
               </a>
@@ -517,7 +949,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                   e.preventDefault();
                   scrollToSection('download');
                 }}
-                className="text-[14px] font-medium text-zinc-400 hover:text-white transition-colors duration-150 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 rounded"
+                className="text-[14px] font-medium text-zinc-600 hover:text-zinc-950 transition-colors duration-150 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded"
               >
                 Deploy
               </a>
@@ -527,7 +959,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                   e.preventDefault();
                   scrollToSection('faq');
                 }}
-                className="text-[14px] font-medium text-zinc-400 hover:text-white transition-colors duration-150 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 rounded"
+                className="text-[14px] font-medium text-zinc-600 hover:text-zinc-950 transition-colors duration-150 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded"
               >
                 Questions
               </a>
@@ -538,14 +970,14 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
             <button
               type="button"
               onClick={onOpenLogin}
-              className="min-h-[44px] px-4 py-2 rounded-lg text-[13px] font-medium text-zinc-200 bg-white/[0.06] hover:bg-white/[0.11] border border-white/[0.08] transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 cursor-pointer"
+              className="min-h-[44px] px-4 py-2 rounded-lg text-[13px] font-medium text-zinc-700 bg-zinc-100 hover:bg-zinc-200 border border-zinc-200 transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 cursor-pointer"
             >
               Sign in
             </button>
             <button
               type="button"
               onClick={onOpenRegister}
-              className="min-h-[44px] px-4 py-2 rounded-lg text-[13px] font-semibold text-casino-bg bg-white hover:bg-zinc-200 transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 cursor-pointer"
+              className="min-h-[44px] px-4 py-2 rounded-lg text-[13px] font-semibold text-white bg-zinc-900 hover:bg-zinc-800 transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 cursor-pointer shadow-xs"
             >
               Get started
             </button>
@@ -557,7 +989,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
               onClick={() => setMobileMenuOpen((prev) => !prev)}
               aria-expanded={mobileMenuOpen}
               aria-label="Toggle navigation menu"
-              className="min-h-[44px] px-3.5 py-2 rounded-lg bg-white/[0.06] border border-white/[0.1] text-zinc-100 inline-flex items-center gap-2 text-xs font-medium active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+              className="min-h-[44px] px-3.5 py-2 rounded-lg bg-zinc-100 border border-zinc-200 text-zinc-900 inline-flex items-center gap-2 text-xs font-medium active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
             >
               {mobileMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
               <span>Menu</span>
@@ -566,7 +998,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
         </header>
 
         {mobileMenuOpen && (
-          <div className="md:hidden relative z-30 mx-6 mb-4 p-4 rounded-xl bg-casino-surface border border-white/[0.1] space-y-3">
+          <div className="md:hidden relative z-30 mx-6 mb-4 p-4 rounded-xl bg-white border border-zinc-200 space-y-3 shadow-sm">
             <nav aria-label="Mobile navigation" className="flex flex-col space-y-1">
               {[
                 { label: 'Engine', id: 'native' },
@@ -582,20 +1014,20 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                     e.preventDefault();
                     scrollToSection(item.id);
                   }}
-                  className="min-h-[44px] px-3 flex items-center rounded-lg text-sm font-medium text-zinc-200 hover:bg-white/[0.06]"
+                  className="min-h-[44px] px-3 flex items-center rounded-lg text-sm font-medium text-zinc-700 hover:bg-zinc-100"
                 >
                   {item.label}
                 </a>
               ))}
             </nav>
-            <div className="pt-2 border-t border-white/[0.08] grid grid-cols-2 gap-2.5">
+            <div className="pt-2 border-t border-zinc-200 grid grid-cols-2 gap-2.5">
               <button
                 type="button"
                 onClick={() => {
                   setMobileMenuOpen(false);
                   onOpenLogin();
                 }}
-                className="min-h-[44px] px-4 py-2.5 rounded-lg text-xs font-medium text-zinc-100 bg-white/[0.06] border border-white/[0.1] active:scale-[0.97]"
+                className="min-h-[44px] px-4 py-2.5 rounded-lg text-xs font-medium text-zinc-800 bg-zinc-100 border border-zinc-200 active:scale-[0.97]"
               >
                 Sign in
               </button>
@@ -605,7 +1037,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                   setMobileMenuOpen(false);
                   onOpenRegister();
                 }}
-                className="min-h-[44px] px-4 py-2.5 rounded-lg text-xs font-semibold text-casino-bg bg-white active:scale-[0.97]"
+                className="min-h-[44px] px-4 py-2.5 rounded-lg text-xs font-semibold text-white bg-zinc-900 active:scale-[0.97]"
               >
                 Get started
               </button>
@@ -618,61 +1050,53 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
           <button
             type="button"
             onClick={() => scrollToSection('native')}
-            className="group min-h-[36px] inline-flex items-center gap-2.5 pl-1.5 pr-3.5 py-1 rounded-full bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.1] transition-all duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 cursor-pointer"
+            className="group min-h-[36px] inline-flex items-center gap-2.5 pl-1.5 pr-3.5 py-1 rounded-full bg-zinc-100 hover:bg-zinc-200/80 border border-zinc-200/90 transition-all duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 cursor-pointer"
           >
-            <span className="px-2 py-0.5 rounded-full bg-white text-casino-bg text-[11px] font-bold tracking-tight">
+            <span className="px-2 py-0.5 rounded-full bg-zinc-900 text-white text-[11px] font-bold tracking-tight">
               New
             </span>
-            <span className="text-[12px] font-medium text-zinc-200">
+            <span className="text-[12px] font-medium text-zinc-800">
               Zero-dependency webhook gateway
             </span>
-            <ArrowRight className="w-3.5 h-3.5 text-zinc-400 group-hover:translate-x-0.5 transition-transform" />
+            <ArrowRight className="w-3.5 h-3.5 text-zinc-500 group-hover:translate-x-0.5 transition-transform" />
           </button>
 
-          <h1 className="mt-6 text-[clamp(2.5rem,4.5vw,4.125rem)] font-bold tracking-[-0.035em] leading-[1.06] text-white">
+          <h1 className="mt-6 text-[clamp(2.5rem,4.5vw,4.125rem)] font-bold tracking-[-0.035em] leading-[1.06] text-zinc-950">
             Every webhook.
             <br />
             Zero dropped events.
           </h1>
 
-          <p className="mt-4 text-[15px] sm:text-[16px] leading-[1.55] text-zinc-300 max-w-[52ch]">
-            RelayGate verifies, queues, and dispatches Stripe, GitHub, and Xendit webhooks in one native Go binary.
+          <p className="mt-4 text-[15px] sm:text-[16px] leading-[1.55] text-zinc-600 max-w-[54ch]">
+            RelayGate verifies cryptographic signatures at the edge, buffers deliveries in an embedded SQLite WAL queue, and dispatches to downstream services with exponential backoff and dead-letter isolation.
           </p>
 
           <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
             <button
               type="button"
               onClick={onOpenLogin}
-              className="min-h-[44px] px-5 py-2.5 rounded-lg text-[13px] font-semibold text-casino-bg bg-white hover:bg-zinc-200 transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 cursor-pointer"
+              className="min-h-[44px] px-5 py-2.5 rounded-lg text-[13px] font-semibold text-white bg-zinc-900 hover:bg-zinc-800 transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 cursor-pointer shadow-xs"
             >
               Open Console
             </button>
             <button
               type="button"
               onClick={() => scrollToSection('native')}
-              className="min-h-[44px] px-5 py-2.5 rounded-lg text-[13px] font-medium text-zinc-200 bg-white/[0.06] hover:bg-white/[0.11] border border-white/[0.08] transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 cursor-pointer"
+              className="min-h-[44px] px-5 py-2.5 rounded-lg text-[13px] font-medium text-zinc-800 bg-white hover:bg-zinc-100 border border-zinc-200 transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 cursor-pointer"
             >
               Explore Engine
             </button>
           </div>
         </section>
 
-        {/* Hero Centerpiece Artwork from https://recent.design/i/dtnuyvc-casino-hero-section */}
-        <div className="relative z-10 w-full max-w-[1920px] mx-auto mt-1 select-none pointer-events-none">
-          <img
-            src="/hero-roulette.webp"
-            alt="RelayGate high-stakes webhook ingestion centerpiece"
-            width={1920}
-            height={764}
-            loading="eager"
-            className="w-full h-auto block object-cover"
-          />
-        </div>
+        {/* Authentic Developer Centerpiece: Interactive Webhook Routing Pipeline */}
+        <section className="relative z-10 px-4 sm:px-6 pb-12">
+          <WebhookRoutingPipeline />
+        </section>
       </div>
 
       {/* =====================================================================
-          BODY SECTIONS: Following https://kybern.treshnanda.tech/
-          Adapted 100% for RelayGate (Monochrome Bone on Carbon, Zero Slop)
+          BODY SECTIONS: Monochrome & High-Luminance Optical White
       ===================================================================== */}
       <main>
         {/* 1. Supported Signature Standards Strip */}
@@ -775,7 +1199,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
           </div>
         </section>
 
-        {/* 3. Feature 1: Worker Pool & Automatic Retries (#product) */}
+        {/* 3. Feature 1: Worker Pool & Operator Console Showcase (#product) */}
         <section className="feature" id="product">
           <div className="rg-container feature__grid">
             <div className="feature__text">
@@ -798,40 +1222,40 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                         <i />
                       </div>
                       <span className="rg-win__title">Dispatch Worker Pool :: 4 active workers across 3 harnesses</span>
-                      <span className="font-mono text-[11px] text-zinc-400">WAL SYNCED</span>
+                      <span className="font-mono text-[11px] text-zinc-500">WAL SYNCED</span>
                     </div>
                     <div className="p-5 text-left space-y-4">
-                      <div className="flex items-center justify-between text-xs font-mono text-zinc-400 border-b border-white/[0.08] pb-3">
+                      <div className="flex items-center justify-between text-xs font-mono text-zinc-500 border-b border-zinc-200 pb-3">
                         <span>3 active routes · 50 concurrent workers</span>
                         <span>SQLite WAL checkpoint: 0.38 ms</span>
                       </div>
                       <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse font-mono text-xs">
                           <thead>
-                            <tr className="border-b border-white/[0.1] text-zinc-400">
+                            <tr className="border-b border-zinc-200 text-zinc-500">
                               <th className="py-2 pr-3 font-medium">Route</th>
                               <th className="py-2 px-3 font-medium">Provider / Policy</th>
                               <th className="py-2 pl-3 font-medium">What it&apos;s doing</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-white/[0.06] text-zinc-300">
+                          <tbody className="divide-y divide-zinc-200 text-zinc-700">
                             <tr>
-                              <td className="py-2.5 pr-3 text-zinc-100 font-medium">ep_7efe4e7e</td>
-                              <td className="py-2.5 px-3 text-zinc-400">Stripe · HMAC-SHA256</td>
+                              <td className="py-2.5 pr-3 text-zinc-950 font-medium">ep_7efe4e7e</td>
+                              <td className="py-2.5 px-3 text-zinc-500">Stripe · HMAC-SHA256</td>
                               <td className="py-2.5 pl-3">
                                 Verifies timestamp tolerance (300s), writes raw body to WAL, dispatches HTTP POST to billing service.
                               </td>
                             </tr>
                             <tr>
-                              <td className="py-2.5 pr-3 text-zinc-100 font-medium">ep_97aaeddd</td>
-                              <td className="py-2.5 px-3 text-zinc-400">Xendit · Static Token</td>
+                              <td className="py-2.5 pr-3 text-zinc-950 font-medium">ep_97aaeddd</td>
+                              <td className="py-2.5 px-3 text-zinc-500">Xendit · Static Token</td>
                               <td className="py-2.5 pl-3">
                                 Compares X-Callback-Token in constant time, schedules retry 2/5 after downstream 504 timeout.
                               </td>
                             </tr>
                             <tr>
-                              <td className="py-2.5 pr-3 text-zinc-100 font-medium">ep_midtrans</td>
-                              <td className="py-2.5 px-3 text-zinc-400">Midtrans · SHA-512</td>
+                              <td className="py-2.5 pr-3 text-zinc-950 font-medium">ep_midtrans</td>
+                              <td className="py-2.5 px-3 text-zinc-500">Midtrans · SHA-512</td>
                               <td className="py-2.5 pl-3">
                                 Computes SHA-512(order_id + status_code + gross_amount + secret) and delivers in 14 ms.
                               </td>
@@ -843,6 +1267,39 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                   </div>
                 </div>
               </TiltFrame>
+            </div>
+          </div>
+        </section>
+
+        {/* Real RelayGate Dashboard Preview Section */}
+        <section className="rg-container py-12">
+          <div className="text-center max-w-[800px] mx-auto mb-8">
+            <span className="metaline">Operator Workspace</span>
+            <h3 className="headline mt-2 text-zinc-950">
+              High-luminance developer interface.
+            </h3>
+            <p className="lede mx-auto mt-2 text-zinc-600">
+              Clean optical white canvas matching your local workflow, with real-time throughput metrics, live Server-Sent Events, and failure inspector.
+            </p>
+          </div>
+
+          <div className="shot shot--bare p-2 sm:p-4 rounded-2xl bg-white border border-zinc-200 shadow-sm">
+            <div className="rg-win rounded-xl border border-zinc-200 overflow-hidden bg-white shadow-xs">
+              <div className="rg-win__bar bg-zinc-50 border-b border-zinc-200 px-4 py-2.5 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
+                  <span className="ml-2 font-mono text-[11px] text-zinc-500">http://127.0.0.1:8080/#overview</span>
+                </div>
+                <span className="font-mono text-[11px] text-zinc-400">OPERATOR CONSOLE :: REAL TIME</span>
+              </div>
+              <img
+                src="/dashboard-preview.png"
+                alt="RelayGate Operator Console Dashboard"
+                className="w-full h-auto object-cover block"
+                loading="lazy"
+              />
             </div>
           </div>
         </section>
@@ -870,32 +1327,32 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                         <i />
                       </div>
                       <span className="rg-win__title">BulkReplayModal :: Verification &amp; Quota Reset</span>
-                      <span className="font-mono text-[11px] text-zinc-400">QUOTA 0/5 -&gt; 5/5</span>
+                      <span className="font-mono text-[11px] text-zinc-500">QUOTA 0/5 -&gt; 5/5</span>
                     </div>
                     <div className="p-5 text-left space-y-3.5 font-mono text-xs">
-                      <div className="p-3.5 rounded-lg bg-white/[0.03] border border-white/[0.09] space-y-2">
+                      <div className="p-3.5 rounded-lg bg-zinc-50 border border-zinc-200 space-y-2">
                         <div className="flex items-center justify-between">
-                          <span className="text-zinc-100 font-semibold">evt_499cd52a · Stripe 504 Gateway Timeout</span>
-                          <span className="px-2 py-0.5 rounded bg-white/[0.09] text-zinc-100 text-[11px]">
+                          <span className="text-zinc-950 font-semibold">evt_499cd52a · Stripe 504 Gateway Timeout</span>
+                          <span className="px-2 py-0.5 rounded bg-zinc-200 text-zinc-800 text-[11px] font-medium">
                             Eligible for Replay
                           </span>
                         </div>
-                        <p className="text-zinc-400 text-[11px]">
+                        <p className="text-zinc-600 text-[11px]">
                           Dijadwalkan ulang dari antrean Dead-Letter dengan reset kuota hingga 5 percobaan baru.
                         </p>
                       </div>
                       <div className="grid grid-cols-3 gap-2.5 text-center">
-                        <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
-                          <p className="text-zinc-400 text-[11px]">VERIFIED</p>
-                          <p className="text-zinc-100 text-base font-bold mt-1">HMAC OK</p>
+                        <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200">
+                          <p className="text-zinc-500 text-[11px]">VERIFIED</p>
+                          <p className="text-zinc-950 text-base font-bold mt-1">HMAC OK</p>
                         </div>
-                        <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
-                          <p className="text-zinc-400 text-[11px]">LAST HTTP</p>
-                          <p className="text-zinc-100 text-base font-bold mt-1">504</p>
+                        <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200">
+                          <p className="text-zinc-500 text-[11px]">LAST HTTP</p>
+                          <p className="text-zinc-950 text-base font-bold mt-1">504</p>
                         </div>
-                        <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
-                          <p className="text-zinc-400 text-[11px]">RETRY BUDGET</p>
-                          <p className="text-zinc-100 text-base font-bold mt-1">5 Attempts</p>
+                        <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200">
+                          <p className="text-zinc-500 text-[11px]">RETRY BUDGET</p>
+                          <p className="text-zinc-950 text-base font-bold mt-1">5 Attempts</p>
                         </div>
                       </div>
                     </div>
@@ -949,14 +1406,14 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
               <figure>
                 <div className="shot shot--bare">
                   <div className="rg-win p-4 font-mono text-xs space-y-2 text-left">
-                    <p className="text-zinc-400 text-[11px] uppercase tracking-wider">Credential Redaction</p>
-                    <div className="p-2.5 rounded bg-white/[0.03] border border-white/[0.07] flex justify-between">
-                      <span className="text-zinc-400">Authorization</span>
-                      <span className="text-zinc-100">••••••••</span>
+                    <p className="text-zinc-500 text-[11px] uppercase tracking-wider font-semibold">Credential Redaction</p>
+                    <div className="p-2.5 rounded bg-zinc-50 border border-zinc-200 flex justify-between">
+                      <span className="text-zinc-500">Authorization</span>
+                      <span className="text-zinc-900 font-semibold">••••••••</span>
                     </div>
-                    <div className="p-2.5 rounded bg-white/[0.03] border border-white/[0.07] flex justify-between">
-                      <span className="text-zinc-400">X-Callback-Token</span>
-                      <span className="text-zinc-100">&lt;TOKEN&gt;</span>
+                    <div className="p-2.5 rounded bg-zinc-50 border border-zinc-200 flex justify-between">
+                      <span className="text-zinc-500">X-Callback-Token</span>
+                      <span className="text-zinc-900 font-semibold">&lt;TOKEN&gt;</span>
                     </div>
                   </div>
                 </div>
@@ -972,14 +1429,14 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                 <div className="shot shot--bare">
                   <div className="rg-win p-4 font-mono text-xs space-y-3 text-left">
                     <div className="flex items-center justify-between">
-                      <span className="text-zinc-200 font-semibold">Exponential Backoff Schedule</span>
-                      <span className="text-zinc-400">5 Attempts · ±15% Jitter</span>
+                      <span className="text-zinc-900 font-semibold">Exponential Backoff Schedule</span>
+                      <span className="text-zinc-500">5 Attempts · ±15% Jitter</span>
                     </div>
                     <div className="grid grid-cols-5 gap-1.5 text-center">
                       {['1s', '2s', '4s', '8s', '16s'].map((delay, i) => (
-                        <div key={delay} className="p-2 rounded bg-white/[0.04] border border-white/[0.08]">
+                        <div key={delay} className="p-2 rounded bg-zinc-50 border border-zinc-200">
                           <p className="text-zinc-500 text-[10px]">TRY {i + 1}</p>
-                          <p className="text-zinc-100 font-bold mt-0.5">{delay}</p>
+                          <p className="text-zinc-950 font-bold mt-0.5">{delay}</p>
                         </div>
                       ))}
                     </div>
@@ -996,11 +1453,11 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
               <figure>
                 <div className="shot shot--bare">
                   <div className="rg-win p-4 font-mono text-xs space-y-2 text-left">
-                    <p className="text-zinc-400 text-[11px] uppercase tracking-wider">Batch Audit Summary</p>
-                    <div className="p-2.5 rounded bg-white/[0.03] border border-white/[0.07] text-zinc-200">
+                    <p className="text-zinc-500 text-[11px] uppercase tracking-wider font-semibold">Batch Audit Summary</p>
+                    <div className="p-2.5 rounded bg-zinc-50 border border-zinc-200 text-zinc-900 font-medium">
                       12 lolos verifikasi
                     </div>
-                    <div className="p-2.5 rounded bg-white/[0.03] border border-white/[0.07] text-zinc-400">
+                    <div className="p-2.5 rounded bg-zinc-50 border border-zinc-200 text-zinc-500">
                       2 dikecualikan otomatis
                     </div>
                   </div>
@@ -1098,7 +1555,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
             <button
               type="button"
               onClick={onOpenLogin}
-              className="more__link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 rounded"
+              className="more__link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded"
             >
               <span>Open the operator console</span>
               <ArrowUpRight className="w-3.5 h-3.5" />
@@ -1119,21 +1576,21 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
           >
             <ul className="mach__clients">
               <li className="mach__client">
-                <Shield className="w-[18px] h-[18px] shrink-0" />
+                <Shield className="w-[18px] h-[18px] shrink-0 text-zinc-700" />
                 <span>
                   <strong>Webhook Senders</strong>
                   <small>Stripe · GitHub · Xendit</small>
                 </span>
               </li>
               <li className="mach__client">
-                <Layers className="w-[18px] h-[18px] shrink-0" />
+                <Layers className="w-[18px] h-[18px] shrink-0 text-zinc-700" />
                 <span>
                   <strong>Operator Console</strong>
                   <small>Browser · WebSocket</small>
                 </span>
               </li>
               <li className="mach__client">
-                <Terminal className="w-[18px] h-[18px] shrink-0" />
+                <Terminal className="w-[18px] h-[18px] shrink-0 text-zinc-700" />
                 <span>
                   <strong>CLI &amp; cURL</strong>
                   <small>Replay scripts &amp; CI</small>
@@ -1153,7 +1610,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
             <div className="mach__box">
               <span className="mach__label">Your machine</span>
               <div className="mach__daemon">
-                <RelayGateMark size={20} />
+                <RelayGateMark size={20} className="text-zinc-950" />
                 <strong>relaygate</strong>
               </div>
               <ul className="mach__agents">
@@ -1173,15 +1630,15 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
               </ul>
               <ul className="mach__kept">
                 <li>
-                  <Lock className="w-3.5 h-3.5" />
+                  <Lock className="w-3.5 h-3.5 text-zinc-600" />
                   <span>Payloads</span>
                 </li>
                 <li>
-                  <Lock className="w-3.5 h-3.5" />
+                  <Lock className="w-3.5 h-3.5 text-zinc-600" />
                   <span>Signing Secrets</span>
                 </li>
                 <li>
-                  <Lock className="w-3.5 h-3.5" />
+                  <Lock className="w-3.5 h-3.5 text-zinc-600" />
                   <span>Audit Logs</span>
                 </li>
               </ul>
@@ -1199,27 +1656,27 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
               <div className="env__shot">
                 <div className="shot shot--bare">
                   <div className="rg-win p-5 font-mono text-xs space-y-2.5 text-left">
-                    <p className="text-zinc-400 text-[11px] uppercase tracking-wider">Listener Topologies</p>
-                    <div className="p-3 rounded-lg bg-white/[0.04] border border-white/[0.1] flex items-center justify-between">
+                    <p className="text-zinc-500 text-[11px] uppercase tracking-wider font-semibold">Listener Topologies</p>
+                    <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 flex items-center justify-between">
                       <div>
-                        <p className="text-zinc-100 font-semibold">Local Workstation (:8080)</p>
-                        <p className="text-zinc-400 text-[11px]">./data/relaygate.db · 10 workers</p>
+                        <p className="text-zinc-950 font-semibold">Local Workstation (:8080)</p>
+                        <p className="text-zinc-500 text-[11px]">./data/relaygate.db · 10 workers</p>
                       </div>
-                      <span className="text-zinc-200 text-[11px]">CONNECTED</span>
+                      <span className="text-zinc-800 font-medium text-[11px]">CONNECTED</span>
                     </div>
-                    <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.06] flex items-center justify-between">
+                    <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 flex items-center justify-between">
                       <div>
-                        <p className="text-zinc-200 font-semibold">Production Edge (systemd)</p>
+                        <p className="text-zinc-950 font-semibold">Production Edge (systemd)</p>
                         <p className="text-zinc-500 text-[11px]">/var/lib/relaygate/wal.db · 50 workers</p>
                       </div>
-                      <span className="text-zinc-400 text-[11px]">SSH / TLS</span>
+                      <span className="text-zinc-500 text-[11px]">SSH / TLS</span>
                     </div>
-                    <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.06] flex items-center justify-between">
+                    <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 flex items-center justify-between">
                       <div>
-                        <p className="text-zinc-200 font-semibold">Private Tailnet Console</p>
+                        <p className="text-zinc-950 font-semibold">Private Tailnet Console</p>
                         <p className="text-zinc-500 text-[11px]">100.64.0.18:8080 · WireGuard</p>
                       </div>
-                      <span className="text-zinc-400 text-[11px]">TAILSCALE</span>
+                      <span className="text-zinc-500 text-[11px]">TAILSCALE</span>
                     </div>
                   </div>
                 </div>
@@ -1293,7 +1750,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                     aria-selected={activeOsTab === id}
                     aria-controls="dl-panel"
                     tabIndex={activeOsTab === id ? 0 : -1}
-                    className="dl__tab focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+                    className="dl__tab focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
                     onClick={() => setActiveOsTab(id)}
                     onKeyDown={(e) => {
                       const dir = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
@@ -1320,16 +1777,16 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                     <li className="dl__file">
                       <span className="dl__file-name">relaygate-linux-amd64</span>
                       <span className="dl__file-ext">static binary · SQLite WAL embedded</span>
-                      <ArrowDown className="w-4 h-4 text-zinc-400" />
+                      <ArrowDown className="w-4 h-4 text-zinc-500" />
                     </li>
                     <li className="dl__file">
                       <span className="dl__file-name">relaygate.service</span>
                       <span className="dl__file-ext">systemd unit</span>
-                      <ArrowDown className="w-4 h-4 text-zinc-400" />
+                      <ArrowDown className="w-4 h-4 text-zinc-500" />
                     </li>
                   </ul>
                   <p className="dl__note">
-                    x86_64 and ARM64 Linux. Runs as an unprivileged user with zero external runtime dependencies.
+                    x86_64 and ARM64 Linux. Runs as an unprivileged user (UID 1000) with zero external runtime dependencies.
                   </p>
                 </>
               )}
