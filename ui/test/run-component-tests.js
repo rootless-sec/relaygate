@@ -1869,6 +1869,7 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(openHtml, /lead@relaygate\.local/, 'User email must be rendered in profile view');
     assert.match(openHtml, /Dev Lead/, 'User name must be present in nickname input');
     assert.match(openHtml, /admin/, 'User role pill must display role');
+    assert.ok(!openHtml.includes('size-1.5 rounded-full'), 'ProfileModal status pill must not include decorative bullet dots');
 
     // Render closed modal
     const closedHtml = renderToString(

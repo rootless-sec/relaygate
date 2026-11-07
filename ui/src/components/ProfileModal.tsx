@@ -389,9 +389,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                       </div>
                       <div className="flex items-center gap-2 text-xs text-zinc-900">
                         <span className="font-normal">{currentUser.email}</span>
-                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium bg-zinc-100 text-zinc-700 border border-zinc-200/80">
-                          <span className="size-1.5 rounded-full bg-emerald-600" />
-                          <span>Terverifikasi</span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-zinc-100 text-zinc-700 border border-zinc-200/80">
+                          Terverifikasi
                         </span>
                       </div>
                     </div>

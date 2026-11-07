@@ -45,9 +45,13 @@ async function waitForServer(url, timeoutMs = 10000) {
 async function run() {
   console.log('[Script] Starting test RelayGate server on :' + PORT);
 
+  const prodDb = path.join(__dirname, '..', 'data', 'relaygate.db');
   const testDb = path.join(__dirname, '..', 'data', 'test_screen.db');
   if (fs.existsSync(testDb)) {
     try { fs.unlinkSync(testDb); } catch {}
+  }
+  if (fs.existsSync(prodDb)) {
+    fs.copyFileSync(prodDb, testDb);
   }
 
   const serverProc = spawn(
