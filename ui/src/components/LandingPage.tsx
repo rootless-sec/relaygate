@@ -44,21 +44,25 @@ const WORKSPACE_STEPS = [
     id: 'stream',
     label: 'Live event stream',
     body: 'Watch inbound deliveries arrive over Server-Sent Events (SSE) in real time via /api/v1/stream. Pause the stream at any moment to inspect a burst without losing buffered frames.',
+    image: '/shots/stream.png',
   },
   {
     id: 'inspector',
     label: 'Payload & header inspector',
     body: 'Open any delivery in a side drawer to examine raw JSON bodies, response status codes, and automatically masked credential headers.',
+    image: '/shots/inspector.png',
   },
   {
     id: 'dlq',
     label: 'Dead-letter triage',
     body: 'Filter failed deliveries by failure family. RelayGate separates unrecoverable signature defects from retryable downstream timeouts.',
+    image: '/shots/dlq.png',
   },
   {
     id: 'endpoints',
     label: 'Endpoint routing',
     body: 'Register target URLs, rotate signing secrets, and tune per-route concurrency and timeout budgets from one table.',
+    image: '/shots/endpoints.png',
   },
 ];
 
@@ -713,210 +717,22 @@ function WebhookRoutingPipeline() {
   );
 }
 
-function WorkspacePreview({ stepIndex }: { stepIndex: number }) {
-  if (stepIndex === 0) {
-    return (
-      <div className="shot shot--bare">
-        <div className="rg-win">
-          <div className="rg-win__bar">
-            <div className="rg-win__dots">
-              <i />
-              <i />
-              <i />
-            </div>
-            <span className="rg-win__title">relaygate :: live event stream (GET /api/v1/stream · Server-Sent Events)</span>
-            <span className="font-mono text-[11px] text-zinc-500">STREAM ACTIVE</span>
-          </div>
-          <div className="p-5 grid grid-cols-1 sm:grid-cols-12 gap-4 text-left">
-            <div className="sm:col-span-4 border-r border-zinc-200 pr-4 space-y-2.5">
-              <p className="metaline">Active Routes</p>
-              {['ep_stripe_billing', 'ep_github_hooks', 'ep_xendit_payout', 'ep_midtrans_core'].map((ep, idx) => (
-                <div
-                  key={ep}
-                  className={`px-3 py-2 rounded-lg text-xs font-mono flex items-center justify-between ${
-                    idx === 0 ? 'bg-zinc-100 text-zinc-950 font-semibold border border-zinc-300' : 'text-zinc-600'
-                  }`}
-                >
-                  <span>{ep}</span>
-                  <span className="text-zinc-500">202</span>
-                </div>
-              ))}
-            </div>
-            <div className="sm:col-span-8 space-y-2 font-mono text-xs">
-              <div className="flex items-center justify-between pb-2 border-b border-zinc-200 text-zinc-500">
-                <span>EVENT ID / PROVIDER</span>
-                <span>LATENCY / STATUS</span>
-              </div>
-              {[
-                { id: 'evt_992a8f10', prov: 'stripe', code: '200 OK', ms: '18 ms' },
-                { id: 'evt_741c0b22', prov: 'github', code: '202 ACCEPTED', ms: '9 ms' },
-                { id: 'evt_510e4d89', prov: 'xendit', code: '200 OK', ms: '24 ms' },
-                { id: 'evt_309f1a77', prov: 'shopify', code: '200 OK', ms: '31 ms' },
-              ].map((row) => (
-                <div
-                  key={row.id}
-                  className="flex items-center justify-between py-2 px-2.5 rounded bg-zinc-50 border border-zinc-200"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span className="text-zinc-900 font-medium">{row.id}</span>
-                    <span className="text-zinc-500">{row.prov}</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-zinc-500">{row.ms}</span>
-                    <span className="px-2 py-0.5 rounded bg-zinc-200 text-zinc-800 text-[11px] font-medium">{row.code}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (stepIndex === 1) {
-    return (
-      <div className="shot shot--bare">
-        <div className="rg-win">
-          <div className="rg-win__bar">
-            <div className="rg-win__dots">
-              <i />
-              <i />
-              <i />
-            </div>
-            <span className="rg-win__title">InspectorDrawer :: evt_499cd52a (Headers &amp; Payload)</span>
-            <span className="font-mono text-[11px] text-zinc-500">MASKED BY DEFAULT</span>
-          </div>
-          <div className="p-5 space-y-3 font-mono text-xs text-left">
-            <div className="flex items-center justify-between border-b border-zinc-200 pb-2.5">
-              <span className="text-zinc-700 font-medium">Headers (Sensitive tokens masked at API boundary)</span>
-              <span className="px-2 py-0.5 rounded border border-zinc-300 text-zinc-700 text-[11px]">
-                Copy cURL (&lt;TOKEN&gt;)
-              </span>
-            </div>
-            <div className="grid grid-cols-1 gap-2">
-              <div className="flex justify-between py-1.5 px-3 rounded bg-zinc-50 border border-zinc-200">
-                <span className="text-zinc-500">content-type</span>
-                <span className="text-zinc-900">application/json</span>
-              </div>
-              <div className="flex justify-between py-1.5 px-3 rounded bg-zinc-50 border border-zinc-200">
-                <span className="text-zinc-500">stripe-signature</span>
-                <span className="text-zinc-900">••••••••</span>
-              </div>
-              <div className="flex justify-between py-1.5 px-3 rounded bg-zinc-50 border border-zinc-200">
-                <span className="text-zinc-500">authorization</span>
-                <span className="text-zinc-900">••••••••</span>
-              </div>
-            </div>
-            <div className="p-3 rounded bg-zinc-50 border border-zinc-200 text-zinc-800">
-              {`{"id":"evt_stripe_123","type":"invoice.payment_succeeded","livemode":true}`}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (stepIndex === 2) {
-    return (
-      <div className="shot shot--bare">
-        <div className="rg-win">
-          <div className="rg-win__bar">
-            <div className="rg-win__dots">
-              <i />
-              <i />
-              <i />
-            </div>
-            <span className="rg-win__title">DeadLetterView :: 8 Canonical Failure Families</span>
-            <span className="font-mono text-[11px] text-zinc-500">ELIGIBLE FOR REPLAY</span>
-          </div>
-          <div className="p-5 space-y-2.5 font-mono text-xs text-left">
-            {[
-              {
-                id: '499cd52a',
-                family: 'Downstream error (5xx)',
-                detail: 'HTTP 504 Gateway Timeout (5/5 attempts)',
-                action: 'Replay (Reset 0/5)',
-              },
-              {
-                id: 'e10029c1',
-                family: 'Signature/token tidak cocok',
-                detail: 'xendit callback token mismatch',
-                action: 'Verifikasi ulang & kirim',
-              },
-              {
-                id: '32a5285c',
-                family: 'Signature/token hilang',
-                detail: 'missing X-Callback-Token header',
-                action: 'Ineligible (Request Defect)',
-              },
-            ].map((item) => (
-              <div
-                key={item.id}
-                className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 flex flex-wrap items-center justify-between gap-2"
-              >
-                <div>
-                  <p className="text-zinc-900 font-semibold">{item.family}</p>
-                  <p className="text-zinc-500 text-[11px] mt-0.5">
-                    {item.id} · {item.detail}
-                  </p>
-                </div>
-                <span className="px-2.5 py-1 rounded bg-zinc-200 text-zinc-800 text-[11px] font-medium border border-zinc-300">
-                  {item.action}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="shot shot--bare">
-      <div className="rg-win">
-        <div className="rg-win__bar">
-          <div className="rg-win__dots">
-            <i />
-            <i />
-            <i />
-          </div>
-          <span className="rg-win__title">EndpointsView :: Downstream Route Registry</span>
-          <span className="font-mono text-[11px] text-zinc-500">4 ACTIVE ROUTES</span>
-        </div>
-        <div className="p-5 space-y-2.5 font-mono text-xs text-left">
-          {[
-            { name: 'Billing Core', provider: 'stripe', target: 'https://internal.api/v1/stripe', max: '5 attempts' },
-            { name: 'CI Deployment Hook', provider: 'github', target: 'https://runner.internal/hooks', max: '5 attempts' },
-            { name: 'Disbursement Sync', provider: 'xendit', target: 'https://ledger.internal/xendit', max: '5 attempts' },
-          ].map((ep) => (
-            <div
-              key={ep.name}
-              className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 flex items-center justify-between gap-3"
-            >
-              <div>
-                <p className="text-zinc-900 font-semibold">{ep.name}</p>
-                <p className="text-zinc-500 text-[11px] mt-0.5">{ep.target}</p>
-              </div>
-              <div className="text-right">
-                <span className="px-2 py-0.5 rounded bg-zinc-200 text-zinc-800 text-[11px] font-medium uppercase">
-                  {ep.provider}
-                </span>
-                <p className="text-zinc-500 text-[11px] mt-1">{ep.max}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeWsStep, setActiveWsStep] = useState(0);
   const [activeOsTab, setActiveOsTab] = useState<OsTabId>('linux');
+  const [isScrolled, setIsScrolled] = useState(false);
+  const [isNavHovered, setIsNavHovered] = useState(false);
   const wsStepsRef = useRef<HTMLOListElement>(null);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 20);
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll();
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   useEffect(() => {
     const items = Array.from(wsStepsRef.current?.children ?? []);
@@ -930,7 +746,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
           }
         }
       },
-      { rootMargin: '-35% 0px -55% 0px' }
+      { rootMargin: '-36% 0px -64% 0px' }
     );
     items.forEach((el) => observer.observe(el));
     return () => observer.disconnect();
@@ -950,99 +766,124 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
           TOP HEADER & HERO SECTION
           Optical White Canvas & Interactive Routing Pipeline Centerpiece
       ===================================================================== */}
-      <div className="relative overflow-hidden bg-white rg-canvas-pattern">
-        <header className="relative z-30 w-full max-w-[1440px] mx-auto px-6 sm:px-10 lg:px-14 h-20 flex items-center justify-between border-b border-zinc-200/80">
-          <div className="flex items-center gap-10">
-            <a
-              href="#top"
-              className="inline-flex items-center gap-2.5 text-zinc-950 font-semibold text-base tracking-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded-lg py-1"
+      <div className="relative overflow-hidden bg-white rg-canvas-pattern pt-20">
+        <header className="nav-fixed w-full">
+          <div className="nav__wrap px-4 sm:px-6">
+            <div
+              className={`nav__isle ${
+                isScrolled
+                  ? 'is-glass is-center py-2 px-4 shadow-sm'
+                  : 'is-top py-4 border-b border-zinc-200/80 bg-white/80 backdrop-blur-sm'
+              }`}
+              onMouseEnter={() => setIsNavHovered(true)}
+              onMouseLeave={() => setIsNavHovered(false)}
+              style={{
+                maxWidth: isScrolled ? (isNavHovered ? 780 : 156) : 1240,
+                transition: 'max-width 0.45s cubic-bezier(0.22, 1, 0.36, 1), padding 0.35s ease, background-color 0.3s ease',
+              }}
             >
-              <RelayGateMark size={22} className="text-zinc-950" />
-              <span className="font-bold tracking-tight">RelayGate</span>
-            </a>
+              <a
+                href="#top"
+                className="brand flex items-center gap-2.5 text-zinc-950 font-semibold text-base tracking-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded-lg py-1 select-none flex-none"
+              >
+                <RelayGateMark size={22} className="text-zinc-950 flex-none" />
+                <span className="font-bold tracking-tight">RelayGate</span>
+              </a>
 
-            <nav aria-label="Primary navigation" className="hidden md:flex items-center gap-8">
-              <a
-                href="#native"
-                onClick={(e) => {
-                  e.preventDefault();
-                  scrollToSection('native');
+              <div
+                className={`nav__chrome ${
+                  isScrolled && !isNavHovered
+                    ? 'max-w-0 opacity-0 pointer-events-none'
+                    : 'max-w-[640px] opacity-100 pointer-events-auto'
+                }`}
+                style={{
+                  transition: 'max-width 0.45s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease',
                 }}
-                className="text-[14px] font-medium text-zinc-600 hover:text-zinc-950 transition-colors duration-150 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded"
               >
-                Engine
-              </a>
-              <a
-                href="#product"
-                onClick={(e) => {
-                  e.preventDefault();
-                  scrollToSection('product');
-                }}
-                className="text-[14px] font-medium text-zinc-600 hover:text-zinc-950 transition-colors duration-150 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded"
-              >
-                Product
-              </a>
-              <a
-                href="#workspace"
-                onClick={(e) => {
-                  e.preventDefault();
-                  scrollToSection('workspace');
-                }}
-                className="text-[14px] font-medium text-zinc-600 hover:text-zinc-950 transition-colors duration-150 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded"
-              >
-                Workspace
-              </a>
-              <a
-                href="#download"
-                onClick={(e) => {
-                  e.preventDefault();
-                  scrollToSection('download');
-                }}
-                className="text-[14px] font-medium text-zinc-600 hover:text-zinc-950 transition-colors duration-150 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded"
-              >
-                Deploy
-              </a>
-              <a
-                href="#faq"
-                onClick={(e) => {
-                  e.preventDefault();
-                  scrollToSection('faq');
-                }}
-                className="text-[14px] font-medium text-zinc-600 hover:text-zinc-950 transition-colors duration-150 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded"
-              >
-                Questions
-              </a>
-            </nav>
-          </div>
+                <nav aria-label="Primary navigation" className="hidden md:flex items-center gap-7 ml-8 mr-6">
+                  <a
+                    href="#native"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      scrollToSection('native');
+                    }}
+                    className="text-[13.5px] font-medium text-zinc-600 hover:text-zinc-950 transition-colors py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded"
+                  >
+                    Engine
+                  </a>
+                  <a
+                    href="#product"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      scrollToSection('product');
+                    }}
+                    className="text-[13.5px] font-medium text-zinc-600 hover:text-zinc-950 transition-colors py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded"
+                  >
+                    Product
+                  </a>
+                  <a
+                    href="#workspace"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      scrollToSection('workspace');
+                    }}
+                    className="text-[13.5px] font-medium text-zinc-600 hover:text-zinc-950 transition-colors py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded"
+                  >
+                    Workspace
+                  </a>
+                  <a
+                    href="#download"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      scrollToSection('download');
+                    }}
+                    className="text-[13.5px] font-medium text-zinc-600 hover:text-zinc-950 transition-colors py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded"
+                  >
+                    Deploy
+                  </a>
+                  <a
+                    href="#faq"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      scrollToSection('faq');
+                    }}
+                    className="text-[13.5px] font-medium text-zinc-600 hover:text-zinc-950 transition-colors py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded"
+                  >
+                    Questions
+                  </a>
+                </nav>
 
-          <div className="hidden md:flex items-center gap-3">
-            <button
-              type="button"
-              onClick={onOpenLogin}
-              className="min-h-[44px] px-4 py-2 rounded-lg text-[13px] font-medium text-zinc-700 bg-zinc-100 hover:bg-zinc-200 border border-zinc-200 transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 cursor-pointer"
-            >
-              Sign in
-            </button>
-            <button
-              type="button"
-              onClick={onOpenRegister}
-              className="min-h-[44px] px-4 py-2 rounded-lg text-[13px] font-semibold text-white bg-zinc-900 hover:bg-zinc-800 transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 cursor-pointer shadow-xs"
-            >
-              Get started
-            </button>
-          </div>
+                <div className="hidden md:flex items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={onOpenLogin}
+                    className="min-h-[44px] px-3.5 py-1.5 rounded-lg text-xs font-medium text-zinc-700 bg-zinc-100 hover:bg-zinc-200 border border-zinc-200 transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 cursor-pointer"
+                  >
+                    Sign in
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onOpenRegister}
+                    className="min-h-[44px] px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-zinc-900 hover:bg-zinc-800 transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 cursor-pointer shadow-xs"
+                  >
+                    Get started
+                  </button>
+                </div>
+              </div>
 
-          <div className="flex md:hidden items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen((prev) => !prev)}
-              aria-expanded={mobileMenuOpen}
-              aria-label="Toggle navigation menu"
-              className="min-h-[44px] px-3.5 py-2 rounded-lg bg-zinc-100 border border-zinc-200 text-zinc-900 inline-flex items-center gap-2 text-xs font-medium active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
-            >
-              {mobileMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
-              <span>Menu</span>
-            </button>
+              <div className="flex md:hidden items-center gap-2 ml-2">
+                <button
+                  type="button"
+                  onClick={() => setMobileMenuOpen((prev) => !prev)}
+                  aria-expanded={mobileMenuOpen}
+                  aria-label="Toggle navigation menu"
+                  className="min-h-[44px] px-3 py-1.5 rounded-lg bg-zinc-100 border border-zinc-200 text-zinc-900 inline-flex items-center gap-1.5 text-xs font-medium active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
+                >
+                  {mobileMenuOpen ? <X className="w-3.5 h-3.5" /> : <Menu className="w-3.5 h-3.5" />}
+                  <span>Menu</span>
+                </button>
+              </div>
+            </div>
           </div>
         </header>
 
@@ -1429,14 +1270,31 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                   <h3 className="subhead ws__step-title">{step.label}</h3>
                   <p className="ws__step-body">{step.body}</p>
                   <div className="ws__inline">
-                    <WorkspacePreview stepIndex={idx} />
+                    <div className="shot shot--bare">
+                      <div className="shot__body" style={{ aspectRatio: '16 / 10' }}>
+                        <img src={step.image} alt={step.label} loading="lazy" decoding="async" />
+                      </div>
+                    </div>
                   </div>
                 </li>
               ))}
             </ol>
 
             <div className="ws__sticky" aria-hidden="true">
-              <WorkspacePreview stepIndex={activeWsStep} />
+              <div className="shot shot--bare ws__stage">
+                <div className="shot__body" style={{ aspectRatio: '16 / 10' }}>
+                  {WORKSPACE_STEPS.map((step, idx) => (
+                    <img
+                      key={step.id}
+                      src={step.image}
+                      alt=""
+                      data-active={activeWsStep === idx ? 'true' : undefined}
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  ))}
+                </div>
+              </div>
               <div className="ws__progress">
                 {WORKSPACE_STEPS.map((step, idx) => (
                   <span key={step.id} data-active={activeWsStep === idx ? 'true' : undefined} />

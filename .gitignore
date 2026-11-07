@@ -30,7 +30,9 @@ Thumbs.db
 *.mjs
 *.png
 !ui/public/*.png
+!ui/public/**/*.png
 !ui/dist/*.png
+!ui/dist/**/*.png
 !screenshots/*.png
 .edge_*
 .temp_chrome_profile/
