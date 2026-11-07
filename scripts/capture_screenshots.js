@@ -193,6 +193,16 @@ async function run() {
 
     await wait(2000);
 
+    // 1. Navigate to Overview Dashboard
+    console.log('[Script] Navigating to Overview tab');
+    await send('Runtime.evaluate', {
+      expression: `
+        const ovBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().startsWith('Overview'));
+        if (ovBtn) ovBtn.click();
+      `,
+    });
+    await wait(1000);
+
     // 1. Dashboard Screenshot
     console.log('[Script] Capturing 01_dashboard.png');
     const snap1 = await send('Page.captureScreenshot', { format: 'png' });
@@ -249,6 +259,20 @@ async function run() {
     console.log('[Script] Capturing 04_endpoints_view.png');
     const snap4 = await send('Page.captureScreenshot', { format: 'png' });
     fs.writeFileSync(path.join(SCREENSHOTS_DIR, '04_endpoints_view.png'), Buffer.from(snap4.data, 'base64'));
+
+    // 5. Navigate to Dead-Letter Queue (DLQ) view
+    console.log('[Script] Navigating to Dead-Letter Queue view');
+    await send('Runtime.evaluate', {
+      expression: `
+        const dlqBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('Dead-letter') || b.textContent.includes('DLQ'));
+        if (dlqBtn) dlqBtn.click();
+      `,
+    });
+    await wait(1000);
+
+    console.log('[Script] Capturing 05_dlq_view.png');
+    const snap5 = await send('Page.captureScreenshot', { format: 'png' });
+    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '05_dlq_view.png'), Buffer.from(snap5.data, 'base64'));
 
     ws.close();
     browserProc.kill();

@@ -768,14 +768,9 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
       {/* 1. Page Heading + Class Filter Pills (Navattic / Stripe Pattern) */}
       <div className="pb-4 shrink-0 flex flex-wrap items-start justify-between gap-3">
         <div className="shrink-0">
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-xl font-semibold text-zinc-950 tracking-tight whitespace-nowrap text-balance">
-              Dead-Letter Queue (DLQ)
-            </h1>
-            <span className="text-xs font-mono font-medium px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200/80 rounded-md shrink-0 tabular-nums">
-              {mergedFailed.length} event gagal
-            </span>
-          </div>
+          <h1 className="text-xl font-semibold text-zinc-950 tracking-tight whitespace-nowrap text-balance">
+            Dead-Letter Queue (DLQ)
+          </h1>
           <p
             className={`text-xs text-zinc-500 mt-0.5 text-pretty ${
               selectedEventId ? 'hidden xl:block' : 'block'

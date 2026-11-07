@@ -1900,6 +1900,27 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     checkEmDash(srcDir);
   });
 
+  await suite.test('Visual hygiene & Anti-slop: clean DLQ header without red badge, elegant LayoutDashboard icon for Overview', () => {
+    const srcDir = path.join(__dirname, '../src');
+    const dlqSource = fs.readFileSync(path.join(srcDir, 'components', 'DeadLetterView.tsx'), 'utf8');
+    const sidebarSource = fs.readFileSync(path.join(srcDir, 'components', 'Sidebar.tsx'), 'utf8');
+    const appSource = fs.readFileSync(path.join(srcDir, 'App.tsx'), 'utf8');
+
+    // 1. DLQ header has clean <h1> without red failure badge
+    assert.doesNotMatch(
+      dlqSource,
+      /<span[^>]*bg-rose-50[^>]*>[\s\S]*?event gagal[\s\S]*?<\/span>/,
+      'DeadLetterView must not have red failure badge next to heading'
+    );
+
+    // 2. Overview icon is LayoutDashboard, NOT Activity (hospital heartbeat)
+    assert.match(sidebarSource, /LayoutDashboard/, 'Sidebar must import and use LayoutDashboard');
+    assert.doesNotMatch(sidebarSource, /\bActivity\b/, 'Sidebar must NOT use hospital heartbeat Activity icon');
+
+    assert.match(appSource, /LayoutDashboard/, 'App must import and use LayoutDashboard');
+    assert.doesNotMatch(appSource, /\bActivity\b/, 'App must NOT use hospital heartbeat Activity icon');
+  });
+
   // Cleanup temp files
   try {
     fs.rmSync(outDir, { recursive: true, force: true, maxRetries: 0 });

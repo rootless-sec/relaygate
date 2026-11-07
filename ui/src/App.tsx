@@ -6,7 +6,7 @@ import {
   AlertOctagon,
   ChevronDown,
   Layers,
-  Activity,
+  LayoutDashboard,
   Webhook,
 } from 'lucide-react';
 import { LoginPage } from './components/LoginPage';
@@ -421,7 +421,7 @@ export const App: React.FC = () => {
     overview: {
       group: 'Workspace',
       title: 'Overview Sistem',
-      icon: <Activity className="w-3.5 h-3.5 text-zinc-500" />,
+      icon: <LayoutDashboard className="w-3.5 h-3.5 text-zinc-500" />,
     },
     events: {
       group: 'Monitor',

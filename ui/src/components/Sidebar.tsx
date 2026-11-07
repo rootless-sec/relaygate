@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  Activity,
+  LayoutDashboard,
   Layers,
   AlertOctagon,
   Webhook,
@@ -45,7 +45,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     {
       id: 'overview',
       label: 'Overview',
-      icon: <Activity className="w-3.5 h-3.5" />,
+      icon: <LayoutDashboard className="w-3.5 h-3.5" />,
     },
   ];
 
