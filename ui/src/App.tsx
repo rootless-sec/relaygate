@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   RotateCw,
-  Shield,
-  Search,
   Pause,
   Play,
   AlertOctagon,
+  ChevronDown,
+  Layers,
+  Activity,
+  Webhook,
 } from 'lucide-react';
 import { LoginPage } from './components/LoginPage';
 import { Sidebar } from './components/Sidebar';
@@ -413,16 +415,37 @@ export const App: React.FC = () => {
       : 0;
   const totalEventsCount = stats ? stats.total_events : events.length;
 
-  const routeLabel: Record<NavTab, string> = {
-    overview: 'relaygate.internal/workspace/overview',
-    events: 'relaygate.internal/workspace/events',
-    dead: 'relaygate.internal/workspace/dead-letter-queue',
-    endpoints: 'relaygate.internal/workspace/endpoints',
+  const breadcrumbMeta: Record<
+    NavTab,
+    { group: string; title: string; icon: React.ReactNode }
+  > = {
+    overview: {
+      group: 'Workspace',
+      title: 'Overview Sistem',
+      icon: <Activity className="w-3.5 h-3.5 text-zinc-500" />,
+    },
+    events: {
+      group: 'Monitor',
+      title: 'Semua Webhook Event',
+      icon: <Layers className="w-3.5 h-3.5 text-zinc-500" />,
+    },
+    dead: {
+      group: 'Monitor',
+      title: 'Dead-Letter Queue',
+      icon: <AlertOctagon className="w-3.5 h-3.5 text-rose-600" />,
+    },
+    endpoints: {
+      group: 'Manage',
+      title: 'Rute Endpoint',
+      icon: <Webhook className="w-3.5 h-3.5 text-zinc-500" />,
+    },
   };
 
+  const activeBreadcrumb = breadcrumbMeta[currentTab];
+
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-gradient-to-b from-sky-100/45 via-zinc-100/85 to-zinc-100 text-zinc-950 antialiased md:p-1.5 md:gap-1.5">
-      {/* Left Sidebar in Aside Outer Frame */}
+    <div className="flex h-screen w-screen overflow-hidden bg-white text-zinc-900 antialiased">
+      {/* Left Dual-Rail Navigation (Navattic Reference Architecture) */}
       <Sidebar
         currentTab={currentTab}
         onTabChange={handleTabChange}
@@ -432,66 +455,60 @@ export const App: React.FC = () => {
         onLogout={handleLogout}
         endpoints={endpoints}
         isLive={isLive}
+        onToggleLive={() => setIsLive(!isLive)}
+        onFocusSearch={() => {
+          handleTabChange('events');
+          setTimeout(() => searchInputRef.current?.focus(), 60);
+        }}
       />
 
-      {/* Right Inset Floating Content Canvas (Aside Window Frame) */}
-      <main className="flex-1 flex flex-col min-w-0 min-h-0 relative overflow-hidden bg-white md:rounded-[16px] shadow-xs ring-1 ring-zinc-950/[0.08]">
-        {/* Top 42px Aside Browser / Command Toolbar */}
-        <header className="h-[42px] border-b border-zinc-200/75 flex items-center justify-between px-3 gap-2 shrink-0 bg-white/95 backdrop-blur-xs select-none">
-          <div className="flex items-center gap-1 shrink-0">
-            <button
-              type="button"
-              onClick={loadInitialData}
-              className="size-7 rounded-lg flex items-center justify-center text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 active:scale-[0.96] transition-all duration-150 cursor-pointer"
-              title="Segarkan Data"
-              aria-label="Segarkan data"
-            >
-              <RotateCw className="w-3.5 h-3.5" />
-            </button>
+      {/* Main Content Canvas */}
+      <main className="flex-1 flex flex-col min-w-0 min-h-0 relative overflow-hidden bg-white">
+        {/* Top 48px Breadcrumb Header Bar (Navattic Pattern: "Section / [Active View v]") */}
+        <header className="h-12 border-b border-zinc-200/80 flex items-center justify-between px-7 gap-3 shrink-0 bg-white select-none">
+          <div className="flex items-center gap-2.5 min-w-0 text-xs">
+            <span className="text-zinc-500 font-medium">{activeBreadcrumb.group}</span>
+            <span className="text-zinc-300">/</span>
+
+            {/* Navattic View Selector Pill */}
+            <div className="relative inline-flex items-center">
+              <div className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-zinc-200/90 bg-white text-xs font-medium text-zinc-800 shadow-2xs">
+                {activeBreadcrumb.icon}
+                <span>{activeBreadcrumb.title}</span>
+                <ChevronDown className="w-3 h-3 text-zinc-400 ml-0.5" />
+              </div>
+              <select
+                aria-label="Pilih tampilan workspace"
+                value={currentTab}
+                onChange={(e) => handleTabChange(e.target.value as NavTab)}
+                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              >
+                <option value="overview">Overview Sistem</option>
+                <option value="events">Semua Webhook Event</option>
+                <option value="dead">Dead-Letter Queue (DLQ)</option>
+                <option value="endpoints">Rute Endpoint</option>
+              </select>
+            </div>
           </div>
 
-          {/* Center Unified Aside Omnibox Pill */}
-          <button
-            type="button"
-            onClick={() => {
-              handleTabChange('events');
-              setTimeout(() => searchInputRef.current?.focus(), 60);
-            }}
-            className="flex-1 max-w-xl mx-auto h-7 rounded-lg bg-zinc-100/80 hover:bg-zinc-200/60 ring-1 ring-inset ring-zinc-950/[0.05] px-2.5 flex items-center justify-between text-xs text-zinc-500 transition-colors cursor-pointer group"
-            title="Cari event atau filter (tekan /)"
-          >
-            <div className="flex items-center gap-1.5 min-w-0">
-              <Shield className="w-3 h-3 text-zinc-400 shrink-0" />
-              <span className="font-mono text-[11px] text-zinc-600 truncate">
-                {routeLabel[currentTab]}
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5 shrink-0">
-              <Search className="w-3 h-3 text-zinc-400 group-hover:text-zinc-700 transition-colors" />
-              <kbd className="px-1.5 py-0.2 text-[10px] font-mono bg-white rounded shadow-2xs ring-1 ring-zinc-950/[0.06] text-zinc-500">
-                /
-              </kbd>
-            </div>
-          </button>
-
-          {/* Right Toolbar Controls */}
-          <div className="flex items-center gap-1.5 shrink-0">
+          {/* Right Utility Controls */}
+          <div className="flex items-center gap-2 shrink-0">
             {failedEventsCount > 0 && currentTab !== 'dead' && (
               <button
                 type="button"
                 onClick={() => handleTabChange('dead')}
-                className="flex items-center gap-1.5 h-7 px-2.5 rounded-lg bg-rose-50 hover:bg-rose-100/80 text-rose-700 ring-1 ring-rose-200/80 text-[11px] font-semibold tabular-nums active:scale-[0.97] transition-all duration-150 cursor-pointer"
+                className="flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-rose-50 hover:bg-rose-100/80 text-rose-700 border border-rose-200/80 text-xs font-medium tabular-nums transition-colors cursor-pointer"
                 title="Buka Dead-Letter Queue"
               >
-                <AlertOctagon className="w-3 h-3 text-rose-600" />
-                <span>{failedEventsCount} DLQ</span>
+                <AlertOctagon className="w-3.5 h-3.5 text-rose-600" />
+                <span>{failedEventsCount} gagal</span>
               </button>
             )}
 
             <button
               type="button"
               onClick={() => setIsLive(!isLive)}
-              className="flex items-center gap-1.5 h-7 px-2.5 rounded-lg bg-white hover:bg-zinc-100 text-zinc-700 ring-1 ring-zinc-950/[0.08] shadow-2xs text-[11px] font-medium active:scale-[0.97] transition-all duration-150 cursor-pointer"
+              className="flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200/90 shadow-2xs text-xs font-medium transition-colors cursor-pointer"
               title={isLive ? 'Jeda stream real-time' : 'Lanjutkan stream real-time'}
             >
               {isLive ? (
@@ -506,11 +523,21 @@ export const App: React.FC = () => {
                 </>
               )}
             </button>
+
+            <button
+              type="button"
+              onClick={loadInitialData}
+              className="size-7 rounded-md border border-zinc-200/90 bg-white hover:bg-zinc-50 flex items-center justify-center text-zinc-600 hover:text-zinc-900 shadow-2xs transition-colors cursor-pointer"
+              title="Segarkan Data"
+              aria-label="Segarkan data"
+            >
+              <RotateCw className="w-3.5 h-3.5" />
+            </button>
           </div>
         </header>
 
-        {/* Active View Content + Split Inspector */}
-        <div className="flex-1 flex flex-row min-w-0 min-h-0 relative overflow-hidden">
+        {/* Active View Content + Split Floating Inspector */}
+        <div className="flex-1 flex flex-row min-w-0 min-h-0 relative overflow-hidden bg-white">
           <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
             {currentTab === 'overview' && (
               <OverviewView
@@ -563,7 +590,7 @@ export const App: React.FC = () => {
             )}
           </div>
 
-          {/* Inspector Slide-over / Split Panel */}
+          {/* Floating Inspector Slide-over / Split Card (Navattic Pattern) */}
           {selectedEvent && (
             <InspectorDrawer
               event={selectedEvent}

@@ -1,30 +1,29 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { 
-  AlertOctagon, 
-  RotateCw, 
-  Check, 
-  Copy, 
-  Search, 
-  X, 
-  AlertTriangle, 
-  CheckCircle, 
-  ArrowDown, 
-  ArrowUp, 
-  Filter, 
-  Inbox
+import {
+  RotateCw,
+  Check,
+  Copy,
+  Search,
+  X,
+  AlertTriangle,
+  CheckCircle,
+  ArrowDown,
+  ArrowUp,
+  Inbox,
+  ListFilter,
+  Webhook,
 } from 'lucide-react';
 import { Endpoint, WebhookEvent } from '../types';
 import { fetchEvents } from '../api';
-import { 
-  formatRelativeTime, 
-  formatAbsoluteTime, 
+import {
+  formatRelativeTime,
+  formatAbsoluteTime,
   analyzeEventError,
   ErrorCodeType,
   FAILURE_CODE_LABELS,
-  formatFailureCodeLabel,
   FAILURE_FAMILY_KEYS,
   isFailureCodeInFamily,
-  formatAttemptsDisplay
+  formatAttemptsDisplay,
 } from '../utils/formatters';
 import { BulkReplayModal, BulkModalState } from './BulkReplayModal';
 
@@ -34,7 +33,10 @@ interface DeadLetterViewProps {
   selectedEventId: string | null;
   onSelectEvent: (event: WebhookEvent) => void;
   onReplaySingle: (event: WebhookEvent) => void;
-  onBulkReplay: (targetIds: string[], allFailed: boolean) => Promise<{ replayed_count: number; skipped_count?: number } | void> | void;
+  onBulkReplay: (
+    targetIds: string[],
+    allFailed: boolean
+  ) => Promise<{ replayed_count: number; skipped_count?: number } | void> | void;
   onNavigateToEndpoint?: (endpointId: string) => void;
   onToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
   isLoading?: boolean;
@@ -77,10 +79,14 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
     initialParams.get('dlq_provider') || initialParams.get('provider') || ''
   );
   const [errorCodeFilter, setErrorCodeFilter] = useState<ErrorCodeType | ''>(
-    ((initialParams.get('dlq_error') || initialParams.get('failure') || initialParams.get('penyebab')) as ErrorCodeType) || ''
+    ((initialParams.get('dlq_error') ||
+      initialParams.get('failure') ||
+      initialParams.get('penyebab')) as ErrorCodeType) || ''
   );
   const [dateRangeFilter, setDateRangeFilter] = useState<DateRangePreset>(
-    ((initialParams.get('dlq_range') || initialParams.get('range') || initialParams.get('waktu')) as DateRangePreset) || 'all'
+    ((initialParams.get('dlq_range') ||
+      initialParams.get('range') ||
+      initialParams.get('waktu')) as DateRangePreset) || 'all'
   );
   const [sortDirection, setSortDirection] = useState<SortDirection>(
     ((initialParams.get('dlq_sort') || initialParams.get('sort')) as SortDirection) || 'desc'
@@ -196,13 +202,25 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
       const newUrl = `${window.location.pathname}?${params.toString()}`;
       window.history.replaceState({}, '', newUrl);
     } catch {}
-  }, [classFilter, searchQuery, endpointFilter, providerFilter, errorCodeFilter, dateRangeFilter, sortDirection]);
+  }, [
+    classFilter,
+    searchQuery,
+    endpointFilter,
+    providerFilter,
+    errorCodeFilter,
+    dateRangeFilter,
+    sortDirection,
+  ]);
 
   // 3. Merge server and live failed events
   const allFailedMap = new Map<string, WebhookEvent>();
   serverFailed.forEach((e) => allFailedMap.set(e.id, e));
-  events.filter((e) => e.status === 'FAILED').forEach((e) => allFailedMap.set(e.id, e));
-  events.filter((e) => e.status !== 'FAILED').forEach((e) => allFailedMap.delete(e.id));
+  events
+    .filter((e) => e.status === 'FAILED')
+    .forEach((e) => allFailedMap.set(e.id, e));
+  events
+    .filter((e) => e.status !== 'FAILED')
+    .forEach((e) => allFailedMap.delete(e.id));
   const mergedFailed = Array.from(allFailedMap.values());
 
   // Count by classes
@@ -243,7 +261,15 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
         if (providerFilter && ev.provider !== providerFilter) return false;
 
         // Error code filter (family-based)
-        if (errorCodeFilter && !isFailureCodeInFamily(analysis.code || ev.failure_code, errorCodeFilter, ev.http_status_code)) return false;
+        if (
+          errorCodeFilter &&
+          !isFailureCodeInFamily(
+            analysis.code || ev.failure_code,
+            errorCodeFilter,
+            ev.http_status_code
+          )
+        )
+          return false;
 
         // Date range filter
         if (dateRangeFilter !== 'all') {
@@ -351,7 +377,8 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
 
       if (e.key === 'ArrowDown' || e.key === 'j') {
         e.preventDefault();
-        const nextIndex = currentIndex < 0 ? 0 : Math.min(currentIndex + 1, filteredEvents.length - 1);
+        const nextIndex =
+          currentIndex < 0 ? 0 : Math.min(currentIndex + 1, filteredEvents.length - 1);
         const target = filteredEvents[nextIndex];
         if (target) {
           lastFocusedRowIdRef.current = target.id;
@@ -423,7 +450,7 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
     const targetList = isAll
       ? filteredEvents
       : filteredEvents.filter((ev) => selectedIds.has(ev.id));
-    
+
     if (targetList.length === 0) return;
 
     const eligibleIds: string[] = [];
@@ -477,14 +504,15 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
 
         let inProgressCount = 0;
 
-        // Poll up to 25 times (~9.5s) to allow async worker processing to settle reliably
         for (let i = 0; i < 25; i++) {
           await new Promise((r) => setTimeout(r, 380));
           try {
             const res = await fetchEvents({ limit: 300 });
             const list = res.events || [];
             const tracked = list.filter((e) => targetIds.has(e.id));
-            const stillBusy = tracked.filter((e) => e.status === 'PENDING' || e.status === 'RETRYING');
+            const stillBusy = tracked.filter(
+              (e) => e.status === 'PENDING' || e.status === 'RETRYING'
+            );
 
             if (tracked.length >= targetIds.size && stillBusy.length === 0) {
               allSettled = true;
@@ -507,18 +535,25 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
             const tracked = list.filter((e) => targetIds.has(e.id));
             finalDelivered = tracked.filter((e) => e.status === 'DELIVERED');
             finalFailed = tracked.filter((e) => e.status === 'FAILED');
-            inProgressCount = tracked.filter((e) => e.status === 'PENDING' || e.status === 'RETRYING').length;
+            inProgressCount = tracked.filter(
+              (e) => e.status === 'PENDING' || e.status === 'RETRYING'
+            ).length;
           } catch {}
         }
 
         // Group failed items: separate unverified vs delivery failed
-        const unverifiedEvents = finalFailed.filter((e) => e.is_verified === -1 || (e.failure_code || '').startsWith('SIGNATURE_'));
+        const unverifiedEvents = finalFailed.filter(
+          (e) => e.is_verified === -1 || (e.failure_code || '').startsWith('SIGNATURE_')
+        );
         const deliveryFailedEvents = finalFailed.filter((e) => !unverifiedEvents.includes(e));
 
         const unverifiedBreakdownMap = new Map<string, number>();
         unverifiedEvents.forEach((ev) => {
           const a = analyzeEventError(ev);
-          unverifiedBreakdownMap.set(a.badgeLabel, (unverifiedBreakdownMap.get(a.badgeLabel) || 0) + 1);
+          unverifiedBreakdownMap.set(
+            a.badgeLabel,
+            (unverifiedBreakdownMap.get(a.badgeLabel) || 0) + 1
+          );
         });
         const unverifiedBreakdownParts: string[] = [];
         unverifiedBreakdownMap.forEach((count, label) => {
@@ -528,7 +563,10 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
         const deliveryFailedBreakdownMap = new Map<string, number>();
         deliveryFailedEvents.forEach((ev) => {
           const a = analyzeEventError(ev);
-          deliveryFailedBreakdownMap.set(a.badgeLabel, (deliveryFailedBreakdownMap.get(a.badgeLabel) || 0) + 1);
+          deliveryFailedBreakdownMap.set(
+            a.badgeLabel,
+            (deliveryFailedBreakdownMap.get(a.badgeLabel) || 0) + 1
+          );
         });
         const deliveryFailedBreakdownParts: string[] = [];
         deliveryFailedBreakdownMap.forEach((count, label) => {
@@ -542,7 +580,10 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
         // Group skipped items by cause badge
         const skippedBreakdownMap = new Map<string, number>();
         bulkModal.ineligibleItems.forEach((item) => {
-          skippedBreakdownMap.set(item.badgeLabel, (skippedBreakdownMap.get(item.badgeLabel) || 0) + 1);
+          skippedBreakdownMap.set(
+            item.badgeLabel,
+            (skippedBreakdownMap.get(item.badgeLabel) || 0) + 1
+          );
         });
         const skippedBreakdownParts: string[] = [];
         skippedBreakdownMap.forEach((count, label) => {
@@ -557,31 +598,56 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
 
         let followUpAdvice = '';
         if (M > 0) {
-          const allKeys = [...Array.from(unverifiedBreakdownMap.keys()), ...Array.from(deliveryFailedBreakdownMap.keys())].map((k) => k.toLowerCase());
-          if (allKeys.some((k) => k.includes('signature') || k.includes('mismatch') || k.includes('tidak cocok'))) {
-            followUpAdvice = 'Tindak lanjut: Periksa kembali secret key di menu Endpoints dan dashboard provider sebelum mencoba kembali.';
+          const allKeys = [
+            ...Array.from(unverifiedBreakdownMap.keys()),
+            ...Array.from(deliveryFailedBreakdownMap.keys()),
+          ].map((k) => k.toLowerCase());
+          if (
+            allKeys.some(
+              (k) => k.includes('signature') || k.includes('mismatch') || k.includes('tidak cocok')
+            )
+          ) {
+            followUpAdvice =
+              'Tindak lanjut: Periksa kembali secret key di menu Endpoints dan dashboard provider sebelum mencoba kembali.';
           } else if (allKeys.some((k) => k.includes('504') || k.includes('timeout'))) {
-            followUpAdvice = 'Tindak lanjut: Periksa batas timeout reverse proxy dan daya tanggap downstream.';
-          } else if (allKeys.some((k) => k.includes('500') || k.includes('502') || k.includes('503') || k.includes('5xx'))) {
-            followUpAdvice = 'Tindak lanjut: Periksa error log downstream untuk memperbaiki kegagalan internal.';
+            followUpAdvice =
+              'Tindak lanjut: Periksa batas timeout reverse proxy dan daya tanggap downstream.';
+          } else if (
+            allKeys.some(
+              (k) => k.includes('500') || k.includes('502') || k.includes('503') || k.includes('5xx')
+            )
+          ) {
+            followUpAdvice =
+              'Tindak lanjut: Periksa error log downstream untuk memperbaiki kegagalan internal.';
           } else if (allKeys.some((k) => k.includes('4xx') || k.includes('400') || k.includes('404'))) {
-            followUpAdvice = 'Tindak lanjut: Periksa rute endpoint dan validasi request downstream.';
+            followUpAdvice =
+              'Tindak lanjut: Periksa rute endpoint dan validasi request downstream.';
           } else {
-            followUpAdvice = 'Tindak lanjut: Periksa konfigurasi endpoint dan log server target downstream.';
+            followUpAdvice =
+              'Tindak lanjut: Periksa konfigurasi endpoint dan log server target downstream.';
           }
         }
 
         const summaryParts: string[] = [`${N} lolos verifikasi`];
         if (unvCount > 0) {
-          summaryParts.push(`${unvCount} tetap gagal verifikasi${unverifiedBreakdownParts.length ? ' (' + unverifiedBreakdownParts.join(', ') + ')' : ''}`);
+          summaryParts.push(
+            `${unvCount} tetap gagal verifikasi${
+              unverifiedBreakdownParts.length ? ' (' + unverifiedBreakdownParts.join(', ') + ')' : ''
+            }`
+          );
         }
         if (delivCount > 0) {
-          summaryParts.push(`${delivCount} tetap gagal kirim${deliveryFailedBreakdownParts.length ? ' (' + deliveryFailedBreakdownParts.join(', ') + ')' : ''}`);
+          summaryParts.push(
+            `${delivCount} tetap gagal kirim${
+              deliveryFailedBreakdownParts.length
+                ? ' (' + deliveryFailedBreakdownParts.join(', ') + ')'
+                : ''
+            }`
+          );
         }
         summaryParts.push(`${K} dilewati`);
         const summaryText = summaryParts.join(', ');
 
-        // Suppress toast: modal already displays this exact result summary to the operator
         if (!bulkModal.open) {
           onToast?.(summaryText, N > 0 ? 'success' : 'info');
         }
@@ -595,9 +661,13 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
             unverifiedCount: unvCount,
             unverifiedBreakdown: unverifiedBreakdownParts.join(', ') || 'gagal verifikasi',
             deliveryFailedCount: delivCount,
-            deliveryFailedBreakdown: deliveryFailedBreakdownParts.join(', ') || 'gagal pengiriman',
+            deliveryFailedBreakdown:
+              deliveryFailedBreakdownParts.join(', ') || 'gagal pengiriman',
             failedCount: M,
-            failedBreakdown: deliveryFailedBreakdownParts.join(', ') || unverifiedBreakdownParts.join(', ') || 'gagal pengiriman',
+            failedBreakdown:
+              deliveryFailedBreakdownParts.join(', ') ||
+              unverifiedBreakdownParts.join(', ') ||
+              'gagal pengiriman',
             skippedCount: K,
             skippedBreakdown: skippedBreakdownParts.join(', ') || 'tidak eligible',
             followUpAdvice,
@@ -607,7 +677,10 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
       } else {
         const skippedBreakdownMap = new Map<string, number>();
         bulkModal.ineligibleItems.forEach((item) => {
-          skippedBreakdownMap.set(item.badgeLabel, (skippedBreakdownMap.get(item.badgeLabel) || 0) + 1);
+          skippedBreakdownMap.set(
+            item.badgeLabel,
+            (skippedBreakdownMap.get(item.badgeLabel) || 0) + 1
+          );
         });
         const skippedBreakdownParts: string[] = [];
         skippedBreakdownMap.forEach((count, label) => {
@@ -657,7 +730,8 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
           failedBreakdown: err?.message || 'kegagalan sistem',
           skippedCount: K,
           skippedBreakdown: 'dikecualikan otomatis',
-          followUpAdvice: 'Tindak lanjut: Terjadi kesalahan saat memproses replay massal. Silakan periksa koneksi dan coba beberapa saat lagi.',
+          followUpAdvice:
+            'Tindak lanjut: Terjadi kesalahan saat memproses replay massal. Silakan periksa koneksi dan coba beberapa saat lagi.',
         },
       }));
     }
@@ -674,49 +748,52 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
 
   const hasActiveFilters = Boolean(
     classFilter !== 'all' ||
-    searchQuery ||
-    endpointFilter ||
-    providerFilter ||
-    errorCodeFilter ||
-    dateRangeFilter !== 'all'
+      searchQuery ||
+      endpointFilter ||
+      providerFilter ||
+      errorCodeFilter ||
+      dateRangeFilter !== 'all'
   );
 
-  const hasActiveFilterChips = Boolean(
-    searchQuery ||
-    endpointFilter ||
-    providerFilter ||
-    errorCodeFilter ||
-    dateRangeFilter !== 'all'
-  );
+  const activeFilterCount =
+    (classFilter !== 'all' ? 1 : 0) +
+    (searchQuery ? 1 : 0) +
+    (endpointFilter ? 1 : 0) +
+    (providerFilter ? 1 : 0) +
+    (errorCodeFilter ? 1 : 0) +
+    (dateRangeFilter !== 'all' ? 1 : 0);
 
   return (
-    <div className="flex-1 overflow-hidden p-4 flex flex-col bg-zinc-50/50">
-      {/* 1. Header & Accurate Page Description */}
-      <div className="mb-3 shrink-0 flex flex-wrap items-center justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 min-w-0">
-            <AlertOctagon className="w-4 h-4 text-rose-600 shrink-0" />
-            <h1 className="text-base font-semibold text-zinc-950 tracking-tight whitespace-nowrap truncate">
+    <div className="flex-1 overflow-hidden px-7 py-5 flex flex-col bg-white">
+      {/* 1. Page Heading + Class Filter Pills (Navattic / Stripe Pattern) */}
+      <div className="pb-4 shrink-0 flex flex-wrap items-start justify-between gap-3">
+        <div className="shrink-0">
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-xl font-semibold text-zinc-950 tracking-tight whitespace-nowrap">
               Dead-Letter Queue (DLQ)
             </h1>
-            <span className="ml-1 text-[11px] font-mono font-semibold px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200/80 rounded-full shrink-0 tabular-nums">
+            <span className="text-xs font-mono font-medium px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200/80 rounded-md shrink-0 tabular-nums">
               {mergedFailed.length} event gagal
             </span>
           </div>
-          <p className={`text-xs text-zinc-500 mt-1 leading-relaxed ${selectedEventId ? 'hidden xl:block xl:line-clamp-2' : 'line-clamp-2'}`}>
-            Daftar webhook yang memerlukan tindakan: event yang ditolak di verifikasi awal (0 percobaan) dan event yang gagal terkirim setelah kuota percobaan habis.
+          <p
+            className={`text-xs text-zinc-500 mt-0.5 ${
+              selectedEventId ? 'hidden xl:block' : 'block'
+            }`}
+          >
+            Event yang ditolak saat verifikasi awal (0 percobaan) atau gagal terkirim setelah kuota habis.
           </p>
         </div>
 
-        {/* 2. Aside Segmented Class Filter Tabs */}
-        <div className="inline-flex items-center gap-1 p-1 bg-zinc-900/[0.05] ring-1 ring-inset ring-zinc-950/[0.04] rounded-xl shrink-0 overflow-x-auto whitespace-nowrap">
+        {/* Stripe / Navattic Bordered Segment Filter Pills */}
+        <div className="flex items-center gap-1.5 shrink-0">
           <button
             type="button"
             onClick={() => setClassFilter('all')}
-            className={`px-2.5 py-1 text-xs rounded-lg transition-all duration-150 cursor-pointer tabular-nums ${
+            className={`h-8 px-3 text-xs rounded-md transition-colors cursor-pointer tabular-nums ${
               classFilter === 'all'
-                ? 'bg-white text-zinc-950 font-medium shadow-xs ring-1 ring-zinc-950/[0.08]'
-                : 'text-zinc-600 hover:text-zinc-950 font-normal'
+                ? 'bg-white text-zinc-950 font-semibold border-2 border-zinc-900 shadow-2xs'
+                : 'bg-white text-zinc-600 hover:text-zinc-950 border border-zinc-200/90 font-medium'
             }`}
           >
             Semua ({mergedFailed.length})
@@ -724,10 +801,10 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
           <button
             type="button"
             onClick={() => setClassFilter('rejected')}
-            className={`px-2.5 py-1 text-xs rounded-lg transition-all duration-150 cursor-pointer tabular-nums ${
+            className={`h-8 px-3 text-xs rounded-md transition-colors cursor-pointer tabular-nums ${
               classFilter === 'rejected'
-                ? 'bg-white text-zinc-950 font-medium shadow-xs ring-1 ring-zinc-950/[0.08]'
-                : 'text-zinc-600 hover:text-zinc-950 font-normal'
+                ? 'bg-white text-zinc-950 font-semibold border-2 border-zinc-900 shadow-2xs'
+                : 'bg-white text-zinc-600 hover:text-zinc-950 border border-zinc-200/90 font-medium'
             }`}
           >
             Ditolak saat verifikasi ({rejectedCount})
@@ -735,10 +812,10 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
           <button
             type="button"
             onClick={() => setClassFilter('delivery_failed')}
-            className={`px-2.5 py-1 text-xs rounded-lg transition-all duration-150 cursor-pointer tabular-nums ${
+            className={`h-8 px-3 text-xs rounded-md transition-colors cursor-pointer tabular-nums ${
               classFilter === 'delivery_failed'
-                ? 'bg-white text-zinc-950 font-medium shadow-xs ring-1 ring-zinc-950/[0.08]'
-                : 'text-zinc-600 hover:text-zinc-950 font-normal'
+                ? 'bg-white text-zinc-950 font-semibold border-2 border-zinc-900 shadow-2xs'
+                : 'bg-white text-zinc-600 hover:text-zinc-950 border border-zinc-200/90 font-medium'
             }`}
           >
             Pengiriman gagal ({deliveryFailedCount})
@@ -746,94 +823,47 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
         </div>
       </div>
 
-      {/* 3. Filter and Control Bar */}
-      <div className="mb-3 bg-white p-3 ring-1 ring-zinc-950/[0.08] rounded-xl shadow-2xs space-y-2.5 shrink-0">
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Search by ID / Error / Payload */}
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Cari Event ID, endpoint, atau penyebab..."
-              className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-zinc-200 rounded-md text-zinc-900 placeholder:text-zinc-500 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors"
-              aria-label="Cari event DLQ"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-zinc-500 hover:text-zinc-900"
-                aria-label="Hapus kata kunci pencarian"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
+      {/* 2. Navattic 2-Row Search & Filter Well */}
+      <div className="space-y-2.5 pb-3.5 shrink-0">
+        {/* Row 1: Search Input + Filter Count Badge + Primary Replay Button */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 flex-1 min-w-[240px]">
+            <div className="relative w-64 max-w-full">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Cari Event ID, endpoint..."
+                className="w-full h-8 pl-8 pr-7 text-xs bg-white border border-zinc-200/90 rounded-md text-zinc-900 placeholder:text-zinc-400 shadow-2xs focus:outline-none focus:border-zinc-900 transition-colors"
+                aria-label="Cari event DLQ"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-zinc-400 hover:text-zinc-900"
+                  aria-label="Hapus kata kunci pencarian"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
+            <div className="inline-flex items-center gap-1.5 h-8 px-2.5 bg-white border border-zinc-200/90 rounded-md text-xs font-medium text-zinc-700 shadow-2xs select-none">
+              <ListFilter className="w-3.5 h-3.5 text-zinc-500" />
+              <span>Filter</span>
+              <span className="px-1.5 py-0.2 rounded bg-zinc-100 text-zinc-700 font-mono text-[11px] tabular-nums">
+                {activeFilterCount}
+              </span>
+            </div>
           </div>
 
-          {/* Endpoint Filter */}
-          <select
-            value={endpointFilter}
-            onChange={(e) => setEndpointFilter(e.target.value)}
-            className="px-2.5 py-1.5 text-xs bg-white border border-zinc-200 rounded-md text-zinc-900 font-medium focus:outline-none focus:border-zinc-900"
-            aria-label="Filter berdasarkan endpoint"
-          >
-            <option value="">Semua Endpoint</option>
-            {endpoints.map((ep) => (
-              <option key={ep.id} value={ep.id}>
-                {ep.name} ({ep.id})
-              </option>
-            ))}
-          </select>
-
-          {/* Provider Filter */}
-          <select
-            value={providerFilter}
-            onChange={(e) => setProviderFilter(e.target.value)}
-            className="px-2.5 py-1.5 text-xs bg-white border border-zinc-200 rounded-md text-zinc-900 font-medium focus:outline-none focus:border-zinc-900"
-            aria-label="Filter berdasarkan provider"
-          >
-            <option value="">Semua Provider</option>
-            <option value="stripe">Stripe</option>
-            <option value="xendit">Xendit</option>
-            <option value="midtrans">Midtrans</option>
-            <option value="github">GitHub</option>
-            <option value="generic">Generic</option>
-          </select>
-
-          {/* Error Code Filter */}
-          <select
-            value={errorCodeFilter}
-            onChange={(e) => setErrorCodeFilter(e.target.value as ErrorCodeType | '')}
-            className="px-2.5 py-1.5 text-xs bg-white border border-zinc-200 rounded-md text-zinc-900 font-medium focus:outline-none focus:border-zinc-900"
-            aria-label="Filter berdasarkan jenis error"
-          >
-            <option value="">Semua Penyebab</option>
-            {FAILURE_FAMILY_KEYS.map((code) => (
-              <option key={code} value={code}>{FAILURE_CODE_LABELS[code]}</option>
-            ))}
-          </select>
-
-          {/* Date Range Preset */}
-          <select
-            value={dateRangeFilter}
-            onChange={(e) => setDateRangeFilter(e.target.value as DateRangePreset)}
-            className="px-2.5 py-1.5 text-xs bg-white border border-zinc-200 rounded-md text-zinc-900 font-medium focus:outline-none focus:border-zinc-900"
-            aria-label="Filter rentang waktu"
-          >
-            <option value="all">Semua Waktu</option>
-            <option value="1h">1 Jam Terakhir</option>
-            <option value="24h">24 Jam Terakhir</option>
-            <option value="7d">7 Hari Terakhir</option>
-          </select>
-
-          {/* Replay Eligible Button */}
           <button
             type="button"
             onClick={() => handleOpenBulkConfirm(true)}
             disabled={eligibleFilteredCount === 0}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold shadow-2xs ml-auto shrink-0 ${
+            className={`flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-semibold shadow-2xs shrink-0 transition-colors ${
               eligibleFilteredCount > 0
                 ? 'bg-zinc-900 hover:bg-zinc-800 text-white cursor-pointer'
                 : 'bg-zinc-100 text-zinc-600 border border-zinc-200 cursor-not-allowed'
@@ -847,164 +877,176 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
           </button>
         </div>
 
-        {/* Active Filter Chips Bar */}
-        {hasActiveFilterChips && (
-          <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-zinc-100 text-xs">
-            <span className="text-[11px] font-semibold text-zinc-500 flex items-center gap-1 mr-1">
-              <Filter className="w-3 h-3 text-zinc-500" />
-              Filter Aktif:
-            </span>
+        {/* Row 2: Navattic Recessed Gray Filter Well */}
+        <div className="bg-zinc-50/90 border border-zinc-200/70 rounded-lg px-3 py-2 flex flex-wrap items-center gap-2">
+          {/* Endpoint Filter Pill */}
+          <div className="inline-flex items-center gap-1.5 h-7 px-2.5 bg-white border border-zinc-200/90 rounded-md text-xs shadow-2xs">
+            <span className="text-zinc-500">Endpoint:</span>
+            <select
+              value={endpointFilter}
+              onChange={(e) => setEndpointFilter(e.target.value)}
+              className="bg-transparent text-xs font-medium text-zinc-900 focus:outline-none cursor-pointer"
+              aria-label="Filter berdasarkan endpoint"
+            >
+              <option value="">Semua Endpoint</option>
+              {endpoints.map((ep) => (
+                <option key={ep.id} value={ep.id}>
+                  {ep.name} ({ep.id})
+                </option>
+              ))}
+            </select>
+          </div>
 
-            {searchQuery && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-100 border border-zinc-200 text-zinc-900 text-[11px]">
-                <span>Cari: &ldquo;{searchQuery}&rdquo;</span>
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="hover:text-rose-600 p-0.5"
-                  aria-label="Hapus filter pencarian"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            )}
+          {/* Provider Filter Pill */}
+          <div className="inline-flex items-center gap-1.5 h-7 px-2.5 bg-white border border-zinc-200/90 rounded-md text-xs shadow-2xs">
+            <span className="text-zinc-500">Provider:</span>
+            <select
+              value={providerFilter}
+              onChange={(e) => setProviderFilter(e.target.value)}
+              className="bg-transparent text-xs font-medium text-zinc-900 focus:outline-none cursor-pointer"
+              aria-label="Filter berdasarkan provider"
+            >
+              <option value="">Semua Provider</option>
+              <option value="stripe">Stripe</option>
+              <option value="xendit">Xendit</option>
+              <option value="midtrans">Midtrans</option>
+              <option value="github">GitHub</option>
+              <option value="generic">Generic</option>
+            </select>
+          </div>
 
-            {endpointFilter && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-100 border border-zinc-200 text-zinc-900 text-[11px]">
-                <span>Endpoint: {endpoints.find((ep) => ep.id === endpointFilter)?.name || endpointFilter}</span>
-                <button
-                  type="button"
-                  onClick={() => setEndpointFilter('')}
-                  className="hover:text-rose-600 p-0.5"
-                  aria-label="Hapus filter endpoint"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            )}
+          {/* Error Code Filter Pill */}
+          <div className="inline-flex items-center gap-1.5 h-7 px-2.5 bg-white border border-zinc-200/90 rounded-md text-xs shadow-2xs">
+            <span className="text-zinc-500">Penyebab:</span>
+            <select
+              value={errorCodeFilter}
+              onChange={(e) => setErrorCodeFilter(e.target.value as ErrorCodeType | '')}
+              className="bg-transparent text-xs font-medium text-zinc-900 focus:outline-none cursor-pointer"
+              aria-label="Filter berdasarkan jenis error"
+            >
+              <option value="">Semua Penyebab</option>
+              {FAILURE_FAMILY_KEYS.map((code) => (
+                <option key={code} value={code}>
+                  {FAILURE_CODE_LABELS[code]}
+                </option>
+              ))}
+            </select>
+          </div>
 
-            {providerFilter && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-100 border border-zinc-200 text-zinc-900 text-[11px] uppercase">
-                <span>Provider: {providerFilter}</span>
-                <button
-                  type="button"
-                  onClick={() => setProviderFilter('')}
-                  className="hover:text-rose-600 p-0.5"
-                  aria-label="Hapus filter provider"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            )}
+          {/* Date Range Filter Pill */}
+          <div className="inline-flex items-center gap-1.5 h-7 px-2.5 bg-white border border-zinc-200/90 rounded-md text-xs shadow-2xs">
+            <span className="text-zinc-500">Waktu:</span>
+            <select
+              value={dateRangeFilter}
+              onChange={(e) => setDateRangeFilter(e.target.value as DateRangePreset)}
+              className="bg-transparent text-xs font-medium text-zinc-900 focus:outline-none cursor-pointer"
+              aria-label="Filter rentang waktu"
+            >
+              <option value="all">Semua Waktu</option>
+              <option value="1h">1 Jam Terakhir</option>
+              <option value="24h">24 Jam Terakhir</option>
+              <option value="7d">7 Hari Terakhir</option>
+            </select>
+          </div>
 
-            {errorCodeFilter && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-100 border border-zinc-200 text-zinc-900 text-[11px]">
-                <span>Penyebab: {formatFailureCodeLabel(errorCodeFilter)}</span>
-                <button
-                  type="button"
-                  onClick={() => setErrorCodeFilter('')}
-                  className="hover:text-rose-600 p-0.5"
-                  aria-label="Hapus filter penyebab"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            )}
-
-            {dateRangeFilter !== 'all' && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-100 border border-zinc-200 text-zinc-900 text-[11px]">
-                <span>Rentang: {dateRangeFilter}</span>
-                <button
-                  type="button"
-                  onClick={() => setDateRangeFilter('all')}
-                  className="hover:text-rose-600 p-0.5"
-                  aria-label="Hapus filter rentang waktu"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            )}
-
+          {/* Clear Action inside Well */}
+          {hasActiveFilters && (
             <button
               type="button"
               onClick={resetAllFilters}
-              className="text-[11px] font-semibold text-rose-700 hover:text-rose-900 underline underline-offset-2 ml-1"
+              className="inline-flex items-center gap-1 h-7 px-2 text-xs font-medium text-zinc-600 hover:text-zinc-950 transition-colors cursor-pointer"
             >
-              Reset Semua Filter
+              <X className="w-3.5 h-3.5" />
+              <span>Clear</span>
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
-      {/* 4. DLQ Table Container */}
-      <div className="flex-1 bg-white ring-1 ring-zinc-950/[0.08] rounded-xl overflow-auto shadow-2xs relative">
+      {/* 3. Navattic Bordered Grid Table */}
+      <div className="flex-1 border border-zinc-200/90 rounded-lg bg-white overflow-auto relative">
         <table className="w-full text-left text-xs border-collapse">
-          <thead className="sticky top-0 bg-zinc-50/95 backdrop-blur-xs border-b border-zinc-200/80 text-[11px] font-semibold text-zinc-500 select-none z-10">
-            <tr>
-              {/* Indeterminate Select All Checkbox */}
-              <th className="py-2.5 px-3 w-10 border-l-4 border-l-transparent">
+          <thead className="sticky top-0 bg-zinc-50/95 border-b border-zinc-200/90 text-xs font-medium text-zinc-600 select-none z-10">
+            <tr className="divide-x divide-zinc-200/60">
+              <th className="py-2.5 px-3 w-10 text-center">
                 <input
                   ref={selectAllCheckboxRef}
                   type="checkbox"
                   checked={isAllSelected}
                   onChange={toggleSelectAll}
-                  className="w-4 h-4 rounded border-zinc-200 text-zinc-900 focus:ring-zinc-900 cursor-pointer"
+                  className="w-4 h-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900 cursor-pointer"
                   aria-label="Pilih semua event"
                 />
               </th>
-              <th className="py-2.5 px-3 whitespace-nowrap">Event ID</th>
+              <th className="py-2.5 px-3.5 whitespace-nowrap">Event ID</th>
               {!selectedEventId && (
-                <th className="py-2.5 px-3 whitespace-nowrap">Endpoint Target</th>
+                <th className="py-2.5 px-3.5 whitespace-nowrap">Endpoint Target</th>
               )}
               {!selectedEventId && (
-                <th className="py-2.5 px-3 whitespace-nowrap">Provider</th>
+                <th className="py-2.5 px-3.5 whitespace-nowrap">Provider</th>
               )}
-              <th className="py-2.5 px-3 whitespace-nowrap">Penyebab Kesalahan</th>
+              <th className="py-2.5 px-3.5 whitespace-nowrap">Penyebab Kesalahan</th>
               {!selectedEventId && (
-                <th className="py-2.5 px-3 whitespace-nowrap">Percobaan</th>
+                <th className="py-2.5 px-3.5 whitespace-nowrap">Percobaan</th>
               )}
 
               {/* Sortable Column: Gagal Pada */}
               <th
                 onClick={() => setSortDirection((prev) => (prev === 'desc' ? 'asc' : 'desc'))}
-                className="py-2.5 px-3 cursor-pointer hover:bg-zinc-100 transition-colors whitespace-nowrap"
+                className="py-2.5 px-3.5 cursor-pointer hover:bg-zinc-100/80 transition-colors whitespace-nowrap"
                 title="Klik untuk mengurutkan waktu kegagalan"
               >
                 <div className="flex items-center gap-1.5">
                   <span>Gagal Pada</span>
                   {sortDirection === 'desc' ? (
-                    <ArrowDown className="w-3 h-3 text-zinc-900" />
+                    <ArrowDown className="w-3 h-3 text-zinc-700" />
                   ) : (
-                    <ArrowUp className="w-3 h-3 text-zinc-900" />
+                    <ArrowUp className="w-3 h-3 text-zinc-700" />
                   )}
                 </div>
               </th>
 
               {!selectedEventId && (
-                <th className="py-2.5 px-3 text-right whitespace-nowrap">Aksi</th>
+                <th className="py-2.5 px-3.5 text-right whitespace-nowrap">Aksi</th>
               )}
             </tr>
           </thead>
 
-          <tbody className="divide-y divide-zinc-100">
+          <tbody className="divide-y divide-zinc-200/70">
             {isLoading ? (
               Array.from({ length: 4 }).map((_, i) => (
-                <tr key={i} className="animate-pulse">
-                  <td className="py-3 px-3"><div className="w-4 h-4 bg-zinc-200 rounded" /></td>
-                  <td className="py-3 px-3"><div className="w-24 h-4 bg-zinc-200 rounded" /></td>
+                <tr key={i} className="animate-pulse divide-x divide-zinc-100">
+                  <td className="py-3 px-3 text-center">
+                    <div className="w-4 h-4 bg-zinc-200 rounded mx-auto" />
+                  </td>
+                  <td className="py-3 px-3.5">
+                    <div className="w-24 h-4 bg-zinc-200 rounded" />
+                  </td>
                   {!selectedEventId && (
-                    <td className="py-3 px-3"><div className="w-20 h-4 bg-zinc-200 rounded" /></td>
+                    <td className="py-3 px-3.5">
+                      <div className="w-20 h-4 bg-zinc-200 rounded" />
+                    </td>
                   )}
                   {!selectedEventId && (
-                    <td className="py-3 px-3"><div className="w-16 h-4 bg-zinc-200 rounded" /></td>
+                    <td className="py-3 px-3.5">
+                      <div className="w-16 h-4 bg-zinc-200 rounded" />
+                    </td>
                   )}
-                  <td className="py-3 px-3"><div className="w-28 h-4 bg-zinc-200 rounded" /></td>
+                  <td className="py-3 px-3.5">
+                    <div className="w-28 h-4 bg-zinc-200 rounded" />
+                  </td>
                   {!selectedEventId && (
-                    <td className="py-3 px-3"><div className="w-16 h-4 bg-zinc-200 rounded" /></td>
+                    <td className="py-3 px-3.5">
+                      <div className="w-16 h-4 bg-zinc-200 rounded" />
+                    </td>
                   )}
-                  <td className="py-3 px-3"><div className="w-20 h-4 bg-zinc-200 rounded" /></td>
+                  <td className="py-3 px-3.5">
+                    <div className="w-20 h-4 bg-zinc-200 rounded" />
+                  </td>
                   {!selectedEventId && (
-                    <td className="py-3 px-3 text-right"><div className="w-14 h-6 bg-zinc-200 rounded ml-auto" /></td>
+                    <td className="py-3 px-3.5 text-right">
+                      <div className="w-14 h-6 bg-zinc-200 rounded ml-auto" />
+                    </td>
                   )}
                 </tr>
               ))
@@ -1052,57 +1094,66 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
                         }
                       }
                     }}
-                    className={`cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-zinc-900 ${
+                    className={`cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-zinc-900 divide-x divide-zinc-100 ${
                       isSelected
-                        ? 'bg-zinc-100 font-medium'
+                        ? 'bg-zinc-100/80'
                         : isChecked
-                        ? 'bg-zinc-50/70 hover:bg-zinc-50'
-                        : 'hover:bg-zinc-50'
+                        ? 'bg-zinc-50/80 hover:bg-zinc-50'
+                        : 'hover:bg-zinc-50/70'
                     }`}
                   >
-                    {/* Row Checkbox with left accent border for active row */}
+                    {/* Row Checkbox */}
                     <td
-                      className={`py-2.5 px-3 transition-colors ${
-                        isSelected
-                          ? 'border-l-4 border-l-zinc-900'
-                          : 'border-l-4 border-l-transparent'
-                      }`}
+                      className="py-3 px-3 text-center"
                       onClick={(e) => toggleSelectOne(ev.id, e)}
                     >
                       <input
                         type="checkbox"
                         checked={isChecked}
                         onChange={() => {}}
-                        className="w-4 h-4 rounded border-zinc-200 text-zinc-900 focus:ring-zinc-900 cursor-pointer"
+                        className="w-4 h-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900 cursor-pointer"
                         aria-label={`Pilih event ${ev.id}`}
                       />
                     </td>
 
-                    {/* Event ID with 8-character truncation and quick copy */}
-                    <td className="py-2.5 px-3 font-mono font-medium text-zinc-900 whitespace-nowrap">
-                      <div className="flex items-center gap-1.5">
-                        <span title={`Event ID: ${ev.id}`}>
-                          {ev.id.slice(0, 8)}...
-                        </span>
-                        <button
-                          type="button"
-                          onClick={(e) => handleCopyId(ev.id, e)}
-                          className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200 rounded transition-colors"
-                          title="Salin Event ID lengkap"
-                          aria-label={`Salin Event ID ${ev.id}`}
-                        >
-                          {copiedId === ev.id ? (
-                            <Check className="w-3 h-3 text-emerald-600" />
-                          ) : (
-                            <Copy className="w-3 h-3" />
-                          )}
-                        </button>
+                    {/* Navattic Primary Cell: Circular Icon + 8-char ID + Subtext */}
+                    <td className="py-3 px-3.5 whitespace-nowrap">
+                      <div className="flex items-center gap-3">
+                        <div className="size-7 rounded-full bg-zinc-100 border border-zinc-200/80 flex items-center justify-center text-zinc-600 shrink-0">
+                          <Webhook className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className="font-mono font-medium text-zinc-900 text-xs"
+                              title={`Event ID: ${ev.id}`}
+                            >
+                              {ev.id.slice(0, 8)}...
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => handleCopyId(ev.id, e)}
+                              className="p-0.5 text-zinc-400 hover:text-zinc-900 rounded transition-colors"
+                              title="Salin Event ID lengkap"
+                              aria-label={`Salin Event ID ${ev.id}`}
+                            >
+                              {copiedId === ev.id ? (
+                                <Check className="w-3 h-3 text-emerald-600" />
+                              ) : (
+                                <Copy className="w-3 h-3" />
+                              )}
+                            </button>
+                          </div>
+                          <span className="text-[11px] text-zinc-500 truncate">
+                            {ev.endpoint_id} · {ev.provider}
+                          </span>
+                        </div>
                       </div>
                     </td>
 
                     {/* Endpoint Target (hidden when panel open) */}
                     {!selectedEventId && (
-                      <td className="py-2.5 px-3 font-medium text-zinc-900 whitespace-nowrap">
+                      <td className="py-3 px-3.5 font-medium text-zinc-800 whitespace-nowrap">
                         <span title={`Endpoint ID: ${ev.endpoint_id}`}>
                           {endpoints.find((ep) => ep.id === ev.endpoint_id)?.name || ev.endpoint_id}
                         </span>
@@ -1111,15 +1162,15 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
 
                     {/* Provider (hidden when panel open) */}
                     {!selectedEventId && (
-                      <td className="py-2.5 px-3 text-zinc-600 uppercase font-semibold text-[11px] whitespace-nowrap">
+                      <td className="py-3 px-3.5 text-zinc-500 uppercase font-mono text-[11px] whitespace-nowrap">
                         {ev.provider}
                       </td>
                     )}
 
-                    {/* Semantic Error Badge (Short, concise, NO raw red text wall) */}
-                    <td className="py-2.5 px-3 whitespace-nowrap">
+                    {/* Semantic Error Badge */}
+                    <td className="py-3 px-3.5 whitespace-nowrap">
                       <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold border ${errorAnalysis.badgeStyle}`}
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium border ${errorAnalysis.badgeStyle}`}
                         title={errorAnalysis.title}
                       >
                         {errorAnalysis.badgeLabel}
@@ -1128,25 +1179,25 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
 
                     {/* Percobaan (hidden when panel open) */}
                     {!selectedEventId && (
-                      <td className="py-2.5 px-3 whitespace-nowrap">
+                      <td className="py-3 px-3.5 whitespace-nowrap">
                         {(() => {
                           const attInfo = formatAttemptsDisplay(ev);
                           return attInfo.isRejected ? (
                             <div className="flex flex-col">
-                              <span className="text-zinc-900 font-semibold text-[11px] whitespace-nowrap">
+                              <span className="text-zinc-900 font-medium text-xs whitespace-nowrap">
                                 {attInfo.primaryText}
                               </span>
                               {attInfo.secondaryText && (
-                                <span className="text-[10px] text-zinc-500 whitespace-nowrap">
+                                <span className="text-[11px] text-zinc-500 whitespace-nowrap">
                                   {attInfo.secondaryText}
                                 </span>
                               )}
                             </div>
                           ) : (
-                            <div className="flex flex-col font-mono text-[11px] text-zinc-600">
+                            <div className="flex flex-col font-mono text-xs text-zinc-700">
                               <span>{attInfo.primaryText.replace(/\s+/g, '')}</span>
                               {attInfo.secondaryText && (
-                                <span className="text-[10px] text-zinc-500 whitespace-nowrap">
+                                <span className="text-[11px] font-sans text-zinc-500 whitespace-nowrap">
                                   {attInfo.secondaryText}
                                 </span>
                               )}
@@ -1156,8 +1207,8 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
                       </td>
                     )}
 
-                    {/* Gagal Pada (Relative Time with absolute tooltip) */}
-                    <td className="py-2.5 px-3 font-mono text-zinc-600 whitespace-nowrap">
+                    {/* Gagal Pada */}
+                    <td className="py-3 px-3.5 font-mono text-zinc-600 whitespace-nowrap">
                       <span
                         className="underline decoration-dotted decoration-zinc-400 underline-offset-4 cursor-help"
                         title={formatAbsoluteTime(failedTime)}
@@ -1166,15 +1217,18 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
                       </span>
                     </td>
 
-                    {/* Action Column (hidden when panel open; NO disabled button per baris if ineligible) */}
+                    {/* Action Column */}
                     {!selectedEventId && (
-                      <td className="py-2.5 px-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                      <td
+                        className="py-3 px-3.5 text-right whitespace-nowrap"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         {errorAnalysis.isEligibleForReplay ? (
                           isRejected ? (
                             <button
                               type="button"
                               onClick={(e) => handleSingleReplay(ev, e)}
-                              className="px-2.5 py-1 bg-white hover:bg-zinc-100 text-zinc-900 border border-zinc-200 rounded text-xs font-semibold shadow-2xs transition-colors"
+                              className="px-2.5 py-1 bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200/90 rounded-md text-xs font-medium shadow-2xs transition-colors cursor-pointer"
                               title="Verifikasi akan dijalankan ulang."
                             >
                               Verifikasi ulang
@@ -1183,7 +1237,7 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
                             <button
                               type="button"
                               onClick={(e) => handleSingleReplay(ev, e)}
-                              className="px-2.5 py-1 bg-zinc-900 hover:bg-zinc-800 text-white rounded text-xs font-semibold shadow-2xs transition-colors"
+                              className="px-2.5 py-1 bg-zinc-900 hover:bg-zinc-800 text-white rounded-md text-xs font-medium shadow-2xs transition-colors cursor-pointer"
                             >
                               Replay
                             </button>
@@ -1199,8 +1253,8 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
                 <td colSpan={selectedEventId ? 4 : 8} className="py-16 text-center text-zinc-600">
                   {hasActiveFilters ? (
                     <div className="flex flex-col items-center justify-center gap-2">
-                      <Inbox className="w-8 h-8 text-zinc-400" />
-                      <p className="text-sm font-semibold text-zinc-900">
+                      <Inbox className="w-7 h-7 text-zinc-400" />
+                      <p className="text-sm font-medium text-zinc-900">
                         Tidak ada event yang sesuai dengan filter
                       </p>
                       <p className="text-xs text-zinc-500">
@@ -1209,18 +1263,18 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
                       <button
                         type="button"
                         onClick={resetAllFilters}
-                        className="mt-2 px-3 py-1.5 text-xs font-semibold bg-white border border-zinc-200 hover:bg-zinc-100 rounded-md transition-colors"
+                        className="mt-2 px-3 py-1.5 text-xs font-medium bg-white border border-zinc-200 hover:bg-zinc-50 rounded-md transition-colors cursor-pointer"
                       >
                         Reset Filter
                       </button>
                     </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center gap-2">
-                      <CheckCircle className="w-8 h-8 text-emerald-600" />
-                      <p className="text-sm font-bold text-zinc-900">
+                      <CheckCircle className="w-7 h-7 text-emerald-600" />
+                      <p className="text-sm font-semibold text-zinc-900">
                         Dead-Letter Queue Bersih!
                       </p>
-                      <p className="text-xs text-zinc-600 max-w-sm leading-relaxed">
+                      <p className="text-xs text-zinc-500 max-w-sm leading-relaxed">
                         Tidak ada webhook berstatus gagal. Seluruh event berhasil terkirim ke target endpoint masing-masing.
                       </p>
                     </div>
@@ -1230,6 +1284,17 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* 4. Bottom Row Count Summary (Navattic Footer Pattern) */}
+      <div className="pt-3 flex items-center justify-between text-xs text-zinc-500 shrink-0 tabular-nums">
+        <span>
+          Menampilkan <b className="text-zinc-900">{filteredEvents.length}</b> dari{' '}
+          <b className="text-zinc-900">{mergedFailed.length}</b> event gagal
+        </span>
+        <span>
+          {eligibleFilteredCount} eligible untuk dikirim ulang
+        </span>
       </div>
 
       {/* 5. Floating Bulk Action Bar (when rows are selected) */}
@@ -1244,7 +1309,7 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
           <button
             type="button"
             onClick={() => handleOpenBulkConfirm(false)}
-            className="flex items-center gap-1.5 px-3 py-1 text-xs font-semibold bg-white hover:bg-zinc-100 text-zinc-900 rounded-lg transition-colors shadow-2xs"
+            className="flex items-center gap-1.5 px-3 py-1 text-xs font-semibold bg-white hover:bg-zinc-100 text-zinc-900 rounded-lg transition-colors shadow-2xs cursor-pointer"
           >
             <RotateCw className="w-3.5 h-3.5" />
             <span>Replay Terpilih</span>
@@ -1253,7 +1318,7 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
           <button
             type="button"
             onClick={() => setSelectedIds(new Set())}
-            className="px-2.5 py-1 text-xs font-medium text-zinc-300 hover:text-white transition-colors"
+            className="px-2.5 py-1 text-xs font-medium text-zinc-300 hover:text-white transition-colors cursor-pointer"
           >
             Batal
           </button>
@@ -1286,7 +1351,7 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
               <button
                 type="button"
                 onClick={() => setReverifySingleConfirm(null)}
-                className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-zinc-100 border border-zinc-200 text-zinc-900 rounded-lg transition-colors"
+                className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-zinc-100 border border-zinc-200 text-zinc-900 rounded-lg transition-colors cursor-pointer"
               >
                 Batal
               </button>
@@ -1297,7 +1362,7 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
                   setReverifySingleConfirm(null);
                   onReplaySingle(ev);
                 }}
-                className="px-3.5 py-1.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg transition-colors shadow-xs"
+                className="px-3.5 py-1.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg transition-colors shadow-xs cursor-pointer"
               >
                 Verifikasi Ulang & Kirim
               </button>
