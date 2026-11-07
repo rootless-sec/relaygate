@@ -201,6 +201,51 @@ function TiltFrame({ children }: { children: React.ReactNode }) {
   );
 }
 
+function MagneticBrand({
+  href = '#top',
+  onClick,
+  children,
+  className = '',
+}: {
+  href?: string;
+  onClick?: (e: React.MouseEvent<HTMLAnchorElement>) => void;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [active, setActive] = useState(false);
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLAnchorElement>) => {
+    if (e.pointerType === 'touch') return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width - 0.5) * 12;
+    const y = ((e.clientY - rect.top) / rect.height - 0.5) * 8;
+    setOffset({ x, y });
+    setActive(true);
+  };
+
+  const handlePointerLeave = () => {
+    setOffset({ x: 0, y: 0 });
+    setActive(false);
+  };
+
+  return (
+    <a
+      href={href}
+      onClick={onClick}
+      onPointerMove={handlePointerMove}
+      onPointerLeave={handlePointerLeave}
+      className={className}
+      style={{
+        transform: `translate3d(${offset.x.toFixed(1)}px, ${offset.y.toFixed(1)}px, 0)`,
+        transition: active ? 'transform 0.08s linear' : 'transform 0.4s cubic-bezier(0.22, 1, 0.36, 1)',
+      }}
+    >
+      {children}
+    </a>
+  );
+}
+
 function CopyCommand({
   prompt = '$',
   command,
@@ -723,6 +768,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
   const [activeOsTab, setActiveOsTab] = useState<OsTabId>('linux');
   const [isScrolled, setIsScrolled] = useState(false);
   const [isNavHovered, setIsNavHovered] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(true);
   const wsStepsRef = useRef<HTMLOListElement>(null);
 
   useEffect(() => {
@@ -731,6 +777,17 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
     };
     window.addEventListener('scroll', handleScroll, { passive: true });
     handleScroll();
+
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      const mql = window.matchMedia('(min-width: 768px)');
+      setIsDesktop(mql.matches);
+      const handleMql = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+      mql.addEventListener('change', handleMql);
+      return () => {
+        window.removeEventListener('scroll', handleScroll);
+        mql.removeEventListener('change', handleMql);
+      };
+    }
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
@@ -772,102 +829,122 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
             <div
               className={`nav__isle ${
                 isScrolled
-                  ? 'is-glass is-center py-2 px-4 shadow-sm'
-                  : 'is-top py-4 border-b border-zinc-200/80 bg-white/80 backdrop-blur-sm'
+                  ? `is-glass py-2 px-3 shadow-sm ${isDesktop ? 'is-center' : 'justify-between'}`
+                  : 'is-top py-3.5 border-b border-zinc-200/80 bg-white/80 backdrop-blur-sm'
               }`}
               onMouseEnter={() => setIsNavHovered(true)}
               onMouseLeave={() => setIsNavHovered(false)}
               style={{
-                maxWidth: isScrolled ? (isNavHovered ? 780 : 156) : 1240,
+                maxWidth: isScrolled ? (isDesktop ? (isNavHovered ? 760 : 156) : '100%') : 1240,
                 transition: 'max-width 0.45s cubic-bezier(0.22, 1, 0.36, 1), padding 0.35s ease, background-color 0.3s ease',
               }}
             >
-              <a
+              {isScrolled && (
+                <span
+                  className="nav__isle-glass"
+                  aria-hidden="true"
+                  style={{
+                    opacity: isScrolled ? 1 : 0,
+                    transform: isScrolled ? 'scale(1)' : 'scale(0.965)',
+                  }}
+                />
+              )}
+
+              <MagneticBrand
                 href="#top"
                 className="brand flex items-center gap-2.5 text-zinc-950 font-semibold text-base tracking-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded-lg py-1 select-none flex-none"
               >
                 <RelayGateMark size={22} className="text-zinc-950 flex-none" />
                 <span className="font-bold tracking-tight">RelayGate</span>
-              </a>
+              </MagneticBrand>
 
               <div
                 className={`nav__chrome ${
                   isScrolled && !isNavHovered
                     ? 'max-w-0 opacity-0 pointer-events-none'
-                    : 'max-w-[640px] opacity-100 pointer-events-auto'
+                    : 'max-w-[620px] opacity-100 pointer-events-auto'
                 }`}
                 style={{
-                  transition: 'max-width 0.45s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease',
+                  transition: 'max-width 0.45s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease, filter 0.3s ease',
+                  filter: isScrolled && !isNavHovered ? 'blur(8px)' : 'blur(0px)',
                 }}
               >
-                <nav aria-label="Primary navigation" className="hidden md:flex items-center gap-7 ml-8 mr-6">
-                  <a
-                    href="#native"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      scrollToSection('native');
-                    }}
-                    className="text-[13.5px] font-medium text-zinc-600 hover:text-zinc-950 transition-colors py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded"
-                  >
-                    Engine
-                  </a>
-                  <a
-                    href="#product"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      scrollToSection('product');
-                    }}
-                    className="text-[13.5px] font-medium text-zinc-600 hover:text-zinc-950 transition-colors py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded"
-                  >
-                    Product
-                  </a>
-                  <a
-                    href="#workspace"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      scrollToSection('workspace');
-                    }}
-                    className="text-[13.5px] font-medium text-zinc-600 hover:text-zinc-950 transition-colors py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded"
-                  >
-                    Workspace
-                  </a>
-                  <a
-                    href="#download"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      scrollToSection('download');
-                    }}
-                    className="text-[13.5px] font-medium text-zinc-600 hover:text-zinc-950 transition-colors py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded"
-                  >
-                    Deploy
-                  </a>
-                  <a
-                    href="#faq"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      scrollToSection('faq');
-                    }}
-                    className="text-[13.5px] font-medium text-zinc-600 hover:text-zinc-950 transition-colors py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded"
-                  >
-                    Questions
-                  </a>
-                </nav>
+                <div
+                  className="nav__chrome-inner flex items-center"
+                  style={{
+                    transform: isScrolled && !isNavHovered ? 'translateX(-18px)' : 'translateX(0)',
+                    transition: 'transform 0.45s cubic-bezier(0.22, 1, 0.36, 1)',
+                  }}
+                >
+                  <nav aria-label="Primary navigation" className="hidden md:flex items-center gap-7 ml-7 mr-5">
+                    <a
+                      href="#native"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        scrollToSection('native');
+                      }}
+                      className="navlink"
+                    >
+                      Engine
+                    </a>
+                    <a
+                      href="#product"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        scrollToSection('product');
+                      }}
+                      className="navlink"
+                    >
+                      Product
+                    </a>
+                    <a
+                      href="#workspace"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        scrollToSection('workspace');
+                      }}
+                      className="navlink"
+                    >
+                      Workspace
+                    </a>
+                    <a
+                      href="#download"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        scrollToSection('download');
+                      }}
+                      className="navlink"
+                    >
+                      Deploy
+                    </a>
+                    <a
+                      href="#faq"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        scrollToSection('faq');
+                      }}
+                      className="navlink"
+                    >
+                      Questions
+                    </a>
+                  </nav>
 
-                <div className="hidden md:flex items-center gap-2.5">
-                  <button
-                    type="button"
-                    onClick={onOpenLogin}
-                    className="min-h-[44px] px-3.5 py-1.5 rounded-lg text-xs font-medium text-zinc-700 bg-zinc-100 hover:bg-zinc-200 border border-zinc-200 transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 cursor-pointer"
-                  >
-                    Sign in
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onOpenRegister}
-                    className="min-h-[44px] px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-zinc-900 hover:bg-zinc-800 transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 cursor-pointer shadow-xs"
-                  >
-                    Get started
-                  </button>
+                  <div className="hidden md:flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={onOpenLogin}
+                      className="min-h-[44px] px-3.5 py-1.5 rounded-lg text-xs font-medium text-zinc-700 bg-zinc-100 hover:bg-zinc-200 border border-zinc-200 transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 cursor-pointer"
+                    >
+                      Sign in
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onOpenRegister}
+                      className="min-h-[44px] px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-zinc-900 hover:bg-zinc-800 transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 cursor-pointer shadow-xs"
+                    >
+                      Get started
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1103,57 +1180,23 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
 
             <div className="feature__media">
               <TiltFrame>
-                <div className="shot shot--bare">
-                  <div className="rg-win">
-                    <div className="rg-win__bar">
-                      <div className="rg-win__dots">
-                        <i />
-                        <i />
-                        <i />
+                <div className="shot shot--bare p-2 sm:p-3 rounded-2xl bg-white border border-zinc-200 shadow-sm">
+                  <div className="rg-win rounded-xl border border-zinc-200 overflow-hidden bg-white shadow-xs">
+                    <div className="rg-win__bar bg-zinc-50 border-b border-zinc-200 px-4 py-2.5 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
+                        <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
+                        <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
+                        <span className="ml-2 font-mono text-[11px] text-zinc-500">http://127.0.0.1:8080/#endpoints</span>
                       </div>
-                      <span className="rg-win__title">Dispatch Worker Pool :: 4 active workers across 3 harnesses</span>
-                      <span className="font-mono text-[11px] text-zinc-500">WAL SYNCED</span>
+                      <span className="font-mono text-[11px] text-zinc-400">ENDPOINT ROUTING &amp; WORKERS</span>
                     </div>
-                    <div className="p-5 text-left space-y-4">
-                      <div className="flex items-center justify-between text-xs font-mono text-zinc-500 border-b border-zinc-200 pb-3">
-                        <span>3 active routes · 50 concurrent workers</span>
-                        <span>SQLite WAL checkpoint: 0.38 ms</span>
-                      </div>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse font-mono text-xs">
-                          <thead>
-                            <tr className="border-b border-zinc-200 text-zinc-500">
-                              <th className="py-2 pr-3 font-medium">Route</th>
-                              <th className="py-2 px-3 font-medium">Provider / Policy</th>
-                              <th className="py-2 pl-3 font-medium">What it&apos;s doing</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-zinc-200 text-zinc-700">
-                            <tr>
-                              <td className="py-2.5 pr-3 text-zinc-950 font-medium">ep_7efe4e7e</td>
-                              <td className="py-2.5 px-3 text-zinc-500">Stripe · HMAC-SHA256</td>
-                              <td className="py-2.5 pl-3">
-                                Verifies timestamp tolerance (300s), writes raw body to WAL, dispatches HTTP POST to billing service.
-                              </td>
-                            </tr>
-                            <tr>
-                              <td className="py-2.5 pr-3 text-zinc-950 font-medium">ep_97aaeddd</td>
-                              <td className="py-2.5 px-3 text-zinc-500">Xendit · Static Token</td>
-                              <td className="py-2.5 pl-3">
-                                Compares X-Callback-Token in constant time, schedules retry 2/5 after downstream 504 timeout.
-                              </td>
-                            </tr>
-                            <tr>
-                              <td className="py-2.5 pr-3 text-zinc-950 font-medium">ep_midtrans</td>
-                              <td className="py-2.5 px-3 text-zinc-500">Midtrans · SHA-512</td>
-                              <td className="py-2.5 pl-3">
-                                Computes SHA-512(order_id + status_code + gross_amount + secret) and delivers in 14 ms.
-                              </td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
+                    <img
+                      src="/shots/endpoints.png"
+                      alt="RelayGate Endpoint Routing and Dispatch Workers"
+                      className="w-full h-auto object-cover block"
+                      loading="lazy"
+                    />
                   </div>
                 </div>
               </TiltFrame>
@@ -1173,25 +1216,27 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
             </p>
           </div>
 
-          <div className="shot shot--bare p-2 sm:p-4 rounded-2xl bg-white border border-zinc-200 shadow-sm">
-            <div className="rg-win rounded-xl border border-zinc-200 overflow-hidden bg-white shadow-xs">
-              <div className="rg-win__bar bg-zinc-50 border-b border-zinc-200 px-4 py-2.5 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
-                  <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
-                  <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
-                  <span className="ml-2 font-mono text-[11px] text-zinc-500">http://127.0.0.1:8080/#overview</span>
+          <TiltFrame>
+            <div className="shot shot--bare p-2 sm:p-4 rounded-2xl bg-white border border-zinc-200 shadow-sm">
+              <div className="rg-win rounded-xl border border-zinc-200 overflow-hidden bg-white shadow-xs">
+                <div className="rg-win__bar bg-zinc-50 border-b border-zinc-200 px-4 py-2.5 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
+                    <span className="ml-2 font-mono text-[11px] text-zinc-500">http://127.0.0.1:8080/#overview</span>
+                  </div>
+                  <span className="font-mono text-[11px] text-zinc-400">OPERATOR CONSOLE :: REAL TIME</span>
                 </div>
-                <span className="font-mono text-[11px] text-zinc-400">OPERATOR CONSOLE :: REAL TIME</span>
+                <img
+                  src="/dashboard-preview.png"
+                  alt="RelayGate Operator Console Dashboard"
+                  className="w-full h-auto object-cover block"
+                  loading="lazy"
+                />
               </div>
-              <img
-                src="/dashboard-preview.png"
-                alt="RelayGate Operator Console Dashboard"
-                className="w-full h-auto object-cover block"
-                loading="lazy"
-              />
             </div>
-          </div>
+          </TiltFrame>
         </section>
 
         {/* 4. Feature 2 (Reverse): Dead-Letter Inspection & Replay */}
@@ -1208,44 +1253,23 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
 
             <div className="feature__media">
               <TiltFrame>
-                <div className="shot shot--bare">
-                  <div className="rg-win">
-                    <div className="rg-win__bar">
-                      <div className="rg-win__dots">
-                        <i />
-                        <i />
-                        <i />
+                <div className="shot shot--bare p-2 sm:p-3 rounded-2xl bg-white border border-zinc-200 shadow-sm">
+                  <div className="rg-win rounded-xl border border-zinc-200 overflow-hidden bg-white shadow-xs">
+                    <div className="rg-win__bar bg-zinc-50 border-b border-zinc-200 px-4 py-2.5 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
+                        <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
+                        <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
+                        <span className="ml-2 font-mono text-[11px] text-zinc-500">http://127.0.0.1:8080/#dlq</span>
                       </div>
-                      <span className="rg-win__title">BulkReplayModal :: Verification &amp; Quota Reset</span>
-                      <span className="font-mono text-[11px] text-zinc-500">QUOTA 0/5 -&gt; 5/5</span>
+                      <span className="font-mono text-[11px] text-zinc-400">DEAD-LETTER QUEUE &amp; TRIAGE</span>
                     </div>
-                    <div className="p-5 text-left space-y-3.5 font-mono text-xs">
-                      <div className="p-3.5 rounded-lg bg-zinc-50 border border-zinc-200 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-zinc-950 font-semibold">evt_499cd52a · Stripe 504 Gateway Timeout</span>
-                          <span className="px-2 py-0.5 rounded bg-zinc-200 text-zinc-800 text-[11px] font-medium">
-                            Eligible for Replay
-                          </span>
-                        </div>
-                        <p className="text-zinc-600 text-[11px]">
-                          Dijadwalkan ulang dari antrean Dead-Letter dengan reset kuota hingga 5 percobaan baru.
-                        </p>
-                      </div>
-                      <div className="grid grid-cols-3 gap-2.5 text-center">
-                        <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200">
-                          <p className="text-zinc-500 text-[11px]">VERIFIED</p>
-                          <p className="text-zinc-950 text-base font-bold mt-1">HMAC OK</p>
-                        </div>
-                        <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200">
-                          <p className="text-zinc-500 text-[11px]">LAST HTTP</p>
-                          <p className="text-zinc-950 text-base font-bold mt-1">504</p>
-                        </div>
-                        <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200">
-                          <p className="text-zinc-500 text-[11px]">RETRY BUDGET</p>
-                          <p className="text-zinc-950 text-base font-bold mt-1">5 Attempts</p>
-                        </div>
-                      </div>
-                    </div>
+                    <img
+                      src="/shots/dlq.png"
+                      alt="RelayGate Dead-Letter Queue Inspection and Replay"
+                      className="w-full h-auto object-cover block"
+                      loading="lazy"
+                    />
                   </div>
                 </div>
               </TiltFrame>
@@ -1289,7 +1313,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                       src={step.image}
                       alt=""
                       data-active={activeWsStep === idx ? 'true' : undefined}
-                      loading="lazy"
+                      loading="eager"
                       decoding="async"
                     />
                   ))}

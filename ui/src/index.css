@@ -118,7 +118,7 @@ code, kbd, pre, .mono, .font-mono {
   font-family: var(--font-sans);
   font-size: 16px;
   line-height: 1.5;
-  overflow-x: hidden;
+  overflow-x: clip;
   color-scheme: light;
 }
 
@@ -611,19 +611,53 @@ code, kbd, pre, .mono, .font-mono {
 
 .rg-landing .nav__isle.is-glass {
   min-width: 156px;
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  background: rgba(255, 255, 255, 0.88);
-  border: 1px solid rgba(228, 228, 231, 0.9);
-  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.rg-landing .nav__isle-glass {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  backdrop-filter: blur(22px) saturate(180%);
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(228, 228, 231, 0.95);
+  box-shadow: 0 12px 34px -10px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: opacity 0.4s cubic-bezier(0.22, 1, 0.36, 1), transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+
+.rg-landing .brand {
+  position: relative;
+  z-index: 2;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  flex: none;
+  align-items: center;
+  gap: 9px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  display: inline-flex;
+  cursor: pointer;
 }
 
 .rg-landing .nav__chrome {
+  position: relative;
+  z-index: 1;
   white-space: nowrap;
   flex: none;
   align-items: center;
   display: flex;
   overflow: hidden;
+}
+
+.rg-landing .nav__chrome-inner {
+  align-items: center;
+  gap: 12px;
+  display: flex;
 }
 
 .rg-landing .navlink {
@@ -634,25 +668,27 @@ code, kbd, pre, .mono, .font-mono {
   font-size: 0.875rem;
   font-weight: 500;
   position: relative;
+  text-decoration: none;
 }
 
 .rg-landing .navlink:hover {
   color: var(--ink);
 }
 
-.rg-landing .navlink__rule {
+.rg-landing .navlink::after {
+  content: "";
   transform-origin: 0;
-  height: 1px;
+  height: 1.5px;
   transition: transform var(--dur-fast) var(--ease-out);
-  background: currentColor;
+  background: var(--ink);
   position: absolute;
-  bottom: 2px;
+  bottom: 0px;
   left: 12px;
   right: 12px;
   transform: scaleX(0);
 }
 
-.rg-landing .navlink:hover .navlink__rule {
+.rg-landing .navlink:hover::after {
   transform: scaleX(1);
 }
 
@@ -692,11 +728,11 @@ code, kbd, pre, .mono, .font-mono {
 
 .rg-landing .ws__step {
   border-left: 1px solid var(--line);
-  min-height: 52vh;
+  min-height: 64vh;
   transition: border-color var(--dur-med) var(--ease-out);
   flex-direction: column;
   justify-content: center;
-  padding-block: 32px;
+  padding-block: 40px;
   padding-inline-start: 24px;
   display: flex;
   cursor: pointer;
@@ -704,8 +740,13 @@ code, kbd, pre, .mono, .font-mono {
 
 .rg-landing .ws__step:first-child {
   justify-content: flex-start;
-  min-height: 42vh;
+  min-height: 46vh;
   padding-top: 10vh;
+}
+
+.rg-landing .ws__step:last-child {
+  min-height: 76vh;
+  padding-bottom: 24vh;
 }
 
 .rg-landing .ws__step > * {
@@ -742,7 +783,8 @@ code, kbd, pre, .mono, .font-mono {
 
 .rg-landing .ws__sticky {
   position: sticky;
-  top: 108px;
+  top: 112px;
+  will-change: transform;
 }
 
 .rg-landing .ws__stage {
@@ -770,12 +812,13 @@ code, kbd, pre, .mono, .font-mono {
   object-fit: cover;
   opacity: 0;
   transform: scale(1.012);
-  transition: opacity var(--dur-slow) var(--ease-out), transform var(--dur-slow) var(--ease-out);
+  transition: opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1), transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
 }
 
 .rg-landing .ws__stage .shot__body img[data-active] {
   opacity: 1;
-  transform: none;
+  transform: scale(1);
 }
 
 .rg-landing .ws__progress {

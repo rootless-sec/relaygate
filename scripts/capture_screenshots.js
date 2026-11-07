@@ -192,6 +192,15 @@ async function run() {
     const snapSections = await send('Page.captureScreenshot', { format: 'png' });
     fs.writeFileSync(path.join(SCREENSHOTS_DIR, '00b_landing_sections_desktop.png'), Buffer.from(snapSections.data, 'base64'));
 
+    // Scroll to #product section
+    await send('Runtime.evaluate', {
+      expression: `document.getElementById('product')?.scrollIntoView({ behavior: 'instant' });`,
+    });
+    await wait(600);
+    console.log('[Script] Capturing 00b2_landing_product_desktop.png');
+    const snapProduct = await send('Page.captureScreenshot', { format: 'png' });
+    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '00b2_landing_product_desktop.png'), Buffer.from(snapProduct.data, 'base64'));
+
     // Scroll to #workspace & details sections
     await send('Runtime.evaluate', {
       expression: `document.getElementById('workspace')?.scrollIntoView({ behavior: 'instant' });`,
