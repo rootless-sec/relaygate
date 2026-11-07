@@ -2287,6 +2287,43 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(sidebarSource, /min-h-\[44px\] min-w-\[44px\]/, 'Sidebar mobile close button must enforce 44px touch target');
   });
 
+  await suite.test('LoginPage OAuth Authentication and Logout UX Redirect Invariants', async () => {
+    const loginSource = fs.readFileSync(path.join(__dirname, '../src/components/LoginPage.tsx'), 'utf8');
+    const appSource = fs.readFileSync(path.join(__dirname, '../src/App.tsx'), 'utf8');
+    const apiSource = fs.readFileSync(path.join(__dirname, '../src/api.ts'), 'utf8');
+
+    // 1. Logout UX Redirect Invariant in App.tsx
+    assert.match(appSource, /setShowAuthView\(true\)/, 'App.tsx must set showAuthView to true on handleLogout to redirect directly to LoginPage');
+    assert.doesNotMatch(appSource, /handleLogout[^}]*setShowAuthView\(false\)/, 'handleLogout must never drop user back to landing page by setting showAuthView false');
+    assert.match(appSource, /searchParams\.delete\('tab'\)/, 'handleLogout must clean up tab query parameter');
+
+    // 2. OAuth API client contract in api.ts
+    assert.match(apiSource, /export async function oauthLogin/, 'api.ts must export oauthLogin helper function');
+    assert.match(apiSource, /\/auth\/oauth/, 'oauthLogin must call /auth/oauth backend endpoint');
+
+    // 3. LoginPage OAuth Provider Options (Google, GitHub, GitLab)
+    assert.match(loginSource, /GoogleIcon/, 'LoginPage must include GoogleIcon');
+    assert.match(loginSource, /GitHubIcon/, 'LoginPage must include GitHubIcon');
+    assert.match(loginSource, /GitLabIcon/, 'LoginPage must include GitLabIcon');
+    assert.match(loginSource, /atau lanjutkan dengan email/, 'LoginPage must render "atau lanjutkan dengan email" clean UI divider');
+
+    // 4. Distinct Provider Modals & Experiences
+    assert.match(loginSource, /alex\.developer@gmail\.com/, 'Google OAuth experience must include Google Account Chooser identity');
+    assert.match(loginSource, /hazama3321@gmail\.com/, 'GitHub OAuth experience must include @hazama3321 developer identity');
+    assert.match(loginSource, /devops\.lead@gitlab\.company/, 'GitLab OAuth experience must include GitLab DevOps identity');
+    assert.match(loginSource, /github\.com\/login\/oauth\/authorize/, 'GitHub OAuth modal must render authentic GitHub authorization header');
+    assert.match(loginSource, /gitlab\.com \(SaaS SSO\)/, 'GitLab OAuth modal must render authentic GitLab SaaS SSO header');
+
+    // 5. Direct login without OTP prompt
+    assert.match(loginSource, /executeOAuth/, 'LoginPage must provide instant direct OAuth execution');
+    assert.match(loginSource, /Tanpa akses repositori atau kode sumber privat\. Langsung masuk tanpa verifikasi OTP\./, 'GitHub modal must declare direct login without OTP');
+
+    // 6. Zero unicode em dashes in LoginPage, App, and api
+    assert.doesNotMatch(loginSource, /\u2014/, 'LoginPage.tsx must not contain unicode em dashes');
+    assert.doesNotMatch(appSource, /\u2014/, 'App.tsx must not contain unicode em dashes');
+    assert.doesNotMatch(apiSource, /\u2014/, 'api.ts must not contain unicode em dashes');
+  });
+
   // Cleanup temp files
   try {
     fs.rmSync(outDir, { recursive: true, force: true, maxRetries: 0 });

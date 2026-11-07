@@ -330,5 +330,23 @@ export async function logoutUser(): Promise<void> {
   } catch {}
 }
 
+export async function oauthLogin(params: {
+  provider: 'google' | 'github' | 'gitlab';
+  email: string;
+  name: string;
+  avatar_url?: string;
+}): Promise<{ user: UserProfile; token?: string; message?: string }> {
+  const res = await fetch(`${BASE_URL}/auth/oauth`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    throw await parseErrorResponse(res, `Gagal autentikasi via ${params.provider}`);
+  }
+  return res.json();
+}
+
+
 
 

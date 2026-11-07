@@ -1394,3 +1394,93 @@ func TestAPI_RegisterVerificationLimitIndependentOfWebhookMaxAttempts(t *testing
 	}
 }
 
+func TestOAuthLogin(t *testing.T) {
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("failed to open in-memory storage: %v", err)
+	}
+	defer db.Close()
+
+	router := api.NewRouter(db, nil, api.NewHub())
+
+	// 1. Google login (new user creation, bypasses OTP)
+	googleBody := `{"provider":"google","email":"alex.dev@gmail.com","name":"Alex Prasetyo","avatar_url":"https://lh3.googleusercontent.com/a/sample"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(googleBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on google oauth login, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var res api.AuthResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatalf("failed to unmarshal auth response: %v", err)
+	}
+	if res.User == nil || res.User.Email != "alex.dev@gmail.com" {
+		t.Fatalf("expected user email alex.dev@gmail.com, got %+v", res.User)
+	}
+	if res.Token == "" || !strings.HasPrefix(res.Token, "sess_") {
+		t.Fatalf("expected valid session token, got %q", res.Token)
+	}
+
+	// Verify session cookie was set
+	cookies := rec.Result().Cookies()
+	var sessCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == "session" {
+			sessCookie = c
+			break
+		}
+	}
+	if sessCookie == nil || sessCookie.Value != res.Token {
+		t.Fatalf("expected session cookie matching token %q, got %+v", res.Token, sessCookie)
+	}
+
+	// 2. GitHub login (another user)
+	githubBody := `{"provider":"github","email":"hazama3321@gmail.com","name":"Mafifrizi"}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(githubBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on github oauth login, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 3. GitLab login
+	gitlabBody := `{"provider":"gitlab","email":"devops@gitlab.com","name":"DevOps Lead"}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(gitlabBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on gitlab oauth login, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 4. Unsupported provider returns 400
+	badProviderBody := `{"provider":"twitter","email":"test@twitter.com","name":"Twitter User"}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(badProviderBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 on unsupported provider, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 5. Invalid email returns 400
+	badEmailBody := `{"provider":"google","email":"not-an-email","name":"Bad User"}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(badEmailBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 on invalid email, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+

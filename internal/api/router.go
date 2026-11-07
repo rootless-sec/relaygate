@@ -367,6 +367,7 @@ func NewRouter(repo storage.Repository, pool *worker.Pool, hub *Hub, mailerOpt .
 	mux.HandleFunc("POST /api/v1/auth/verify", api.VerifyCode)
 	mux.HandleFunc("POST /api/v1/auth/resend-code", api.ResendCode)
 	mux.HandleFunc("POST /api/v1/auth/login", api.Login)
+	mux.HandleFunc("POST /api/v1/auth/oauth", api.OAuthLogin)
 	mux.HandleFunc("POST /api/v1/auth/logout", api.Logout)
 
 	// Profile Management Endpoints

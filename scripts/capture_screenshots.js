@@ -7,13 +7,16 @@ const http = require('http');
 const PORT = 8099;
 const CDP_PORT = 9333;
 const SCREENSHOTS_DIR = path.join(__dirname, '..', 'screenshots');
-const BRAIN_DIR = 'C:\\Users\\ASUS\\.gemini\\antigravity\\brain\\0f626320-fda7-4886-b746-3f6e3d439983';
+const BRAIN_DIRS = [
+  'C:\\Users\\ASUS\\.gemini\\antigravity\\brain\\96f30384-1a5b-49aa-911d-1943ab3ba472',
+  'C:\\Users\\ASUS\\.gemini\\antigravity\\brain\\0f626320-fda7-4886-b746-3f6e3d439983',
+];
 const PUBLIC_SHOTS_DIR = path.join(__dirname, '..', 'ui', 'public', 'shots');
 const PUBLIC_DIR = path.join(__dirname, '..', 'ui', 'public');
 const DIST_SHOTS_DIR = path.join(__dirname, '..', 'ui', 'dist', 'shots');
 const DIST_DIR = path.join(__dirname, '..', 'ui', 'dist');
 
-[SCREENSHOTS_DIR, BRAIN_DIR, PUBLIC_SHOTS_DIR, DIST_SHOTS_DIR].forEach((dir) => {
+[SCREENSHOTS_DIR, ...BRAIN_DIRS, PUBLIC_SHOTS_DIR, DIST_SHOTS_DIR].forEach((dir) => {
   if (!fs.existsSync(dir)) {
     try { fs.mkdirSync(dir, { recursive: true }); } catch {}
   }
@@ -22,8 +25,10 @@ const DIST_DIR = path.join(__dirname, '..', 'ui', 'dist');
 function saveScreenshot(filename, base64Data) {
   const buf = Buffer.isBuffer(base64Data) ? base64Data : Buffer.from(base64Data, 'base64');
   fs.writeFileSync(path.join(SCREENSHOTS_DIR, filename), buf);
-  if (fs.existsSync(BRAIN_DIR)) {
-    fs.writeFileSync(path.join(BRAIN_DIR, filename), buf);
+  for (const bDir of BRAIN_DIRS) {
+    if (fs.existsSync(bDir)) {
+      try { fs.writeFileSync(path.join(bDir, filename), buf); } catch {}
+    }
   }
   return buf;
 }

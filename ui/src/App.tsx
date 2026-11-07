@@ -98,6 +98,7 @@ export const App: React.FC = () => {
       setCurrentUser(null);
       setShowProfileModal(false);
       setSelectedEvent(null);
+      setShowAuthView(true);
       setSessionExpiredMessage(msg);
       setToast({ id: Date.now().toString(), message: msg, type: 'error' });
     };
@@ -419,7 +420,13 @@ export const App: React.FC = () => {
     setCurrentUser(null);
     setShowProfileModal(false);
     setSelectedEvent(null);
-    setShowAuthView(false);
+    setShowAuthView(true);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('tab');
+      url.searchParams.delete('event');
+      window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
+    } catch {}
   };
 
   if (!userEmail) {
