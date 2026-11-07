@@ -195,15 +195,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   className="w-full h-full object-cover"
                 />
               ) : (
-                (currentUser?.name || userEmail).slice(0, 1).toUpperCase()
+                ((currentUser?.name || userEmail || 'A').slice(0, 1).toUpperCase())
               )}
             </div>
             <div className="flex flex-col min-w-0 flex-1">
               <span className="truncate text-xs font-medium text-zinc-900 leading-tight" title={currentUser?.name ? `${currentUser.name} (${userEmail})` : userEmail}>
-                {currentUser?.name || userEmail}
+                {currentUser?.name || (userEmail.startsWith('admin@') ? 'Administrator' : userEmail)}
               </span>
               <span className="truncate text-[10px] text-zinc-400 leading-tight">
-                {currentUser?.role === 'admin' ? 'Administrator' : 'Viewer'}
+                {currentUser?.role === 'admin' || userEmail.startsWith('admin@') ? 'Administrator' : 'Viewer'}
               </span>
             </div>
           </button>

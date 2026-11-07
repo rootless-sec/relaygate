@@ -179,6 +179,8 @@ async function run() {
     const authPayload = JSON.stringify({
       token,
       email: user.email,
+      name: user.name,
+      role: user.role,
       user,
     });
 

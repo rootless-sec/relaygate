@@ -54,7 +54,25 @@ export const App: React.FC = () => {
   });
 
   const [sessionExpiredMessage, setSessionExpiredMessage] = useState<string | null>(null);
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
+    try {
+      const stored = localStorage.getItem('relaygate_auth');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.user) return parsed.user;
+        if (parsed.email) {
+          return {
+            id: parsed.id || '',
+            email: parsed.email,
+            name: parsed.name || (parsed.email.startsWith('admin@') ? 'Administrator' : parsed.email),
+            role: parsed.role || (parsed.email.startsWith('admin@') ? 'admin' : 'viewer'),
+            created_at: '',
+          };
+        }
+      }
+    } catch {}
+    return null;
+  });
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
 
   useEffect(() => {
