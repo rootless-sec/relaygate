@@ -313,6 +313,7 @@ export function ProductDashboardPreview({ onOpenConsole }: ProductDashboardPrevi
         </div>
 
         <div className="flex items-center gap-2 font-mono text-[11px] text-zinc-500 shrink-0">
+          <RelayGateIcon size={14} className="text-zinc-900 shrink-0" />
           <span className="rg-engine-live-dot inline-block shrink-0" aria-hidden="true" />
           <span className="text-zinc-700 font-medium">Engine Online (UID 1000) · SQLite WAL</span>
         </div>

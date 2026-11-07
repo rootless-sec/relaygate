@@ -3,7 +3,7 @@ import os
 import sys
 import json
 
-db_path = sys.argv[1] if len(sys.argv) > 1 else r'C:\Users\ASUS\.gemini\antigravity\scratch\relaygate\data\relaygate.db'
+db_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), '..', 'data', 'test_screen.db')
 
 conn = sqlite3.connect(db_path)
 c = conn.cursor()

@@ -39,10 +39,12 @@ export const RelayGateLogo: React.FC<RelayGateLogoProps> = ({
   className = '',
   ...props
 }) => {
+  const computedWidth =
+    width ?? (typeof height === 'number' ? Math.round((height * 360) / 79) : undefined);
   return (
     <svg
       height={height}
-      width={width}
+      width={computedWidth}
       viewBox="0 0 360 79"
       fill="currentColor"
       fillRule="evenodd"
