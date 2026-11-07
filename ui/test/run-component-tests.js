@@ -1919,6 +1919,20 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
 
     assert.match(appSource, /LayoutDashboard/, 'App must import and use LayoutDashboard');
     assert.doesNotMatch(appSource, /\bActivity\b/, 'App must NOT use hospital heartbeat Activity icon');
+
+    // 3. Zero-failure neutral color assertions (no redundant alarmist red when count is 0)
+    assert.match(
+      appSource,
+      /failedEventsCount\s*>\s*0\s*\?\s*'text-rose-600'\s*:\s*'text-zinc-500'/,
+      'App breadcrumb dead icon must be neutral text-zinc-500 when failedEventsCount is 0'
+    );
+
+    const overviewSource = fs.readFileSync(path.join(srcDir, 'components', 'OverviewView.tsx'), 'utf8');
+    assert.match(
+      overviewSource,
+      /failed\s*>\s*0\s*\?\s*'text-rose-700'\s*:\s*'text-zinc-950'/,
+      'OverviewView DLQ metric value must be neutral text-zinc-950 when failed is 0'
+    );
   });
 
   // Cleanup temp files

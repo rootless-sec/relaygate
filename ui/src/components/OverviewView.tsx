@@ -105,7 +105,11 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
           </div>
 
           <div className="p-4 text-center">
-            <div className="text-xl font-semibold text-rose-700 tabular-nums">
+            <div
+              className={`text-xl font-semibold tabular-nums ${
+                failed > 0 ? 'text-rose-700' : 'text-zinc-950'
+              }`}
+            >
               {failed}
             </div>
             <div className="text-xs text-zinc-500 mt-1">Dead-Letter Queue (DLQ)</div>

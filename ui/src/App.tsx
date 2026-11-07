@@ -431,7 +431,13 @@ export const App: React.FC = () => {
     dead: {
       group: 'Monitor',
       title: 'Dead-Letter Queue',
-      icon: <AlertOctagon className="w-3.5 h-3.5 text-rose-600" />,
+      icon: (
+        <AlertOctagon
+          className={`w-3.5 h-3.5 ${
+            failedEventsCount > 0 ? 'text-rose-600' : 'text-zinc-500'
+          }`}
+        />
+      ),
     },
     endpoints: {
       group: 'Manage',
