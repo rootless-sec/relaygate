@@ -2212,12 +2212,16 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(html, /relaygate\.service/, 'Must render relaygate.service unit row in default Linux tab');
     assert.match(landingSource, /docker build -t relaygate \./, 'Docker tab must build from local Dockerfile without non-existent registry pull');
     assert.match(landingSource, /\/ingest\/ep_sample/, 'cURL test command must target real /ingest/:endpoint_id path');
+    assert.match(landingSource, /-d \\'\{"id":"evt_1"\}\\'/, 'cURL test command must use valid single-quoted JSON payload for standard shell compatibility');
 
     const serviceAssetPath = path.join(__dirname, '../../scripts/relaygate.service');
     assert.ok(fs.existsSync(serviceAssetPath), 'scripts/relaygate.service must exist on disk');
 
     const dockerfilePath = path.join(__dirname, '../../Dockerfile');
     assert.ok(fs.existsSync(dockerfilePath), 'Dockerfile must exist on disk');
+
+    const dockerignorePath = path.join(__dirname, '../../.dockerignore');
+    assert.ok(fs.existsSync(dockerignorePath), '.dockerignore must exist on disk to prevent local node_modules leak');
   });
 
   // Cleanup temp files

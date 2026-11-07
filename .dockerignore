@@ -1,0 +1,15 @@
+.git
+.github
+.vscode
+.idea
+node_modules
+**/node_modules
+ui/node_modules
+ui/dist
+*.exe
+relaygate
+relaygate.exe
+relaygate-linux-amd64
+screenshots
+data
+.env

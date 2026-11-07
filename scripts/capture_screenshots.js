@@ -54,6 +54,12 @@ async function run() {
   if (fs.existsSync(prodDb)) {
     fs.copyFileSync(prodDb, testDb);
   }
+  const { execFileSync } = require('child_process');
+  try {
+    execFileSync('python', [path.join(__dirname, 'seed_showcase_data.py'), testDb], { stdio: 'inherit' });
+  } catch (err) {
+    console.warn('[Script] Warning: failed to seed testDb:', err.message);
+  }
 
   const serverProc = spawn(
     path.join(__dirname, '..', 'relaygate.exe'),

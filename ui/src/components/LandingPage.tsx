@@ -2003,7 +2003,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                 <>
                   <CopyCommand
                     prompt="$"
-                    command='curl -i -X POST http://127.0.0.1:8080/ingest/ep_sample -H "Stripe-Signature: t=1700000000,v1=..." -d "{\"id\":\"evt_1\"}"'
+                    command={'curl -i -X POST http://127.0.0.1:8080/ingest/ep_sample -H "Stripe-Signature: t=1700000000,v1=..." -d \'{"id":"evt_1"}\''}
                   />
                   <div className="dl__pair">
                     <CopyCommand prompt="$" command="curl -s http://127.0.0.1:8080/healthz" small />

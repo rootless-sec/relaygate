@@ -1,14 +1,16 @@
 import sqlite3
 import os
+import sys
 import json
 
-db_path = r'C:\Users\ASUS\.gemini\antigravity\scratch\relaygate\data\relaygate.db'
+db_path = sys.argv[1] if len(sys.argv) > 1 else r'C:\Users\ASUS\.gemini\antigravity\scratch\relaygate\data\relaygate.db'
 
 conn = sqlite3.connect(db_path)
 c = conn.cursor()
 
 # 1. Insert Endpoints
 endpoints = [
+    ('ep_sample', 'Sample Stripe Webhook', 'whsec_sample_secret_key', 'https://billing.internal.net/v1/stripe/events', 'stripe', 1, '2026-11-07 09:55:00'),
     ('ep_stripe_billing', 'Stripe Billing Webhook', 'whsec_992a8f10c44a72d1', 'https://billing.internal.net/v1/stripe/events', 'stripe', 1, '2026-11-07 10:00:00'),
     ('ep_github_ci', 'GitHub Actions Ingress', 'ghsec_741c0b22a1f0983c', 'https://runner.internal.net/hooks/ci', 'github', 1, '2026-11-07 10:05:00'),
     ('ep_xendit_payout', 'Xendit Ledger Hook', 'xnd_token_510e4d89bc01', 'https://ledger.internal.net/xendit/callback', 'xendit', 1, '2026-11-07 10:10:00'),
