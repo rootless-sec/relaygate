@@ -340,12 +340,12 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
               </div>
 
               {/* Nickname & Account Information Form */}
-              <form onSubmit={handleSaveName} className="space-y-3.5">
-                <div className="border border-zinc-200/90 rounded-lg p-4 bg-white shadow-2xs space-y-3.5">
+              <form onSubmit={handleSaveName} className="space-y-4">
+                <div className="border border-zinc-200/90 rounded-lg p-4 bg-white shadow-2xs space-y-4">
                   <span className="text-xs font-semibold text-zinc-950 block">Informasi Akun</span>
 
                   <div>
-                    <label htmlFor="nickname-input" className="block text-xs font-medium text-zinc-700 mb-1">
+                    <label htmlFor="nickname-input" className="block text-xs font-medium text-zinc-700 mb-1.5">
                       Nama Lengkap / Nickname
                     </label>
                     <div className="flex items-center gap-2">
@@ -376,42 +376,44 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                       </button>
                     </div>
                     {nameError && (
-                      <p className="text-[11px] text-rose-600 mt-1">{nameError}</p>
+                      <p className="text-[11px] text-rose-600 mt-1.5">{nameError}</p>
                     )}
                   </div>
 
                   {/* Read-Only Account Details */}
-                  <div className="pt-4 border-t border-zinc-100 space-y-3.5 text-xs">
-                    <div className="flex items-center justify-between text-zinc-600">
-                      <div className="flex items-center gap-2 text-zinc-500">
-                        <Mail className="w-3.5 h-3.5" />
-                        <span>Alamat Email</span>
+                  <div className="border-t border-zinc-100 divide-y divide-zinc-100 text-xs">
+                    <div className="py-3 last:pb-0 flex items-center justify-between gap-3 text-zinc-600">
+                      <div className="flex items-center gap-2.5 text-zinc-500 shrink-0">
+                        <Mail className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                        <span className="font-medium text-zinc-600">Alamat Email</span>
                       </div>
-                      <div className="flex items-center gap-3 text-xs text-zinc-900">
-                        <span className="font-normal">{currentUser.email}</span>
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-[11px] font-medium bg-zinc-100 text-zinc-700 border border-zinc-200/80">
+                      <div className="flex items-center gap-3 text-xs text-zinc-900 min-w-0 justify-end">
+                        <span className="font-normal text-zinc-800 truncate" title={currentUser.email}>
+                          {currentUser.email}
+                        </span>
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-[11px] font-medium bg-zinc-100 text-zinc-700 border border-zinc-200/80 shrink-0">
                           Terverifikasi
                         </span>
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between text-zinc-600">
-                      <div className="flex items-center gap-2 text-zinc-500">
-                        <ShieldCheck className="w-3.5 h-3.5" />
-                        <span>Peran Akses</span>
+                    <div className="py-3 last:pb-0 flex items-center justify-between gap-3 text-zinc-600">
+                      <div className="flex items-center gap-2.5 text-zinc-500 shrink-0">
+                        <ShieldCheck className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                        <span className="font-medium text-zinc-600">Peran Akses</span>
                       </div>
-                      <span className="text-[11px] font-medium uppercase tracking-wider px-2.5 py-0.5 rounded-md bg-zinc-100 text-zinc-700 border border-zinc-200/80">
+                      <span className="text-[11px] font-medium uppercase tracking-wider px-2.5 py-0.5 rounded-md bg-zinc-100 text-zinc-700 border border-zinc-200/80 shrink-0">
                         {currentUser.role || 'viewer'}
                       </span>
                     </div>
 
                     {currentUser.created_at && (
-                      <div className="flex items-center justify-between text-zinc-600">
-                        <div className="flex items-center gap-2 text-zinc-500">
-                          <Calendar className="w-3.5 h-3.5" />
-                          <span>Terdaftar Sejak</span>
+                      <div className="py-3 last:pb-0 flex items-center justify-between gap-3 text-zinc-600">
+                        <div className="flex items-center gap-2.5 text-zinc-500 shrink-0">
+                          <Calendar className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                          <span className="font-medium text-zinc-600">Terdaftar Sejak</span>
                         </div>
-                        <span className="text-xs text-zinc-700 font-normal">
+                        <span className="text-xs text-zinc-700 font-normal shrink-0">
                           {formatAbsoluteTime(currentUser.created_at)}
                         </span>
                       </div>

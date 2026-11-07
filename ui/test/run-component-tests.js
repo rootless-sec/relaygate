@@ -1884,6 +1884,49 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(openHtml, /admin/, 'User role pill must display role');
     assert.ok(!openHtml.includes('size-1.5 rounded-full'), 'ProfileModal status pill must not include decorative bullet dots');
 
+    // Dynamic resilience: User without created_at
+    const userWithoutCreatedAt = {
+      id: 'usr-dev-998',
+      name: 'No Date User',
+      email: 'nodate@relaygate.local',
+      role: 'editor',
+      avatar_url: '',
+      created_at: '',
+    };
+    const noDateHtml = renderToString(
+      React.createElement(ProfileModal, {
+        isOpen: true,
+        onClose: () => {},
+        currentUser: userWithoutCreatedAt,
+        onProfileUpdated: () => {},
+        onToast: () => {},
+      })
+    );
+    assert.doesNotMatch(noDateHtml, /Terdaftar Sejak/, 'Must not render Terdaftar Sejak when created_at is falsy');
+    assert.match(noDateHtml, /nodate@relaygate\.local/, 'Must still render email row');
+    assert.match(noDateHtml, /editor/, 'Must still render role row');
+
+    // Responsive resilience: User with exceptionally long email
+    const longEmail = 'extremely-long-enterprise-admin-user-identity@production-datacenter.internal.relaygate.local';
+    const longEmailHtml = renderToString(
+      React.createElement(ProfileModal, {
+        isOpen: true,
+        onClose: () => {},
+        currentUser: { ...mockUser, email: longEmail },
+        onProfileUpdated: () => {},
+        onToast: () => {},
+      })
+    );
+    assert.match(longEmailHtml, /truncate/, 'Email label must have truncate class to prevent overflow');
+    assert.match(longEmailHtml, new RegExp(`title="${longEmail}"`), 'Email element must have title attribute for tooltip accessibility');
+
+    // Source code styling token assertions
+    const compDir = path.join(__dirname, '../src/components');
+    const profileSource = fs.readFileSync(path.join(compDir, 'ProfileModal.tsx'), 'utf8');
+    assert.match(profileSource, /divide-y\s+divide-zinc-100/, 'Metadata list must use divide-y divide-zinc-100');
+    assert.match(profileSource, /gap-3\s+text-xs\s+text-zinc-900\s+min-w-0/, 'Email row must use gap-3 and min-w-0');
+    assert.match(profileSource, /last:pb-0/, 'Metadata rows must use last:pb-0 to ensure clean bottom spacing');
+
     // Render closed modal
     const closedHtml = renderToString(
       React.createElement(ProfileModal, {
