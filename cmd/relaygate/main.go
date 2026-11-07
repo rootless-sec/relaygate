@@ -109,10 +109,12 @@ func main() {
 		})
 	})
 
-	// Public ingest receiver
+	// Public ingest receiver (supports both /ingest and /v1/webhook aliases)
 	mux.Handle("POST /ingest/{endpoint_id}", ingestHandler)
 	mux.Handle("/ingest/", ingestHandler)
 	mux.Handle("/ingest", ingestHandler)
+	mux.Handle("POST /v1/webhook/{endpoint_id}", ingestHandler)
+	mux.Handle("/v1/webhook/", ingestHandler)
 
 	// Mount REST and SSE API control plane routes
 	mux.Handle("/api/v1/", apiRouter)

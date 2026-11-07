@@ -2198,6 +2198,26 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     // 8. Fluid packet ping animations
     assert.match(landingSource, /rg-packet-ping/, 'LandingPage must include desktop packet ping pulse');
     assert.match(landingSource, /rg-packet-ping-v/, 'LandingPage must include mobile vertical packet ping pulse');
+
+    // 9. Zero-fluff authentic engineering assertions (no marketing overclaim)
+    assert.match(html, />Webhook gateway<\/span>/, 'Top pill must say "Webhook gateway" without buzzword fluff');
+    assert.doesNotMatch(html, /Zero-dependency webhook gateway/i, 'Must NOT contain "Zero-dependency webhook gateway" marketing buzzwords');
+    assert.match(html, /<span class="metaline">Webhook Gateway<\/span>/, 'Footer metaline must say "Webhook Gateway"');
+    assert.doesNotMatch(html, /<span class="metaline">Zero-Dependency Webhook Gateway<\/span>/, 'Footer must NOT contain "Zero-Dependency"');
+
+    // 10. Real Deployment Assets and Ingestion Mechanics
+    assert.match(landingSource, /RELAYGATE_SYSTEMD_SERVICE/, 'Must bundle authentic systemd service unit');
+    assert.match(landingSource, /RELAYGATE_CROSS_COMPILE/, 'Must bundle authentic cross-compilation command');
+    assert.match(html, /relaygate-linux-amd64/, 'Must render relaygate-linux-amd64 asset row in default Linux tab');
+    assert.match(html, /relaygate\.service/, 'Must render relaygate.service unit row in default Linux tab');
+    assert.match(landingSource, /docker build -t relaygate \./, 'Docker tab must build from local Dockerfile without non-existent registry pull');
+    assert.match(landingSource, /\/ingest\/ep_sample/, 'cURL test command must target real /ingest/:endpoint_id path');
+
+    const serviceAssetPath = path.join(__dirname, '../../scripts/relaygate.service');
+    assert.ok(fs.existsSync(serviceAssetPath), 'scripts/relaygate.service must exist on disk');
+
+    const dockerfilePath = path.join(__dirname, '../../Dockerfile');
+    assert.ok(fs.existsSync(dockerfilePath), 'Dockerfile must exist on disk');
   });
 
   // Cleanup temp files

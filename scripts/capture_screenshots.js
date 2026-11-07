@@ -95,8 +95,8 @@ async function run() {
 
     // Launch Chrome / Edge headless
     const chromePaths = [
-      'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
       'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
     ];
     const chromePath = chromePaths.find((p) => fs.existsSync(p));
     if (!chromePath) {
@@ -162,9 +162,14 @@ async function run() {
     function send(method, params = {}) {
       return new Promise((resolve, reject) => {
         const id = msgId++;
+        const timer = setTimeout(() => {
+          ws.removeEventListener('message', handler);
+          reject(new Error(`CDP ${method} timed out after 15000ms`));
+        }, 15000);
         const handler = (evt) => {
           const msg = JSON.parse(evt.data);
           if (msg.id === id) {
+            clearTimeout(timer);
             ws.removeEventListener('message', handler);
             if (msg.error) reject(new Error(JSON.stringify(msg.error)));
             else resolve(msg.result);
@@ -241,6 +246,24 @@ async function run() {
     console.log('[Script] Capturing 00c2_landing_details_desktop.png');
     const snapDetails = await send('Page.captureScreenshot', { format: 'png' });
     fs.writeFileSync(path.join(SCREENSHOTS_DIR, '00c2_landing_details_desktop.png'), Buffer.from(snapDetails.data, 'base64'));
+
+    // Scroll to #download section (Run RelayGate)
+    await send('Runtime.evaluate', {
+      expression: `document.getElementById('download')?.scrollIntoView({ behavior: 'instant' });`,
+    });
+    await wait(600);
+    console.log('[Script] Capturing 00e_landing_download_desktop.png');
+    const snapDownload = await send('Page.captureScreenshot', { format: 'png' });
+    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '00e_landing_download_desktop.png'), Buffer.from(snapDownload.data, 'base64'));
+
+    // Scroll to footer
+    await send('Runtime.evaluate', {
+      expression: `document.querySelector('footer')?.scrollIntoView({ behavior: 'instant' });`,
+    });
+    await wait(600);
+    console.log('[Script] Capturing 00f_landing_footer_desktop.png');
+    const snapFooter = await send('Page.captureScreenshot', { format: 'png' });
+    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '00f_landing_footer_desktop.png'), Buffer.from(snapFooter.data, 'base64'));
 
     // Check horizontal overflow at 1440
     const overflowCheck = await send('Runtime.evaluate', {

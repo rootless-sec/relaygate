@@ -762,10 +762,44 @@ function WebhookRoutingPipeline() {
   );
 }
 
+const RELAYGATE_SYSTEMD_SERVICE = `[Unit]
+Description=RelayGate Webhook Ingestion Engine
+After=network.target
+
+[Service]
+Type=simple
+User=relaygate
+Group=relaygate
+WorkingDirectory=/var/lib/relaygate
+ExecStart=/usr/local/bin/relaygate -addr :8080 -db /var/lib/relaygate/relaygate.db -workers 10
+Restart=always
+RestartSec=3s
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target`;
+
+const RELAYGATE_CROSS_COMPILE = 'CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o relaygate-linux-amd64 ./cmd/relaygate';
+
+const downloadTextFile = (filename: string, text: string) => {
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
 export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeWsStep, setActiveWsStep] = useState(0);
   const [activeOsTab, setActiveOsTab] = useState<OsTabId>('linux');
+  const [expandedAsset, setExpandedAsset] = useState<'binary' | 'service' | null>(null);
+  const [copiedService, setCopiedService] = useState(false);
+  const [copiedCrossBuild, setCopiedCrossBuild] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [isNavHovered, setIsNavHovered] = useState(false);
   const [isDesktop, setIsDesktop] = useState(true);
@@ -1026,7 +1060,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
               New
             </span>
             <span className="text-[12px] font-medium text-zinc-800">
-              Zero-dependency webhook gateway
+              Webhook gateway
             </span>
             <ArrowRight className="w-3.5 h-3.5 text-zinc-500 group-hover:translate-x-0.5 transition-transform" />
           </button>
@@ -1341,7 +1375,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
               <h2 className="headline details__title !mb-0">Details.</h2>
             </div>
             <p className="text-sm text-zinc-600 max-w-[48ch] text-pretty">
-              Deterministic wire mechanics, zero-dependency SQLite WAL persistence, and isolated retry taxonomy.
+              Deterministic wire mechanics, embedded SQLite WAL persistence, and isolated retry taxonomy.
             </p>
           </div>
 
@@ -1831,19 +1865,100 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                     command="go build -o relaygate ./cmd/relaygate && ./relaygate -addr :8080 -db ./data/relaygate.db -workers 10"
                   />
                   <ul className="dl__files">
-                    <li className="dl__file">
-                      <span className="dl__file-name">relaygate-linux-amd64</span>
-                      <span className="dl__file-ext">static binary · SQLite WAL embedded</span>
-                      <ArrowDown className="w-4 h-4 text-zinc-500" />
+                    <li className="border-b border-zinc-200">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedAsset(expandedAsset === 'binary' ? null : 'binary')}
+                        className="dl__file w-full text-left cursor-pointer hover:bg-zinc-50/80 px-2 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
+                        aria-expanded={expandedAsset === 'binary'}
+                      >
+                        <span className="dl__file-name">relaygate-linux-amd64</span>
+                        <span className="dl__file-ext">static binary · pure Go SQLite WAL</span>
+                        <ArrowDown className={`w-4 h-4 text-zinc-500 transition-transform duration-200 ${expandedAsset === 'binary' ? 'rotate-180' : ''}`} />
+                      </button>
+                      {expandedAsset === 'binary' && (
+                        <div className="mb-3 px-3 py-3 rounded-xl bg-zinc-900 text-zinc-100 font-mono text-xs">
+                          <div className="flex items-center justify-between pb-2 mb-2 border-b border-zinc-800 text-[11px] text-zinc-400">
+                            <span>Cross-compile static Linux binary</span>
+                            <button
+                              type="button"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                try {
+                                  if (navigator.clipboard) {
+                                    await navigator.clipboard.writeText(RELAYGATE_CROSS_COMPILE);
+                                  }
+                                } catch {}
+                                setCopiedCrossBuild(true);
+                                setTimeout(() => setCopiedCrossBuild(false), 2000);
+                              }}
+                              className="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[11px] flex items-center gap-1 cursor-pointer transition-colors"
+                            >
+                              {copiedCrossBuild ? <Check className="w-3 h-3 text-zinc-100" /> : <Copy className="w-3 h-3 text-zinc-400" />}
+                              <span>{copiedCrossBuild ? 'Copied' : 'Copy'}</span>
+                            </button>
+                          </div>
+                          <p className="text-zinc-300 break-all select-all">
+                            $ {RELAYGATE_CROSS_COMPILE}
+                          </p>
+                        </div>
+                      )}
                     </li>
-                    <li className="dl__file">
-                      <span className="dl__file-name">relaygate.service</span>
-                      <span className="dl__file-ext">systemd unit</span>
-                      <ArrowDown className="w-4 h-4 text-zinc-500" />
+                    <li className="border-b border-zinc-200">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedAsset(expandedAsset === 'service' ? null : 'service')}
+                        className="dl__file w-full text-left cursor-pointer hover:bg-zinc-50/80 px-2 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
+                        aria-expanded={expandedAsset === 'service'}
+                      >
+                        <span className="dl__file-name">relaygate.service</span>
+                        <span className="dl__file-ext">systemd unit · click to view &amp; download</span>
+                        <ArrowDown className={`w-4 h-4 text-zinc-500 transition-transform duration-200 ${expandedAsset === 'service' ? 'rotate-180' : ''}`} />
+                      </button>
+                      {expandedAsset === 'service' && (
+                        <div className="mb-3 px-3 py-3 rounded-xl bg-zinc-900 text-zinc-100 font-mono text-xs">
+                          <div className="flex items-center justify-between pb-2 mb-2 border-b border-zinc-800 text-[11px] text-zinc-400">
+                            <span>/etc/systemd/system/relaygate.service</span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  downloadTextFile('relaygate.service', RELAYGATE_SYSTEMD_SERVICE);
+                                }}
+                                className="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[11px] flex items-center gap-1 cursor-pointer transition-colors"
+                              >
+                                <ArrowDown className="w-3 h-3 text-zinc-400" />
+                                <span>Download</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  try {
+                                    if (navigator.clipboard) {
+                                      await navigator.clipboard.writeText(RELAYGATE_SYSTEMD_SERVICE);
+                                    }
+                                  } catch {}
+                                  setCopiedService(true);
+                                  setTimeout(() => setCopiedService(false), 2000);
+                                }}
+                                className="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[11px] flex items-center gap-1 cursor-pointer transition-colors"
+                              >
+                                {copiedService ? <Check className="w-3 h-3 text-zinc-100" /> : <Copy className="w-3 h-3 text-zinc-400" />}
+                                <span>{copiedService ? 'Copied' : 'Copy'}</span>
+                              </button>
+                            </div>
+                          </div>
+                          <pre className="text-zinc-300 text-[11px] leading-relaxed overflow-x-auto whitespace-pre select-all">
+                            {RELAYGATE_SYSTEMD_SERVICE}
+                          </pre>
+                        </div>
+                      )}
                     </li>
                   </ul>
                   <p className="dl__note">
-                    x86_64 and ARM64 Linux. Runs as an unprivileged user (UID 1000) with zero external runtime dependencies.
+                    x86_64 and ARM64 Linux. Runs as an unprivileged user (UID 1000) without external broker dependencies.
                   </p>
                 </>
               )}
@@ -1855,7 +1970,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                     command="go build -o relaygate.exe ./cmd/relaygate; .\relaygate.exe -addr :8080 -db .\data\relaygate.db -workers 10"
                   />
                   <p className="dl__note">
-                    Windows 10, Windows 11, and Windows Server 2022 (x64). Bundles the embedded React operator console on port 8080.
+                    Windows 10, Windows 11, and Windows Server 2022 (x64). Bundles the embedded operator console on port 8080.
                   </p>
                 </>
               )}
@@ -1864,10 +1979,10 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                 <>
                   <CopyCommand
                     prompt="$"
-                    command="go build -o relaygate ./cmd/relaygate && ./relaygate -addr :8080 -db ./data/relaygate.db"
+                    command="go build -o relaygate ./cmd/relaygate && ./relaygate -addr :8080 -db ./data/relaygate.db -workers 10"
                   />
                   <p className="dl__note">
-                    macOS on Apple Silicon and Intel. Ideal for local webhook testing and signature debugging.
+                    macOS on Apple Silicon (arm64) and Intel (x86_64). Ideal for local webhook testing and signature debugging.
                   </p>
                 </>
               )}
@@ -1876,10 +1991,10 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                 <>
                   <CopyCommand
                     prompt="$"
-                    command="docker run -d -p 8080:8080 -v relaygate_data:/app/data ghcr.io/rootless-sec/relaygate:latest"
+                    command="docker build -t relaygate . && docker run -d -p 8080:8080 -v relaygate_data:/app/data relaygate"
                   />
                   <p className="dl__note">
-                    Mount <code>/app/data</code> to persist the SQLite WAL database and avatar assets across container restarts.
+                    Builds from the included rootless Dockerfile. Mounts <code>/app/data</code> for SQLite WAL persistence and dev avatars.
                   </p>
                 </>
               )}
@@ -1888,14 +2003,14 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                 <>
                   <CopyCommand
                     prompt="$"
-                    command='curl -i -X POST http://127.0.0.1:8080/v1/webhook/ep_stripe -H "Stripe-Signature: t=1700000000,v1=..." -d "{\"id\":\"evt_1\"}"'
+                    command='curl -i -X POST http://127.0.0.1:8080/ingest/ep_sample -H "Stripe-Signature: t=1700000000,v1=..." -d "{\"id\":\"evt_1\"}"'
                   />
                   <div className="dl__pair">
                     <CopyCommand prompt="$" command="curl -s http://127.0.0.1:8080/healthz" small />
                     <CopyCommand prompt="$" command="go test -race -p 2 -count=1 ./..." small />
                   </div>
                   <p className="dl__note">
-                    Send test webhooks directly to <code>/v1/webhook/:endpoint_id</code> and watch them appear live in the console.
+                    Send test webhooks directly to <code>/ingest/:endpoint_id</code> (or <code>/v1/webhook/:endpoint_id</code>) and watch them appear live in the console.
                   </p>
                 </>
               )}
@@ -1992,7 +2107,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
 
         <div className="footer__meta">
           <span className="metaline">© 2026 RelayGate</span>
-          <span className="metaline">Zero-Dependency Webhook Gateway</span>
+          <span className="metaline">Webhook Gateway</span>
         </div>
       </footer>
     </div>
