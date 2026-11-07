@@ -10,6 +10,7 @@ const BRAIN_DIRS = [
   'C:\\Users\\ASUS\\.gemini\\antigravity\\brain\\96f30384-1a5b-49aa-911d-1943ab3ba472',
   'C:\\Users\\ASUS\\.gemini\\antigravity\\brain\\0f626320-fda7-4886-b746-3f6e3d439983',
   'C:\\Users\\ASUS\\.gemini\\antigravity\\brain\\aa87843b-5101-41ec-a38f-d1daf3fd21aa',
+  'C:\\Users\\ASUS\\.gemini\\antigravity\\brain\\d14c3bc4-d7e1-41c6-b24a-909a4da0bd58',
 ];
 
 [SCREENSHOTS_DIR, ...BRAIN_DIRS].forEach((dir) => {

@@ -1300,8 +1300,12 @@ func (a *API) OAuthLogin(w http.ResponseWriter, r *http.Request) {
 			CreatedAt: time.Now().UTC(),
 		}
 		if err := a.repo.SaveUser(r.Context(), user); err != nil {
-			writeError(w, http.StatusInternalServerError, "Gagal membuat akun pengguna OAuth", err)
-			return
+			if existing, getErr := a.repo.GetUserByEmail(r.Context(), req.Email); getErr == nil && existing != nil {
+				user = existing
+			} else {
+				writeError(w, http.StatusInternalServerError, "Gagal membuat akun pengguna OAuth", err)
+				return
+			}
 		}
 	} else if req.AvatarURL != "" && user.AvatarURL == "" {
 		user.AvatarURL = strings.TrimSpace(req.AvatarURL)
@@ -1485,7 +1489,16 @@ func (a *API) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 	req.CurrentPassword = strings.TrimSpace(req.CurrentPassword)
 	req.NewPassword = strings.TrimSpace(req.NewPassword)
 
-	if req.CurrentPassword == "" {
+	user, err := a.repo.GetUserByID(r.Context(), sess.UserID)
+	if err != nil || user == nil {
+		user, err = a.repo.GetUserByEmail(r.Context(), sess.UserEmail)
+		if err != nil || user == nil {
+			writeError(w, http.StatusNotFound, "Pengguna tidak ditemukan", nil)
+			return
+		}
+	}
+
+	if user.PasswordHash != "" && req.CurrentPassword == "" {
 		writeError(w, http.StatusBadRequest, "Password saat ini wajib diisi", nil)
 		return
 	}
@@ -1497,23 +1510,20 @@ func (a *API) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Password maksimal 72 karakter", nil)
 		return
 	}
-	if subtle.ConstantTimeCompare([]byte(req.CurrentPassword), []byte(req.NewPassword)) == 1 {
+	if req.CurrentPassword != "" && subtle.ConstantTimeCompare([]byte(req.CurrentPassword), []byte(req.NewPassword)) == 1 {
 		writeError(w, http.StatusBadRequest, "Password baru tidak boleh sama dengan password saat ini", nil)
 		return
 	}
 
-	user, err := a.repo.GetUserByID(r.Context(), sess.UserID)
-	if err != nil || user == nil {
-		user, err = a.repo.GetUserByEmail(r.Context(), sess.UserEmail)
-		if err != nil || user == nil {
-			writeError(w, http.StatusNotFound, "Pengguna tidak ditemukan", nil)
+	if user.PasswordHash != "" {
+		if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.CurrentPassword)); err != nil {
+			passAttempts.recordFailure(rateKey)
+			writeError(w, http.StatusBadRequest, "Password saat ini tidak sesuai", nil)
 			return
 		}
-	}
-
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.CurrentPassword)); err != nil {
+	} else if req.CurrentPassword != "" {
 		passAttempts.recordFailure(rateKey)
-		writeError(w, http.StatusBadRequest, "Password saat ini tidak sesuai", nil)
+		writeError(w, http.StatusBadRequest, "Akun OAuth belum memiliki password. Kosongkan password saat ini untuk mengatur password baru.", nil)
 		return
 	}
 

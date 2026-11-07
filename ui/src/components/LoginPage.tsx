@@ -71,6 +71,7 @@ interface LoginPageProps {
   initialError?: string | null;
   sessionNotice?: string | null;
   onDismissNotice?: () => void;
+  initialMode?: 'login' | 'register';
 }
 
 type AuthMode = 'login' | 'register' | 'verify';
@@ -80,8 +81,22 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   initialError,
   sessionNotice,
   onDismissNotice,
+  initialMode,
 }) => {
-  const [mode, setMode] = useState<AuthMode>('login');
+  const [mode, setMode] = useState<AuthMode>(() => {
+    if (initialMode) return initialMode;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('auth') === 'register') return 'register';
+    } catch {}
+    return 'login';
+  });
+
+  useEffect(() => {
+    if (initialMode && mode !== 'verify') {
+      setMode(initialMode);
+    }
+  }, [initialMode]);
 
   // Form states
   const [name, setName] = useState('');
@@ -205,7 +220,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       if (provider === 'google') {
         setOauthStatusMessage('Memvalidasi token Google ID...');
       } else if (provider === 'github') {
-        setOauthStatusMessage('Sinkronisasi profil @hazama3321...');
+        setOauthStatusMessage(`Sinkronisasi profil ${targetName}...`);
       } else {
         setOauthStatusMessage('Memvalidasi token JWT GitLab...');
       }
@@ -1057,7 +1072,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     </>
                   ) : (
                     /* Custom Google account inputs */
-                    <div className="space-y-3 pt-1">
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        executeOAuth('google', customOAuthEmail, customOAuthName || 'Pengguna Google');
+                      }}
+                      className="space-y-3 pt-1"
+                    >
                       <div>
                         <label className="block text-xs font-semibold text-zinc-900 mb-1" htmlFor="google-email">
                           Alamat Email Google
@@ -1065,6 +1086,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                         <input
                           id="google-email"
                           type="email"
+                          required
                           value={customOAuthEmail}
                           onChange={(e) => setCustomOAuthEmail(e.target.value)}
                           placeholder="pengguna@gmail.com"
@@ -1087,8 +1109,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                       </div>
                       <div className="flex items-center gap-2 pt-1">
                         <button
-                          type="button"
-                          onClick={() => executeOAuth('google', customOAuthEmail, customOAuthName || 'Pengguna Google')}
+                          type="submit"
                           className="flex-1 min-h-[44px] py-2 px-4 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold rounded-lg shadow-sm cursor-pointer"
                         >
                           Lanjutkan
@@ -1101,7 +1122,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                           Kembali
                         </button>
                       </div>
-                    </div>
+                    </form>
                   )}
 
                   {/* Consent footer */}
@@ -1167,76 +1188,140 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     </div>
                   )}
 
-                  {/* Connected Diagram */}
-                  <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-zinc-900 text-white flex items-center justify-center">
-                        <GitHubIcon className="w-4 h-4 text-white" />
+                  {!showCustomOAuth ? (
+                    <>
+                      {/* Connected Diagram */}
+                      <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-lg bg-zinc-900 text-white flex items-center justify-center">
+                            <GitHubIcon className="w-4 h-4 text-white" />
+                          </div>
+                          <div>
+                            <div className="font-semibold text-zinc-900">rootless-sec</div>
+                            <div className="text-[10px] text-zinc-500">Developer Terverifikasi</div>
+                          </div>
+                        </div>
+                        <div className="font-mono text-[10px] bg-zinc-200 text-zinc-800 px-2 py-0.5 rounded">
+                          OAuth 2.0
+                        </div>
+                      </div>
+
+                      {/* Account Card */}
+                      <div className="p-3 rounded-xl border border-zinc-200 bg-white space-y-2">
+                        <div className="text-[11px] font-medium text-zinc-500">Akun GitHub Terhubung:</div>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-full bg-zinc-900 text-white font-mono text-xs flex items-center justify-center font-bold">
+                              HZ
+                            </div>
+                            <div>
+                              <div className="text-xs font-bold text-zinc-900">Mafifrizi (@hazama3321)</div>
+                              <div className="text-[11px] text-zinc-500 font-mono">hazama3321@gmail.com</div>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-md">
+                            Aktif
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Scope Checklist */}
+                      <div className="space-y-2 text-xs">
+                        <div className="text-[11px] font-semibold text-zinc-700">Izin yang Diminta:</div>
+                        <div className="flex items-start gap-2 text-zinc-700 text-[11px]">
+                          <Check className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
+                          <span><strong>user:email</strong>: Akses alamat email akun</span>
+                        </div>
+                        <div className="flex items-start gap-2 text-zinc-700 text-[11px]">
+                          <Check className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
+                          <span><strong>read:user</strong>: Akses profil publik identitas</span>
+                        </div>
+                        <div className="flex items-start gap-2 text-zinc-500 text-[10px] bg-zinc-50 p-2 rounded-lg border border-zinc-200">
+                          <Shield className="w-3.5 h-3.5 text-zinc-500 mt-0.5 shrink-0" />
+                          <span>Tanpa akses repositori atau kode sumber privat. Langsung masuk tanpa verifikasi OTP.</span>
+                        </div>
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="space-y-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => executeOAuth('github', 'hazama3321@gmail.com', 'Mafifrizi', 'https://avatars.githubusercontent.com/u/104443916?v=4')}
+                          className="w-full min-h-[44px] py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white text-xs font-semibold rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
+                        >
+                          <span>Authorize rootless-sec/relaygate</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowCustomOAuth(true)}
+                          className="w-full min-h-[44px] py-1.5 px-3 text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center justify-center gap-1.5 cursor-pointer font-medium"
+                        >
+                          <UserPlus className="w-3.5 h-3.5" />
+                          <span>Gunakan akun GitHub lainnya</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleCloseOAuth}
+                          className="w-full min-h-[44px] py-2 px-3 text-xs text-zinc-600 hover:text-zinc-900 transition-colors cursor-pointer text-center"
+                        >
+                          Batal
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        executeOAuth('github', customOAuthEmail, customOAuthName || 'Developer GitHub');
+                      }}
+                      className="space-y-3 pt-1"
+                    >
+                      <div>
+                        <label className="block text-xs font-semibold text-zinc-900 mb-1" htmlFor="github-email">
+                          Alamat Email GitHub
+                        </label>
+                        <input
+                          id="github-email"
+                          type="email"
+                          required
+                          value={customOAuthEmail}
+                          onChange={(e) => setCustomOAuthEmail(e.target.value)}
+                          placeholder="username@github.com"
+                          className="w-full px-3 py-2 min-h-[44px] text-base sm:text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900"
+                          autoFocus
+                        />
                       </div>
                       <div>
-                        <div className="font-semibold text-zinc-900">rootless-sec</div>
-                        <div className="text-[10px] text-zinc-500">Developer Terverifikasi</div>
+                        <label className="block text-xs font-semibold text-zinc-900 mb-1" htmlFor="github-name">
+                          Username / Nama Tampilan
+                        </label>
+                        <input
+                          id="github-name"
+                          type="text"
+                          value={customOAuthName}
+                          onChange={(e) => setCustomOAuthName(e.target.value)}
+                          placeholder="Username"
+                          className="w-full px-3 py-2 min-h-[44px] text-base sm:text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900"
+                        />
                       </div>
-                    </div>
-                    <div className="font-mono text-[10px] bg-zinc-200 text-zinc-800 px-2 py-0.5 rounded">
-                      OAuth 2.0
-                    </div>
-                  </div>
-
-                  {/* Account Card */}
-                  <div className="p-3 rounded-xl border border-zinc-200 bg-white space-y-2">
-                    <div className="text-[11px] font-medium text-zinc-500">Akun GitHub Terhubung:</div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-zinc-900 text-white font-mono text-xs flex items-center justify-center font-bold">
-                          HZ
-                        </div>
-                        <div>
-                          <div className="text-xs font-bold text-zinc-900">Mafifrizi (@hazama3321)</div>
-                          <div className="text-[11px] text-zinc-500 font-mono">hazama3321@gmail.com</div>
-                        </div>
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="submit"
+                          className="flex-1 min-h-[44px] py-2 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-sm cursor-pointer"
+                        >
+                          Authorize dengan Akun Ini
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowCustomOAuth(false)}
+                          className="min-h-[44px] px-3 py-2 text-xs text-zinc-600 hover:text-zinc-900 cursor-pointer"
+                        >
+                          Kembali
+                        </button>
                       </div>
-                      <span className="text-[10px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-md">
-                        Aktif
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Scope Checklist */}
-                  <div className="space-y-2 text-xs">
-                    <div className="text-[11px] font-semibold text-zinc-700">Izin yang Diminta:</div>
-                    <div className="flex items-start gap-2 text-zinc-700 text-[11px]">
-                      <Check className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
-                      <span><strong>user:email</strong>: Akses alamat email akun</span>
-                    </div>
-                    <div className="flex items-start gap-2 text-zinc-700 text-[11px]">
-                      <Check className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
-                      <span><strong>read:user</strong>: Akses profil publik identitas</span>
-                    </div>
-                    <div className="flex items-start gap-2 text-zinc-500 text-[10px] bg-zinc-50 p-2 rounded-lg border border-zinc-200">
-                      <Shield className="w-3.5 h-3.5 text-zinc-500 mt-0.5 shrink-0" />
-                      <span>Tanpa akses repositori atau kode sumber privat. Langsung masuk tanpa verifikasi OTP.</span>
-                    </div>
-                  </div>
-
-                  {/* Action Buttons */}
-                  <div className="space-y-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => executeOAuth('github', 'hazama3321@gmail.com', 'Mafifrizi')}
-                      className="w-full min-h-[44px] py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white text-xs font-semibold rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
-                    >
-                      <span>Authorize rootless-sec/relaygate</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleCloseOAuth}
-                      className="w-full min-h-[44px] py-2 px-3 text-xs text-zinc-600 hover:text-zinc-900 transition-colors cursor-pointer text-center"
-                    >
-                      Batal
-                    </button>
-                  </div>
+                    </form>
+                  )}
                 </div>
               )}
             </div>
@@ -1299,59 +1384,123 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     </div>
                   )}
 
-                  {/* DevOps Identity Card */}
-                  <div className="p-3 rounded-xl border border-zinc-200 bg-white space-y-2">
-                    <div className="text-[11px] font-medium text-zinc-500">Identitas GitLab DevOps:</div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-orange-500/10 border border-orange-500/30 text-orange-600 font-bold text-xs flex items-center justify-center">
-                          GL
-                        </div>
-                        <div>
-                          <div className="text-xs font-bold text-zinc-900">DevOps Engineer (@devops-lead)</div>
-                          <div className="text-[11px] text-zinc-500 font-mono">devops.lead@gitlab.company</div>
+                  {!showCustomOAuth ? (
+                    <>
+                      {/* DevOps Identity Card */}
+                      <div className="p-3 rounded-xl border border-zinc-200 bg-white space-y-2">
+                        <div className="text-[11px] font-medium text-zinc-500">Identitas GitLab DevOps:</div>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-full bg-orange-500/10 border border-orange-500/30 text-orange-600 font-bold text-xs flex items-center justify-center">
+                              GL
+                            </div>
+                            <div>
+                              <div className="text-xs font-bold text-zinc-900">DevOps Engineer (@devops-lead)</div>
+                              <div className="text-[11px] text-zinc-500 font-mono">devops.lead@gitlab.company</div>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-semibold bg-orange-50 text-orange-800 border border-orange-200 px-2 py-0.5 rounded-md">
+                            Enterprise
+                          </span>
                         </div>
                       </div>
-                      <span className="text-[10px] font-semibold bg-orange-50 text-orange-800 border border-orange-200 px-2 py-0.5 rounded-md">
-                        Enterprise
-                      </span>
-                    </div>
-                  </div>
 
-                  {/* Scopes */}
-                  <div className="space-y-2 text-xs">
-                    <div className="text-[11px] font-semibold text-zinc-700">Cakupan Izin OIDC:</div>
-                    <div className="flex items-start gap-2 text-zinc-700 text-[11px]">
-                      <Check className="w-3.5 h-3.5 text-orange-600 mt-0.5 shrink-0" />
-                      <span><strong>openid</strong>: Single sign-on identitas terpadu</span>
-                    </div>
-                    <div className="flex items-start gap-2 text-zinc-700 text-[11px]">
-                      <Check className="w-3.5 h-3.5 text-orange-600 mt-0.5 shrink-0" />
-                      <span><strong>profile, email</strong>: Detail akun dan alamat email</span>
-                    </div>
-                    <div className="text-[11px] text-zinc-500 bg-zinc-50 p-2 rounded-lg border border-zinc-200">
-                      Otorisasi langsung mengaktifkan sesi dashboard tanpa verifikasi kode 6-digit.
-                    </div>
-                  </div>
+                      {/* Scopes */}
+                      <div className="space-y-2 text-xs">
+                        <div className="text-[11px] font-semibold text-zinc-700">Cakupan Izin OIDC:</div>
+                        <div className="flex items-start gap-2 text-zinc-700 text-[11px]">
+                          <Check className="w-3.5 h-3.5 text-orange-600 mt-0.5 shrink-0" />
+                          <span><strong>openid</strong>: Single sign-on identitas terpadu</span>
+                        </div>
+                        <div className="flex items-start gap-2 text-zinc-700 text-[11px]">
+                          <Check className="w-3.5 h-3.5 text-orange-600 mt-0.5 shrink-0" />
+                          <span><strong>profile, email</strong>: Detail akun dan alamat email</span>
+                        </div>
+                        <div className="text-[11px] text-zinc-500 bg-zinc-50 p-2 rounded-lg border border-zinc-200">
+                          Otorisasi langsung mengaktifkan sesi dashboard tanpa verifikasi kode 6-digit.
+                        </div>
+                      </div>
 
-                  {/* Action Buttons */}
-                  <div className="space-y-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => executeOAuth('gitlab', 'devops.lead@gitlab.company', 'DevOps Engineer')}
-                      className="w-full min-h-[44px] py-2.5 px-4 bg-orange-600 hover:bg-orange-700 active:scale-[0.98] text-white text-xs font-semibold rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-600"
+                      {/* Action Buttons */}
+                      <div className="space-y-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => executeOAuth('gitlab', 'devops.lead@gitlab.company', 'DevOps Engineer', 'https://gitlab.com/uploads/-/system/user/avatar/412356/avatar.png')}
+                          className="w-full min-h-[44px] py-2.5 px-4 bg-orange-600 hover:bg-orange-700 active:scale-[0.98] text-white text-xs font-semibold rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-600"
+                        >
+                          <span>Izinkan Otorisasi GitLab</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowCustomOAuth(true)}
+                          className="w-full min-h-[44px] py-1.5 px-3 text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center justify-center gap-1.5 cursor-pointer font-medium"
+                        >
+                          <UserPlus className="w-3.5 h-3.5" />
+                          <span>Gunakan akun GitLab lainnya</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleCloseOAuth}
+                          className="w-full min-h-[44px] py-2 px-3 text-xs text-zinc-600 hover:text-zinc-900 transition-colors cursor-pointer text-center"
+                        >
+                          Tolak
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        executeOAuth('gitlab', customOAuthEmail, customOAuthName || 'DevOps GitLab');
+                      }}
+                      className="space-y-3 pt-1"
                     >
-                      <span>Izinkan Otorisasi GitLab</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleCloseOAuth}
-                      className="w-full min-h-[44px] py-2 px-3 text-xs text-zinc-600 hover:text-zinc-900 transition-colors cursor-pointer text-center"
-                    >
-                      Tolak
-                    </button>
-                  </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-zinc-900 mb-1" htmlFor="gitlab-email">
+                          Alamat Email GitLab
+                        </label>
+                        <input
+                          id="gitlab-email"
+                          type="email"
+                          required
+                          value={customOAuthEmail}
+                          onChange={(e) => setCustomOAuthEmail(e.target.value)}
+                          placeholder="devops@gitlab.com"
+                          className="w-full px-3 py-2 min-h-[44px] text-base sm:text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900"
+                          autoFocus
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-zinc-900 mb-1" htmlFor="gitlab-name">
+                          Nama Akun / DevOps Role
+                        </label>
+                        <input
+                          id="gitlab-name"
+                          type="text"
+                          value={customOAuthName}
+                          onChange={(e) => setCustomOAuthName(e.target.value)}
+                          placeholder="DevOps Lead"
+                          className="w-full px-3 py-2 min-h-[44px] text-base sm:text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="submit"
+                          className="flex-1 min-h-[44px] py-2 px-4 bg-orange-600 hover:bg-orange-700 text-white text-xs font-semibold rounded-lg shadow-sm cursor-pointer"
+                        >
+                          Otorisasi dengan Akun Ini
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowCustomOAuth(false)}
+                          className="min-h-[44px] px-3 py-2 text-xs text-zinc-600 hover:text-zinc-900 cursor-pointer"
+                        >
+                          Kembali
+                        </button>
+                      </div>
+                    </form>
+                  )}
                 </div>
               )}
             </div>

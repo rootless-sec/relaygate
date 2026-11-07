@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1480,6 +1482,67 @@ func TestOAuthLogin(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 on invalid email, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 6. Concurrent OAuth login for same email (atomicity & race resilience)
+	const concurrentCount = 10
+	var wg sync.WaitGroup
+	errCh := make(chan error, concurrentCount)
+
+	for i := 0; i < concurrentCount; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			payload := fmt.Sprintf(`{"provider":"google","email":"concurrent.oauth@example.com","name":"Concurrent User %d"}`, idx)
+			cReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(payload))
+			cReq.Header.Set("Content-Type", "application/json")
+			cRec := httptest.NewRecorder()
+			router.ServeHTTP(cRec, cReq)
+			if cRec.Code != http.StatusOK {
+				errCh <- fmt.Errorf("concurrent oauth %d failed with code %d: %s", idx, cRec.Code, cRec.Body.String())
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		t.Fatalf("concurrent oauth error: %v", err)
+	}
+
+	// 7. Verify OAuth user can set password in ProfileModal
+	oauthUserBody := `{"provider":"gitlab","email":"oauth.password.test@gitlab.com","name":"Password Tester"}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(oauthUserBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on gitlab login: %s", rec.Body.String())
+	}
+
+	var oauthAuthRes api.AuthResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &oauthAuthRes)
+
+	// Non-empty current_password should fail with helpful error
+	badPassBody := `{"current_password":"wrongpassword","new_password":"NewStrongPassword123!"}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/profile/password", strings.NewReader(badPassBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+oauthAuthRes.Token)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for non-empty current_password on new oauth user, got %d", rec.Code)
+	}
+
+	// Empty current_password should succeed in setting initial password
+	goodPassBody := `{"current_password":"","new_password":"NewStrongPassword123!"}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/profile/password", strings.NewReader(goodPassBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+oauthAuthRes.Token)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for initial password set on oauth user, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 

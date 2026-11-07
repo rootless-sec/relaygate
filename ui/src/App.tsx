@@ -402,6 +402,14 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [userEmail, currentTab, events, selectedEvent]);
 
+  const [authMode, setAuthMode] = useState<'login' | 'register'>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('auth') === 'register') return 'register';
+    } catch {}
+    return 'login';
+  });
+
   const [showAuthView, setShowAuthView] = useState<boolean>(() => {
     try {
       const params = new URLSearchParams(window.location.search);
@@ -421,10 +429,12 @@ export const App: React.FC = () => {
     setShowProfileModal(false);
     setSelectedEvent(null);
     setShowAuthView(true);
+    setAuthMode('login');
     try {
       const url = new URL(window.location.href);
       url.searchParams.delete('tab');
       url.searchParams.delete('event');
+      url.searchParams.set('auth', 'login');
       window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
     } catch {}
   };
@@ -433,8 +443,24 @@ export const App: React.FC = () => {
     if (!showAuthView && !sessionExpiredMessage) {
       return (
         <LandingPage
-          onOpenLogin={() => setShowAuthView(true)}
-          onOpenRegister={() => setShowAuthView(true)}
+          onOpenLogin={() => {
+            setAuthMode('login');
+            setShowAuthView(true);
+            try {
+              const url = new URL(window.location.href);
+              url.searchParams.set('auth', 'login');
+              window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
+            } catch {}
+          }}
+          onOpenRegister={() => {
+            setAuthMode('register');
+            setShowAuthView(true);
+            try {
+              const url = new URL(window.location.href);
+              url.searchParams.set('auth', 'register');
+              window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
+            } catch {}
+          }}
         />
       );
     }
@@ -447,6 +473,11 @@ export const App: React.FC = () => {
             onClick={() => {
               setShowAuthView(false);
               setSessionExpiredMessage(null);
+              try {
+                const url = new URL(window.location.href);
+                url.searchParams.delete('auth');
+                window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
+              } catch {}
             }}
             className="min-h-[44px] px-3.5 py-2 rounded-lg border border-zinc-200 bg-white/95 hover:bg-zinc-100 active:scale-[0.97] text-zinc-800 text-xs font-medium shadow-xs inline-flex items-center gap-1.5 transition-transform cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 backdrop-blur-xs"
           >
@@ -455,10 +486,16 @@ export const App: React.FC = () => {
           </button>
         </div>
         <LoginPage
+          initialMode={authMode}
           onLoginSuccess={(email) => {
             setSessionExpiredMessage(null);
             setShowAuthView(false);
             setUserEmail(email);
+            try {
+              const url = new URL(window.location.href);
+              url.searchParams.delete('auth');
+              window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
+            } catch {}
             fetchProfile().then((p) => setCurrentUser(p)).catch(() => {});
           }}
           sessionNotice={sessionExpiredMessage}

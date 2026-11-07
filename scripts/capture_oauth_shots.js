@@ -9,6 +9,7 @@ const SCREENSHOTS_DIR = path.join(__dirname, '..', 'screenshots');
 const BRAIN_DIRS = [
   'C:\\Users\\ASUS\\.gemini\\antigravity\\brain\\96f30384-1a5b-49aa-911d-1943ab3ba472',
   'C:\\Users\\ASUS\\.gemini\\antigravity\\brain\\0f626320-fda7-4886-b746-3f6e3d439983',
+  'C:\\Users\\ASUS\\.gemini\\antigravity\\brain\\d14c3bc4-d7e1-41c6-b24a-909a4da0bd58',
 ];
 const PUBLIC_SHOTS_DIR = path.join(__dirname, '..', 'ui', 'public', 'shots');
 const DIST_SHOTS_DIR = path.join(__dirname, '..', 'ui', 'dist', 'shots');

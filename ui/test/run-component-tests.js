@@ -2296,6 +2296,8 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(appSource, /setShowAuthView\(true\)/, 'App.tsx must set showAuthView to true on handleLogout to redirect directly to LoginPage');
     assert.doesNotMatch(appSource, /handleLogout[^}]*setShowAuthView\(false\)/, 'handleLogout must never drop user back to landing page by setting showAuthView false');
     assert.match(appSource, /searchParams\.delete\('tab'\)/, 'handleLogout must clean up tab query parameter');
+    assert.match(appSource, /searchParams\.set\('auth', 'login'\)/, 'handleLogout must persist auth=login parameter in URL');
+    assert.match(appSource, /initialMode=\{authMode\}/, 'App.tsx must forward authMode to LoginPage');
 
     // 2. OAuth API client contract in api.ts
     assert.match(apiSource, /export async function oauthLogin/, 'api.ts must export oauthLogin helper function');
@@ -2306,6 +2308,7 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(loginSource, /GitHubIcon/, 'LoginPage must include GitHubIcon');
     assert.match(loginSource, /GitLabIcon/, 'LoginPage must include GitLabIcon');
     assert.match(loginSource, /atau lanjutkan dengan email/, 'LoginPage must render "atau lanjutkan dengan email" clean UI divider');
+    assert.match(loginSource, /initialMode\?: 'login' \| 'register'/, 'LoginPage must declare initialMode prop');
 
     // 4. Distinct Provider Modals & Experiences
     assert.match(loginSource, /alex\.developer@gmail\.com/, 'Google OAuth experience must include Google Account Chooser identity');
@@ -2313,6 +2316,8 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(loginSource, /devops\.lead@gitlab\.company/, 'GitLab OAuth experience must include GitLab DevOps identity');
     assert.match(loginSource, /github\.com\/login\/oauth\/authorize/, 'GitHub OAuth modal must render authentic GitHub authorization header');
     assert.match(loginSource, /gitlab\.com \(SaaS SSO\)/, 'GitLab OAuth modal must render authentic GitLab SaaS SSO header');
+    assert.match(loginSource, /Gunakan akun GitHub lainnya/, 'GitHub modal must support custom account login');
+    assert.match(loginSource, /Gunakan akun GitLab lainnya/, 'GitLab modal must support custom account login');
 
     // 5. Direct login without OTP prompt
     assert.match(loginSource, /executeOAuth/, 'LoginPage must provide instant direct OAuth execution');
