@@ -676,12 +676,19 @@ code, kbd, pre, .mono, .font-mono {
   color: var(--muted);
   transition: color var(--dur-fast) var(--ease-out);
   border-radius: 9999px;
-  padding: 6px 12px;
-  font-size: 0.875rem;
+  padding: 5px 8px;
+  font-size: 0.8125rem;
   font-weight: 500;
   position: relative;
   text-decoration: none;
   flex-shrink: 0;
+}
+
+@media (min-width: 1024px) {
+  .rg-landing .navlink {
+    padding: 6px 12px;
+    font-size: 0.875rem;
+  }
 }
 
 .rg-landing .navlink:hover {
