@@ -3,12 +3,12 @@
 @tailwind utilities;
 
 :root {
-  --bg: #fafafa;
+  --bg: #f0f5fa;
   --surface: #ffffff;
-  --border: #e4e4e7;
-  --text: #18181b;
-  --text-muted: #71717a;
-  --hover: #f4f4f5;
+  --border: #e2e8f0;
+  --text: #0f172a;
+  --text-muted: #64748b;
+  --hover: #eaf1f7;
   color-scheme: light;
 }
 
@@ -46,15 +46,15 @@ code, kbd, pre, .mono, .font-mono {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #d4d4d8;
+  background: #cbd5e1;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #a1a1aa;
+  background: #94a3b8;
 }
 
 @keyframes flash-in {
-  from { background-color: #f4f4f5; }
+  from { background-color: #f1f5f9; }
   to { background-color: transparent; }
 }
 
@@ -78,30 +78,35 @@ code, kbd, pre, .mono, .font-mono {
 }
 
 .rg-canvas-pattern {
-  background-image: radial-gradient(#e4e4e7 1px, transparent 1px);
-  background-size: 24px 24px;
+  background-color: #f0f5fa;
+  background-image: 
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(186, 230, 253, 0.45), transparent 70%),
+    radial-gradient(ellipse 60% 40% at 85% 15%, rgba(212, 243, 249, 0.35), transparent 60%),
+    radial-gradient(ellipse 50% 30% at 15% 25%, rgba(224, 242, 254, 0.40), transparent 60%),
+    radial-gradient(rgba(148, 163, 184, 0.35) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 100% 100%, 24px 24px;
 }
 
 .rg-landing {
-  --bg: #ffffff;
+  --bg: #f0f5fa;
   --surface: #ffffff;
-  --ink: #09090b;
-  --ink-soft: #18181b;
-  --muted: #52525b;
-  --faint: #71717a;
-  --line: #e4e4e7;
-  --line-strong: #d4d4d8;
-  --bone: #ffffff;
-  --bone-bar: #f4f4f5;
-  --bone-line: #e4e4e7;
-  --bone-ink: #71717a;
+  --ink: #090d16;
+  --ink-soft: #0f172a;
+  --muted: #475569;
+  --faint: #64748b;
+  --line: #e2e8f0;
+  --line-strong: #cbd5e1;
+  --bone: #f8fafc;
+  --bone-bar: #eef4f9;
+  --bone-line: #e2e8f0;
+  --bone-ink: #64748b;
   --dark: #09090b;
   --dark-ink: #ffffff;
-  --dark-muted: #a1a1aa;
-  --dark-line: #27272a;
-  --dark-panel: #18181b;
-  --dark-panel-line: #27272a;
-  --dark-panel-ink: #a1a1aa;
+  --dark-muted: #94a3b8;
+  --dark-line: #1e293b;
+  --dark-panel: #0f172a;
+  --dark-panel-line: #1e293b;
+  --dark-panel-ink: #94a3b8;
   --font-sans: "Geist Variable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --dur-quick: 0.15s;
@@ -113,7 +118,13 @@ code, kbd, pre, .mono, .font-mono {
   --maxw: 1360px;
   --pad: clamp(20px, 5.5vw, 84px);
   --radius: 14px;
-  background: var(--bg);
+  background-color: #f0f5fa;
+  background-image: 
+    radial-gradient(ellipse 90% 40% at 50% 0%, rgba(186, 230, 253, 0.35), transparent 60%),
+    radial-gradient(ellipse 70% 30% at 90% 20%, rgba(212, 243, 249, 0.25), transparent 50%),
+    radial-gradient(ellipse 60% 25% at 10% 40%, rgba(224, 242, 254, 0.30), transparent 50%),
+    radial-gradient(ellipse 80% 35% at 50% 70%, rgba(186, 230, 253, 0.20), transparent 60%);
+  background-attachment: fixed;
   color: var(--ink);
   font-family: var(--font-sans);
   font-size: 16px;
@@ -610,7 +621,7 @@ code, kbd, pre, .mono, .font-mono {
 }
 
 .rg-landing .nav__isle.is-glass {
-  min-width: 156px;
+  min-width: 168px;
   background: transparent;
   border: 0;
   box-shadow: none;
@@ -623,9 +634,9 @@ code, kbd, pre, .mono, .font-mono {
   pointer-events: none;
   backdrop-filter: blur(22px) saturate(180%);
   -webkit-backdrop-filter: blur(22px) saturate(180%);
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(228, 228, 231, 0.95);
-  box-shadow: 0 12px 34px -10px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+  background: rgba(255, 255, 255, 0.90);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  box-shadow: 0 12px 34px -10px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
   transition: opacity 0.4s cubic-bezier(0.22, 1, 0.36, 1), transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: opacity, transform;
 }
@@ -658,6 +669,7 @@ code, kbd, pre, .mono, .font-mono {
   align-items: center;
   gap: 12px;
   display: flex;
+  flex-shrink: 0;
 }
 
 .rg-landing .navlink {
@@ -669,6 +681,7 @@ code, kbd, pre, .mono, .font-mono {
   font-weight: 500;
   position: relative;
   text-decoration: none;
+  flex-shrink: 0;
 }
 
 .rg-landing .navlink:hover {

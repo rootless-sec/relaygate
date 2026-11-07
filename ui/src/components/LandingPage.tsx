@@ -769,6 +769,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isNavHovered, setIsNavHovered] = useState(false);
   const [isDesktop, setIsDesktop] = useState(true);
+  const [detailsTab, setDetailsTab] = useState<'ingress' | 'persistence' | 'dispatch'>('ingress');
   const wsStepsRef = useRef<HTMLOListElement>(null);
 
   useEffect(() => {
@@ -818,12 +819,12 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
   };
 
   return (
-    <div className="rg-landing min-h-screen bg-white text-zinc-900 selection:bg-zinc-900 selection:text-white">
+    <div className="rg-landing min-h-screen text-zinc-900 selection:bg-zinc-900 selection:text-white">
       {/* =====================================================================
           TOP HEADER & HERO SECTION
-          Optical White Canvas & Interactive Routing Pipeline Centerpiece
+          Subtle Cool-Tinted Soft Blue Canvas & Interactive Routing Pipeline Centerpiece
       ===================================================================== */}
-      <div className="relative overflow-hidden bg-white rg-canvas-pattern pt-20">
+      <div className="relative overflow-hidden rg-canvas-pattern pt-20">
         <header className="nav-fixed w-full">
           <div className="nav__wrap px-4 sm:px-6">
             <div
@@ -835,7 +836,9 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
               onMouseEnter={() => setIsNavHovered(true)}
               onMouseLeave={() => setIsNavHovered(false)}
               style={{
-                maxWidth: isScrolled ? (isDesktop ? (isNavHovered ? 760 : 156) : '100%') : 1240,
+                maxWidth: isScrolled
+                  ? (isDesktop ? (isNavHovered ? 'min(920px, calc(100vw - 32px))' : 168) : '100%')
+                  : 1240,
                 transition: 'max-width 0.45s cubic-bezier(0.22, 1, 0.36, 1), padding 0.35s ease, background-color 0.3s ease',
               }}
             >
@@ -862,7 +865,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                 className={`nav__chrome ${
                   isScrolled && !isNavHovered
                     ? 'max-w-0 opacity-0 pointer-events-none'
-                    : 'max-w-[620px] opacity-100 pointer-events-auto'
+                    : 'max-w-[780px] opacity-100 pointer-events-auto'
                 }`}
                 style={{
                   transition: 'max-width 0.45s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease, filter 0.3s ease',
@@ -870,13 +873,13 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                 }}
               >
                 <div
-                  className="nav__chrome-inner flex items-center"
+                  className="nav__chrome-inner flex items-center shrink-0"
                   style={{
                     transform: isScrolled && !isNavHovered ? 'translateX(-18px)' : 'translateX(0)',
                     transition: 'transform 0.45s cubic-bezier(0.22, 1, 0.36, 1)',
                   }}
                 >
-                  <nav aria-label="Primary navigation" className="hidden md:flex items-center gap-7 ml-7 mr-5">
+                  <nav aria-label="Primary navigation" className="hidden md:flex items-center gap-5 lg:gap-6 ml-5 lg:ml-7 mr-4 lg:mr-5 shrink-0">
                     <a
                       href="#native"
                       onClick={(e) => {
@@ -929,18 +932,18 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                     </a>
                   </nav>
 
-                  <div className="hidden md:flex items-center gap-2">
+                  <div className="hidden md:flex items-center gap-2 shrink-0">
                     <button
                       type="button"
                       onClick={onOpenLogin}
-                      className="min-h-[44px] px-3.5 py-1.5 rounded-lg text-xs font-medium text-zinc-700 bg-zinc-100 hover:bg-zinc-200 border border-zinc-200 transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 cursor-pointer"
+                      className="min-h-[44px] px-3.5 py-1.5 rounded-lg text-xs font-medium text-zinc-700 bg-zinc-100 hover:bg-zinc-200 border border-zinc-200 transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 cursor-pointer shrink-0 whitespace-nowrap"
                     >
                       Sign in
                     </button>
                     <button
                       type="button"
                       onClick={onOpenRegister}
-                      className="min-h-[44px] px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-zinc-900 hover:bg-zinc-800 transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 cursor-pointer shadow-xs"
+                      className="min-h-[44px] px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-zinc-900 hover:bg-zinc-800 transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 cursor-pointer shadow-xs shrink-0 whitespace-nowrap"
                     >
                       Get started
                     </button>
@@ -1328,76 +1331,187 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
           </div>
         </section>
 
-        {/* 6. Details & 9-Tile Grid */}
-        <section className="details rg-container">
-          <h2 className="headline details__title">Details.</h2>
+        {/* 6. Substantive Details & Ingestion Architecture */}
+        <section className="details rg-container" id="details">
+          <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 gap-4">
+            <div>
+              <p className="text-xs font-mono uppercase tracking-widest text-zinc-500 font-semibold mb-2">
+                Under The Hood
+              </p>
+              <h2 className="headline details__title !mb-0">Details.</h2>
+            </div>
+            <p className="text-sm text-zinc-600 max-w-[48ch] text-pretty">
+              Deterministic wire mechanics, zero-dependency SQLite WAL persistence, and isolated retry taxonomy.
+            </p>
+          </div>
 
-          <div className="details__row">
-            <div className="details__item" style={{ '--grow': 0.72 } as React.CSSProperties}>
-              <figure>
-                <div className="shot shot--bare">
-                  <div className="rg-win p-4 font-mono text-xs space-y-2 text-left">
-                    <p className="text-zinc-500 text-[11px] uppercase tracking-wider font-semibold">Credential Redaction</p>
-                    <div className="p-2.5 rounded bg-zinc-50 border border-zinc-200 flex justify-between">
-                      <span className="text-zinc-500">Authorization</span>
-                      <span className="text-zinc-900 font-semibold">••••••••</span>
-                    </div>
-                    <div className="p-2.5 rounded bg-zinc-50 border border-zinc-200 flex justify-between">
-                      <span className="text-zinc-500">X-Callback-Token</span>
-                      <span className="text-zinc-900 font-semibold">&lt;TOKEN&gt;</span>
-                    </div>
-                  </div>
-                </div>
-                <figcaption>
-                  <h3 className="subhead">Sensitive header masking</h3>
-                  <p>Credentials stay masked in the UI and export as &lt;TOKEN&gt; in cURL.</p>
-                </figcaption>
-              </figure>
+          <div className="shot shot--bare rounded-2xl bg-white border border-zinc-200/90 shadow-xs overflow-hidden">
+            {/* Interactive Tab Header */}
+            <div className="px-4 py-3 bg-zinc-50/80 border-b border-zinc-200 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
+                <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
+                <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
+                <span className="ml-2 font-mono text-[11px] text-zinc-500 hidden sm:inline">
+                  relaygate-core :: telemetry-inspector
+                </span>
+              </div>
+
+              {/* Tab Switcher */}
+              <div className="flex items-center gap-1 bg-zinc-200/60 p-1 rounded-lg">
+                {[
+                  { id: 'ingress', label: '1. Wire Ingress & Masking' },
+                  { id: 'persistence', label: '2. SQLite WAL Barrier' },
+                  { id: 'dispatch', label: '3. Retry & DLQ Taxonomy' },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setDetailsTab(tab.id as any)}
+                    className={`min-h-[36px] px-3 py-1 text-xs font-medium rounded-md transition-all duration-150 cursor-pointer active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 ${
+                      detailsTab === tab.id
+                        ? 'bg-white text-zinc-950 font-semibold shadow-xs'
+                        : 'text-zinc-600 hover:text-zinc-900'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <div className="details__item details__item--wide" style={{ '--grow': 1.32 } as React.CSSProperties}>
-              <figure>
-                <div className="shot shot--bare">
-                  <div className="rg-win p-4 font-mono text-xs space-y-3 text-left">
-                    <div className="flex items-center justify-between">
-                      <span className="text-zinc-900 font-semibold">Exponential Backoff Schedule</span>
-                      <span className="text-zinc-500">5 Attempts · ±15% Jitter</span>
+            {/* Tab Content */}
+            <div className="p-5 sm:p-7">
+              {detailsTab === 'ingress' && (
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                  <div className="lg:col-span-7 bg-zinc-950 text-zinc-100 rounded-xl p-4 sm:p-5 font-mono text-xs overflow-x-auto leading-relaxed border border-zinc-800">
+                    <div className="flex items-center justify-between pb-3 mb-3 border-b border-zinc-800 text-zinc-400 text-[11px]">
+                      <span>INBOUND WIRE PROTOCOL (HTTP POST)</span>
+                      <span className="text-zinc-300">202 ACCEPTED · 0.38ms</span>
                     </div>
-                    <div className="grid grid-cols-5 gap-1.5 text-center">
-                      {['1s', '2s', '4s', '8s', '16s'].map((delay, i) => (
-                        <div key={delay} className="p-2 rounded bg-zinc-50 border border-zinc-200">
-                          <p className="text-zinc-500 text-[10px]">TRY {i + 1}</p>
-                          <p className="text-zinc-950 font-bold mt-0.5">{delay}</p>
-                        </div>
-                      ))}
-                    </div>
+                    <p className="text-zinc-400">POST /api/v1/ingest/stripe HTTP/1.1</p>
+                    <p className="text-zinc-400">Host: api.relaygate.internal</p>
+                    <p className="text-zinc-300">Stripe-Signature: t=1730995200,v1=9a2b84cf10e8b26... <span className="text-zinc-400 font-sans text-[11px]">(HMAC verified)</span></p>
+                    <p className="text-zinc-300">Authorization: •••••••••••• <span className="text-zinc-400 font-sans text-[11px]">(masked at ingress boundary)</span></p>
+                    <p className="text-zinc-400">Content-Type: application/json</p>
+                    <p className="text-zinc-400 mt-2">{"{"}</p>
+                    <p className="text-zinc-300 ml-4">&quot;id&quot;: &quot;evt_1P8xK2LkdIwHuVnk0Z81p9Qc&quot;,</p>
+                    <p className="text-zinc-300 ml-4">&quot;type&quot;: &quot;payment_intent.succeeded&quot;,</p>
+                    <p className="text-zinc-300 ml-4">&quot;created&quot;: 1730995200,</p>
+                    <p className="text-zinc-300 ml-4">&quot;data&quot;: {'{'} &quot;object&quot;: {'{'} &quot;amount&quot;: 4200, &quot;status&quot;: &quot;succeeded&quot; {'}'} {'}'}</p>
+                    <p className="text-zinc-400">{"}"}</p>
                   </div>
-                </div>
-                <figcaption>
-                  <h3 className="subhead">Attempt budget &amp; quota reset</h3>
-                  <p>See which attempt each delivery is on and reset the full 5-attempt budget on replay.</p>
-                </figcaption>
-              </figure>
-            </div>
 
-            <div className="details__item" style={{ '--grow': 0.72 } as React.CSSProperties}>
-              <figure>
-                <div className="shot shot--bare">
-                  <div className="rg-win p-4 font-mono text-xs space-y-2 text-left">
-                    <p className="text-zinc-500 text-[11px] uppercase tracking-wider font-semibold">Batch Audit Summary</p>
-                    <div className="p-2.5 rounded bg-zinc-50 border border-zinc-200 text-zinc-900 font-medium">
-                      12 lolos verifikasi
-                    </div>
-                    <div className="p-2.5 rounded bg-zinc-50 border border-zinc-200 text-zinc-500">
-                      2 dikecualikan otomatis
+                  <div className="lg:col-span-5 space-y-4">
+                    <h3 className="text-base font-semibold text-zinc-900 tracking-tight">
+                      Edge signature validation &amp; zero credential leakage
+                    </h3>
+                    <p className="text-xs sm:text-sm text-zinc-600 leading-relaxed">
+                      Every inbound delivery is validated against declared endpoint secrets using constant-time cryptographic digests. Signatures outside the 300s window are rejected, and sensitive headers are redacted before persistence or UI rendering.
+                    </p>
+                    <div className="space-y-2 pt-2 border-t border-zinc-200 text-xs font-mono">
+                      <div className="flex justify-between py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
+                        <span className="text-zinc-500">HMAC Verification</span>
+                        <span className="font-semibold text-zinc-900">Constant-time SHA-256 (0.09ms)</span>
+                      </div>
+                      <div className="flex justify-between py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
+                        <span className="text-zinc-500">Timestamp Drift</span>
+                        <span className="font-semibold text-zinc-900">Δt = +0.4s (within 300s window)</span>
+                      </div>
+                      <div className="flex justify-between py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
+                        <span className="text-zinc-500">Header Redaction</span>
+                        <span className="font-semibold text-zinc-900">Auth, Tokens, Secrets &amp; Signatures</span>
+                      </div>
                     </div>
                   </div>
                 </div>
-                <figcaption>
-                  <h3 className="subhead">Honest bulk replay</h3>
-                  <p>Ineligible signature defects are excluded automatically before replay.</p>
-                </figcaption>
-              </figure>
+              )}
+
+              {detailsTab === 'persistence' && (
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                  <div className="lg:col-span-7 bg-zinc-950 text-zinc-100 rounded-xl p-4 sm:p-5 font-mono text-xs overflow-x-auto leading-relaxed border border-zinc-800">
+                    <div className="flex items-center justify-between pb-3 mb-3 border-b border-zinc-800 text-zinc-400 text-[11px]">
+                      <span>EMBEDDED SQLITE WRITE-AHEAD LOG (WAL)</span>
+                      <span className="text-zinc-300">FSYNC BARRIER · 0.18ms</span>
+                    </div>
+                    <p className="text-zinc-500">-- Immediate fsync commit to disk before returning HTTP 202</p>
+                    <p className="text-zinc-300">PRAGMA journal_mode = WAL;</p>
+                    <p className="text-zinc-300">PRAGMA synchronous = NORMAL;</p>
+                    <p className="text-zinc-400 mt-2">BEGIN IMMEDIATE;</p>
+                    <p className="text-zinc-300 ml-4">INSERT INTO events (</p>
+                    <p className="text-zinc-400 ml-8">id, endpoint_id, provider, payload, headers, status, attempts</p>
+                    <p className="text-zinc-300 ml-4">) VALUES (</p>
+                    <p className="text-zinc-400 ml-8">&apos;evt_01J8F9&apos;, &apos;ep_prod_billing&apos;, &apos;stripe&apos;, :payload, :sanitized_headers, &apos;PENDING&apos;, 0</p>
+                    <p className="text-zinc-300 ml-4">);</p>
+                    <p className="text-zinc-400">COMMIT; <span className="text-zinc-500">-- Flushed to disk. Safe against process crashes.</span></p>
+                  </div>
+
+                  <div className="lg:col-span-5 space-y-4">
+                    <h3 className="text-base font-semibold text-zinc-900 tracking-tight">
+                      Zero broker failure modes &amp; crash-proof disk barrier
+                    </h3>
+                    <p className="text-xs sm:text-sm text-zinc-600 leading-relaxed">
+                      RelayGate eliminates external message brokers like Redis or Kafka. Inbound webhooks are committed to an embedded SQLite database in WAL mode before acknowledging the sender, ensuring zero dropped events across restarts.
+                    </p>
+                    <div className="space-y-2 pt-2 border-t border-zinc-200 text-xs font-mono">
+                      <div className="flex justify-between py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
+                        <span className="text-zinc-500">Persistence Architecture</span>
+                        <span className="font-semibold text-zinc-900">Embedded SQLite (WAL Mode)</span>
+                      </div>
+                      <div className="flex justify-between py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
+                        <span className="text-zinc-500">External Dependencies</span>
+                        <span className="font-semibold text-zinc-900">0 (Single compiled Go binary)</span>
+                      </div>
+                      <div className="flex justify-between py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
+                        <span className="text-zinc-500">Disk Commit Latency</span>
+                        <span className="font-semibold text-zinc-900">0.18ms synchronous fsync</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {detailsTab === 'dispatch' && (
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                  <div className="lg:col-span-7 bg-zinc-950 text-zinc-100 rounded-xl p-4 sm:p-5 font-mono text-xs overflow-x-auto leading-relaxed border border-zinc-800">
+                    <div className="flex items-center justify-between pb-3 mb-3 border-b border-zinc-800 text-zinc-400 text-[11px]">
+                      <span>DISPATCH RETRY &amp; EXPONENTIAL BACKOFF</span>
+                      <span className="text-zinc-300">5 ATTEMPTS · ±15% JITTER</span>
+                    </div>
+                    <p className="text-zinc-500">-- Downstream: https://billing.internal/webhooks</p>
+                    <p className="text-zinc-300">Attempt 1: delay 1.0s (actual 1.12s)  -&gt;  HTTP 503 [Downstream Outage]</p>
+                    <p className="text-zinc-300">Attempt 2: delay 2.0s (actual 1.94s)  -&gt;  HTTP 502 [Bad Gateway]</p>
+                    <p className="text-zinc-300">Attempt 3: delay 4.0s (actual 4.15s)  -&gt;  HTTP 200 [Delivered Successfully]</p>
+                    <div className="mt-3 pt-3 border-t border-zinc-800 text-zinc-400 text-[11px] flex justify-between">
+                      <span>Status: DELIVERED</span>
+                      <span>Delivery Duration: 7.21s total</span>
+                    </div>
+                  </div>
+
+                  <div className="lg:col-span-5 space-y-4">
+                    <h3 className="text-base font-semibold text-zinc-900 tracking-tight">
+                      8 canonical failure families with honest retry quotas
+                    </h3>
+                    <p className="text-xs sm:text-sm text-zinc-600 leading-relaxed">
+                      Errors are classified into 8 explicit failure families. Downstream timeouts receive exponential backoff and can be replayed with a reset 5-attempt budget, while signature and format defects are isolated immediately in the dead-letter queue.
+                    </p>
+                    <div className="space-y-2 pt-2 border-t border-zinc-200 text-xs font-mono">
+                      <div className="flex justify-between py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
+                        <span className="text-zinc-500">Backoff Formula</span>
+                        <span className="font-semibold text-zinc-900">delay = min(1s * 2^n, 60s) ± 15%</span>
+                      </div>
+                      <div className="flex justify-between py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
+                        <span className="text-zinc-500">DLQ Isolation</span>
+                        <span className="font-semibold text-zinc-900">Signature defects quarantined</span>
+                      </div>
+                      <div className="flex justify-between py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
+                        <span className="text-zinc-500">Bulk Replay Audit</span>
+                        <span className="font-semibold text-zinc-900">Auto-excludes defective items</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

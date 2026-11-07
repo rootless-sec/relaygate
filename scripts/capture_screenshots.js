@@ -95,8 +95,8 @@ async function run() {
 
     // Launch Chrome / Edge headless
     const chromePaths = [
-      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
       'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
     ];
     const chromePath = chromePaths.find((p) => fs.existsSync(p));
     if (!chromePath) {
@@ -111,6 +111,7 @@ async function run() {
     console.log('[Script] Launching browser at:', chromePath);
     const browserProc = spawn(chromePath, [
       '--headless=new',
+      '--disable-gpu',
       '--no-sandbox',
       '--remote-allow-origins=*',
       `--remote-debugging-port=${CDP_PORT}`,
@@ -122,9 +123,12 @@ async function run() {
       'about:blank',
     ]);
 
+    browserProc.stderr?.on('data', (d) => console.log('[Browser stderr]', d.toString().trim()));
+    browserProc.on('exit', (code) => console.log('[Browser process exited with code]', code));
+
     let cdpTargets;
     const cdpStart = Date.now();
-    while (Date.now() - cdpStart < 10000) {
+    while (Date.now() - cdpStart < 15000) {
       try {
         cdpTargets = await httpRequest({
           hostname: '127.0.0.1',
@@ -201,7 +205,26 @@ async function run() {
     const snapProduct = await send('Page.captureScreenshot', { format: 'png' });
     fs.writeFileSync(path.join(SCREENSHOTS_DIR, '00b2_landing_product_desktop.png'), Buffer.from(snapProduct.data, 'base64'));
 
-    // Scroll to #workspace & details sections
+    // Test scrolled floating navbar (expanded state via real CDP mouseMoved event)
+    const isleBox = await send('Runtime.evaluate', {
+      expression: `
+        (() => {
+          window.scrollTo(0, 800);
+          const isle = document.querySelector('.nav__isle');
+          if (!isle) return JSON.stringify({ x: 720, y: 28 });
+          const rect = isle.getBoundingClientRect();
+          return JSON.stringify({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+        })()
+      `,
+    });
+    const navPos = JSON.parse(isleBox.result.value);
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: navPos.x, y: navPos.y });
+    await wait(700);
+    console.log('[Script] Capturing 00a_scrolled_floating_navbar.png');
+    const snapNav = await send('Page.captureScreenshot', { format: 'png' });
+    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '00a_scrolled_floating_navbar.png'), Buffer.from(snapNav.data, 'base64'));
+
+    // Scroll to #workspace section
     await send('Runtime.evaluate', {
       expression: `document.getElementById('workspace')?.scrollIntoView({ behavior: 'instant' });`,
     });
@@ -209,6 +232,15 @@ async function run() {
     console.log('[Script] Capturing 00c_landing_workspace_desktop.png');
     const snapWs = await send('Page.captureScreenshot', { format: 'png' });
     fs.writeFileSync(path.join(SCREENSHOTS_DIR, '00c_landing_workspace_desktop.png'), Buffer.from(snapWs.data, 'base64'));
+
+    // Scroll to #details section (substantive architecture workbench)
+    await send('Runtime.evaluate', {
+      expression: `document.getElementById('details')?.scrollIntoView({ behavior: 'instant' });`,
+    });
+    await wait(600);
+    console.log('[Script] Capturing 00c2_landing_details_desktop.png');
+    const snapDetails = await send('Page.captureScreenshot', { format: 'png' });
+    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '00c2_landing_details_desktop.png'), Buffer.from(snapDetails.data, 'base64'));
 
     // Check horizontal overflow at 1440
     const overflowCheck = await send('Runtime.evaluate', {
