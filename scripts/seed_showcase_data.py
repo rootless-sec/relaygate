@@ -8,13 +8,17 @@ db_path = sys.argv[1] if len(sys.argv) > 1 else r'C:\Users\ASUS\.gemini\antigrav
 conn = sqlite3.connect(db_path)
 c = conn.cursor()
 
-# 1. Insert Endpoints
+# 1. Clear previous showcase data to prevent stale failures
+c.execute("DELETE FROM webhook_events")
+c.execute("DELETE FROM endpoints")
+
+# 2. Insert Active Production Endpoints
 endpoints = [
-    ('ep_sample', 'Sample Stripe Webhook', 'whsec_sample_secret_key', 'https://billing.internal.net/v1/stripe/events', 'stripe', 1, '2026-11-07 09:55:00'),
     ('ep_stripe_billing', 'Stripe Billing Webhook', 'whsec_992a8f10c44a72d1', 'https://billing.internal.net/v1/stripe/events', 'stripe', 1, '2026-11-07 10:00:00'),
     ('ep_github_ci', 'GitHub Actions Ingress', 'ghsec_741c0b22a1f0983c', 'https://runner.internal.net/hooks/ci', 'github', 1, '2026-11-07 10:05:00'),
     ('ep_xendit_payout', 'Xendit Ledger Hook', 'xnd_token_510e4d89bc01', 'https://ledger.internal.net/xendit/callback', 'xendit', 1, '2026-11-07 10:10:00'),
-    ('ep_shopify_orders', 'Shopify Fulfillment Ingress', 'shsec_309f1a77e810', 'https://fulfillment.internal.net/shopify/orders', 'shopify', 1, '2026-11-07 10:15:00')
+    ('ep_shopify_orders', 'Shopify Fulfillment Ingress', 'shsec_309f1a77e810', 'https://fulfillment.internal.net/shopify/orders', 'shopify', 1, '2026-11-07 10:15:00'),
+    ('ep_midtrans_pay', 'Midtrans Payment Hook', 'mid_sec_88192a5bc301', 'https://payments.internal.net/v1/midtrans/notify', 'midtrans', 1, '2026-11-07 10:20:00')
 ]
 
 for ep in endpoints:
@@ -23,7 +27,7 @@ for ep in endpoints:
         VALUES (?, ?, ?, ?, ?, ?, ?)
     ''', ep)
 
-# 2. Insert Webhook Events
+# 3. Insert 100% Verified, Healthy, Delivered Webhook Events (Zero Failures, 100% Success Rate)
 events = [
     (
         'evt_992a8f10',
@@ -124,6 +128,29 @@ events = [
         '2026-11-07 14:48:33'
     ),
     (
+        'evt_88192a5b',
+        'ep_midtrans_pay',
+        'midtrans',
+        '103.208.23.11',
+        json.dumps({
+            "Content-Type": "application/json",
+            "User-Agent": "Veritrans/1.0"
+        }),
+        b'{"order_id":"order-99214","transaction_status":"settlement","gross_amount":"250000.00","payment_type":"qris","transaction_time":"2026-11-07 14:50:00"}',
+        'mid_sig_88192a5b...',
+        1,
+        'DELIVERED',
+        200,
+        1,
+        5,
+        None,
+        None,
+        None,
+        None,
+        '2026-11-07 14:50:22',
+        '2026-11-07 14:50:22'
+    ),
+    (
         'evt_499cd52a',
         'ep_stripe_billing',
         'stripe',
@@ -133,19 +160,67 @@ events = [
             "Stripe-Signature": "t=1700001000,v1=499cd52a••••••••",
             "Authorization": "Bearer sec_live_••••••••"
         }),
-        b'{"id":"evt_499cd52a","object":"event","type":"customer.subscription.created","data":{"subscription":"sub_99214","status":"active"}}',
+        b'{"id":"evt_499cd52a","object":"event","type":"customer.subscription.created","data":{"subscription":"sub_99214","status":"active","plan":"scale_pro"}}',
         't=1700001000,v1=499cd52a...',
         1,
-        'FAILED',
-        504,
+        'DELIVERED',
+        200,
+        1,
         5,
-        5,
-        'HTTP 504 Gateway Timeout: Downstream service internal.billing failed to respond within 5000ms budget',
-        'ERR_DOWNSTREAM_5XX',
-        '2026-11-07 14:55:00',
         None,
-        '2026-11-07 14:50:00',
+        None,
+        None,
+        None,
+        '2026-11-07 14:55:00',
         '2026-11-07 14:55:00'
+    ),
+    (
+        'evt_32a5285c',
+        'ep_github_ci',
+        'github',
+        '140.82.112.22',
+        json.dumps({
+            "Content-Type": "application/json",
+            "X-Hub-Signature-256": "sha256=32a5285c••••••••",
+            "X-GitHub-Event": "push"
+        }),
+        b'{"ref":"refs/heads/main","after":"4b34192","commits":[{"id":"4b34192","message":"feat(core): edge telemetry pipeline"}]}',
+        'sha256=32a5285c...',
+        1,
+        'DELIVERED',
+        200,
+        1,
+        5,
+        None,
+        None,
+        None,
+        None,
+        '2026-11-07 15:00:15',
+        '2026-11-07 15:00:15'
+    ),
+    (
+        'evt_10029c1f',
+        'ep_shopify_orders',
+        'shopify',
+        '23.227.38.64',
+        json.dumps({
+            "Content-Type": "application/json",
+            "X-Shopify-Hmac-Sha256": "10029c1f••••••••",
+            "X-Shopify-Topic": "inventory_levels/connect"
+        }),
+        b'{"location_id":682109,"inventory_item_id":901238,"available":450}',
+        '10029c1f...',
+        1,
+        'DELIVERED',
+        200,
+        1,
+        5,
+        None,
+        None,
+        None,
+        None,
+        '2026-11-07 15:05:40',
+        '2026-11-07 15:05:40'
     ),
     (
         'evt_e10029c1',
@@ -154,43 +229,44 @@ events = [
         '35.240.219.160',
         json.dumps({
             "Content-Type": "application/json",
-            "x-callback-token": "invalid_token_••••••••"
+            "x-callback-token": "xnd_token_••••••••"
         }),
-        b'{"id":"disb_bad","status":"PENDING"}',
-        'invalid_token_...',
-        -1,
-        'FAILED',
-        401,
+        b'{"id":"inv_820192","status":"PAID","amount":4500000,"payment_method":"OVO","paid_at":"2026-11-07T15:10:00Z"}',
+        'xnd_token_e10029c1...',
+        1,
+        'DELIVERED',
+        200,
         1,
         5,
-        'xendit callback token mismatch',
-        'ERR_SIGNATURE_MISMATCH',
-        '2026-11-07 15:02:11',
         None,
-        '2026-11-07 15:02:10',
-        '2026-11-07 15:02:11'
+        None,
+        None,
+        None,
+        '2026-11-07 15:10:25',
+        '2026-11-07 15:10:25'
     ),
     (
-        'evt_32a5285c',
-        'ep_github_ci',
-        'github',
-        '140.82.112.22',
+        'evt_66a210bc',
+        'ep_midtrans_pay',
+        'midtrans',
+        '103.208.23.11',
         json.dumps({
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "User-Agent": "Veritrans/1.0"
         }),
-        b'{"ref":"refs/heads/main"}',
-        None,
-        -1,
-        'FAILED',
-        400,
+        b'{"order_id":"order-99215","transaction_status":"capture","gross_amount":"1500000.00","fraud_status":"accept","payment_type":"credit_card"}',
+        'mid_sig_66a210bc...',
+        1,
+        'DELIVERED',
+        200,
         1,
         5,
-        'missing X-Hub-Signature-256 header',
-        'ERR_SIGNATURE_MISSING',
-        '2026-11-07 15:10:00',
         None,
-        '2026-11-07 15:10:00',
-        '2026-11-07 15:10:00'
+        None,
+        None,
+        None,
+        '2026-11-07 15:15:30',
+        '2026-11-07 15:15:30'
     )
 ]
 
@@ -204,5 +280,5 @@ for ev in events:
     ''', ev)
 
 conn.commit()
-print(f"Seeded {len(endpoints)} endpoints and {len(events)} webhook events.")
+print(f"Seeded {len(endpoints)} endpoints and {len(events)} 100% healthy delivered webhook events.")
 conn.close()

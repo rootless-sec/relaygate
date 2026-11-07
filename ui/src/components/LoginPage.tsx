@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Eye, EyeOff, Lock, Mail, ArrowRight, User, AlertCircle } from 'lucide-react';
 import { loginUser, registerUser, verifyRegistrationCode, resendVerificationCode } from '../api';
+import { RelayGateIcon } from './RelayGateLogo';
 
 interface LoginPageProps {
   onLoginSuccess: (email: string) => void;
@@ -244,21 +245,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialErr
         {/* Header with Authentic Brand Mark */}
         <div className="flex flex-col items-center text-center mb-6">
           <div className="flex items-center gap-2.5 mb-4">
-            <svg
-              width="32"
-              height="32"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="text-zinc-950 shrink-0"
-              aria-hidden="true"
-            >
-              <polygon points="12 2.5 20.2 7.25 20.2 16.75 12 21.5 3.8 16.75 3.8 7.25" />
-              <circle cx="12" cy="12" r="3.5" />
-            </svg>
+            <RelayGateIcon size={32} className="text-zinc-950 shrink-0" />
             <span className="text-xl font-bold tracking-tight text-zinc-950">RelayGate</span>
           </div>
           {mode === 'login' ? (

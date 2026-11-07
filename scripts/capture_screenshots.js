@@ -10,13 +10,14 @@ const SCREENSHOTS_DIR = path.join(__dirname, '..', 'screenshots');
 const BRAIN_DIR = 'C:\\Users\\ASUS\\.gemini\\antigravity\\brain\\0f626320-fda7-4886-b746-3f6e3d439983';
 const PUBLIC_SHOTS_DIR = path.join(__dirname, '..', 'ui', 'public', 'shots');
 const PUBLIC_DIR = path.join(__dirname, '..', 'ui', 'public');
+const DIST_SHOTS_DIR = path.join(__dirname, '..', 'ui', 'dist', 'shots');
+const DIST_DIR = path.join(__dirname, '..', 'ui', 'dist');
 
-if (!fs.existsSync(SCREENSHOTS_DIR)) {
-  fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
-}
-if (!fs.existsSync(BRAIN_DIR)) {
-  try { fs.mkdirSync(BRAIN_DIR, { recursive: true }); } catch {}
-}
+[SCREENSHOTS_DIR, BRAIN_DIR, PUBLIC_SHOTS_DIR, DIST_SHOTS_DIR].forEach((dir) => {
+  if (!fs.existsSync(dir)) {
+    try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+  }
+});
 
 function saveScreenshot(filename, base64Data) {
   const buf = Buffer.isBuffer(base64Data) ? base64Data : Buffer.from(base64Data, 'base64');
@@ -25,6 +26,11 @@ function saveScreenshot(filename, base64Data) {
     fs.writeFileSync(path.join(BRAIN_DIR, filename), buf);
   }
   return buf;
+}
+
+function syncShot(filename, buf) {
+  try { fs.writeFileSync(path.join(PUBLIC_SHOTS_DIR, filename), buf); } catch {}
+  try { fs.writeFileSync(path.join(DIST_SHOTS_DIR, filename), buf); } catch {}
 }
 
 function wait(ms) {
@@ -204,108 +210,9 @@ async function run() {
     await send('Page.enable');
     await send('Runtime.enable');
 
-    console.log('[Script] Navigating to http://127.0.0.1:' + PORT);
-    await send('Page.navigate', { url: `http://127.0.0.1:${PORT}` });
-    await wait(1500);
-
-    // 0. Capture Public Landing Page (Before Login) at 2x Retina
-    console.log('[Script] Capturing 00_landing_hero_desktop.png');
-    const snapHero = await send('Page.captureScreenshot', { format: 'png' });
-    saveScreenshot('00_landing_hero_desktop.png', snapHero.data);
-
-    // Scroll to below-the-fold #native & #product sections
-    await send('Runtime.evaluate', {
-      expression: `document.getElementById('native')?.scrollIntoView({ behavior: 'instant' });`,
-    });
-    await wait(600);
-    console.log('[Script] Capturing 00b_landing_sections_desktop.png');
-    const snapSections = await send('Page.captureScreenshot', { format: 'png' });
-    saveScreenshot('00b_landing_sections_desktop.png', snapSections.data);
-
-    // Scroll to #product section
-    await send('Runtime.evaluate', {
-      expression: `document.getElementById('product')?.scrollIntoView({ behavior: 'instant' });`,
-    });
-    await wait(600);
-    console.log('[Script] Capturing 00b2_landing_product_desktop.png');
-    const snapProduct = await send('Page.captureScreenshot', { format: 'png' });
-    saveScreenshot('00b2_landing_product_desktop.png', snapProduct.data);
-
-    // Test scrolled floating navbar (expanded state via real CDP mouseMoved event)
-    const isleBox = await send('Runtime.evaluate', {
-      expression: `
-        (() => {
-          window.scrollTo(0, 800);
-          const isle = document.querySelector('.nav__isle');
-          if (!isle) return JSON.stringify({ x: 720, y: 28 });
-          const rect = isle.getBoundingClientRect();
-          return JSON.stringify({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
-        })()
-      `,
-    });
-    const navPos = JSON.parse(isleBox.result.value);
-    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: navPos.x, y: navPos.y });
-    await wait(700);
-    console.log('[Script] Capturing 00a_scrolled_floating_navbar.png');
-    const snapNav = await send('Page.captureScreenshot', { format: 'png' });
-    saveScreenshot('00a_scrolled_floating_navbar.png', snapNav.data);
-
-    // Scroll to #workspace section
-    await send('Runtime.evaluate', {
-      expression: `document.getElementById('workspace')?.scrollIntoView({ behavior: 'instant' });`,
-    });
-    await wait(600);
-    console.log('[Script] Capturing 00c_landing_workspace_desktop.png');
-    const snapWs = await send('Page.captureScreenshot', { format: 'png' });
-    saveScreenshot('00c_landing_workspace_desktop.png', snapWs.data);
-
-    // Scroll to #details section (substantive architecture workbench)
-    await send('Runtime.evaluate', {
-      expression: `document.getElementById('details')?.scrollIntoView({ behavior: 'instant' });`,
-    });
-    await wait(600);
-    console.log('[Script] Capturing 00c2_landing_details_desktop.png');
-    const snapDetails = await send('Page.captureScreenshot', { format: 'png' });
-    saveScreenshot('00c2_landing_details_desktop.png', snapDetails.data);
-
-    // Scroll to #download section (Run RelayGate)
-    await send('Runtime.evaluate', {
-      expression: `document.getElementById('download')?.scrollIntoView({ behavior: 'instant' });`,
-    });
-    await wait(600);
-    console.log('[Script] Capturing 00e_landing_download_desktop.png');
-    const snapDownload = await send('Page.captureScreenshot', { format: 'png' });
-    saveScreenshot('00e_landing_download_desktop.png', snapDownload.data);
-
-    // Scroll to footer
-    await send('Runtime.evaluate', {
-      expression: `document.querySelector('footer')?.scrollIntoView({ behavior: 'instant' });`,
-    });
-    await wait(600);
-    console.log('[Script] Capturing 00f_landing_footer_desktop.png');
-    const snapFooter = await send('Page.captureScreenshot', { format: 'png' });
-    saveScreenshot('00f_landing_footer_desktop.png', snapFooter.data);
-
-    // Check horizontal overflow at 1440
-    const overflowCheck = await send('Runtime.evaluate', {
-      expression: `JSON.stringify({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth })`,
-    });
-    console.log('[Script] Overflow check:', overflowCheck.result.value);
-
-    // Test clicking "Open Console" -> LoginPage
-    await send('Runtime.evaluate', {
-      expression: `
-        window.scrollTo(0, 0);
-        const openBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim() === 'Open Console');
-        if (openBtn) openBtn.click();
-      `,
-    });
-    await wait(700);
-    console.log('[Script] Capturing 00d_landing_to_auth.png');
-    const snapAuth = await send('Page.captureScreenshot', { format: 'png' });
-    saveScreenshot('00d_landing_to_auth.png', snapAuth.data);
-
-    // Set auth in localStorage and reload
+    // -------------------------------------------------------------
+    // PHASE 1: Authenticated Console Screenshots (100% Healthy State)
+    // -------------------------------------------------------------
     const authPayload = JSON.stringify({
       token,
       email: user.email,
@@ -314,13 +221,16 @@ async function run() {
       user,
     });
 
+    console.log('[Script] Navigating to http://127.0.0.1:' + PORT + ' to set auth');
+    await send('Page.navigate', { url: `http://127.0.0.1:${PORT}` });
+    await wait(1200);
+
     await send('Runtime.evaluate', {
       expression: `
         localStorage.setItem('relaygate_auth', ${JSON.stringify(authPayload)});
         window.location.reload();
       `,
     });
-
     await wait(2000);
 
     // 1. Navigate to Overview Dashboard
@@ -331,26 +241,15 @@ async function run() {
         if (ovBtn) ovBtn.click();
       `,
     });
-    await wait(1000);
+    await wait(1200);
 
-    const layoutMetrics = await send('Runtime.evaluate', {
-      expression: `
-        JSON.stringify({
-          windowInnerHeight: window.innerHeight,
-          logoRect: document.querySelector('img[alt="RelayGate"]')?.getBoundingClientRect(),
-          sidebarHeaderRect: document.querySelector('aside > div:first-child > div:first-child')?.getBoundingClientRect(),
-          mainHeaderRect: document.querySelector('header')?.getBoundingClientRect(),
-        })
-      `,
-    });
-    console.log('[Script] Layout metrics:', layoutMetrics.result.value);
-
-    // 1. Dashboard Screenshot
+    // 1. Dashboard Screenshot (Overview)
     console.log('[Script] Capturing 01_dashboard.png');
     const snap1 = await send('Page.captureScreenshot', { format: 'png' });
     const dashBuf = saveScreenshot('01_dashboard.png', snap1.data);
-    fs.writeFileSync(path.join(PUBLIC_SHOTS_DIR, 'dashboard.png'), dashBuf);
-    fs.writeFileSync(path.join(PUBLIC_DIR, 'dashboard-preview.png'), dashBuf);
+    syncShot('dashboard.png', dashBuf);
+    try { fs.writeFileSync(path.join(PUBLIC_DIR, 'dashboard-preview.png'), dashBuf); } catch {}
+    try { fs.writeFileSync(path.join(DIST_DIR, 'dashboard-preview.png'), dashBuf); } catch {}
 
     // 2. Open Profile Modal
     console.log('[Script] Opening Profile Modal');
@@ -402,7 +301,8 @@ async function run() {
 
     console.log('[Script] Capturing 04_endpoints_view.png');
     const snap4 = await send('Page.captureScreenshot', { format: 'png' });
-    saveScreenshot('04_endpoints_view.png', snap4.data);
+    const epBuf = saveScreenshot('04_endpoints_view.png', snap4.data);
+    syncShot('endpoints.png', epBuf);
 
     // 4b. Open Tambah Endpoint Modal
     console.log('[Script] Opening Tambah Endpoint Modal');
@@ -439,7 +339,154 @@ async function run() {
 
     console.log('[Script] Capturing 05_dlq_view.png');
     const snap5 = await send('Page.captureScreenshot', { format: 'png' });
-    saveScreenshot('05_dlq_view.png', snap5.data);
+    const dlqBuf = saveScreenshot('05_dlq_view.png', snap5.data);
+    syncShot('dlq.png', dlqBuf);
+
+    // 6. Navigate to Events Stream view
+    console.log('[Script] Navigating to Events Stream view');
+    await send('Runtime.evaluate', {
+      expression: `
+        const evBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().startsWith('Events'));
+        if (evBtn) evBtn.click();
+      `,
+    });
+    await wait(1000);
+
+    console.log('[Script] Capturing 06_stream_view.png');
+    const snap6 = await send('Page.captureScreenshot', { format: 'png' });
+    const streamBuf = saveScreenshot('06_stream_view.png', snap6.data);
+    syncShot('stream.png', streamBuf);
+
+    // 7. Click on first delivered event row to open Inspector Drawer
+    console.log('[Script] Opening Inspector Drawer on first delivered event');
+    await send('Runtime.evaluate', {
+      expression: `
+        const firstRow = document.querySelector('tbody tr') || document.querySelector('[role="row"]');
+        if (firstRow) firstRow.click();
+      `,
+    });
+    await wait(1000);
+
+    console.log('[Script] Capturing 07_inspector_drawer.png');
+    const snap7 = await send('Page.captureScreenshot', { format: 'png' });
+    const inspBuf = saveScreenshot('07_inspector_drawer.png', snap7.data);
+    syncShot('inspector.png', inspBuf);
+
+    // Close Inspector Drawer
+    await send('Runtime.evaluate', {
+      expression: `
+        const closeInspBtn = document.querySelector('button[aria-label*="Tutup"]') || document.querySelector('button[title*="Tutup"]');
+        if (closeInspBtn) closeInspBtn.click();
+      `,
+    });
+    await wait(500);
+
+    // -------------------------------------------------------------
+    // PHASE 2: Public Landing Page Screenshots (with clean assets)
+    // -------------------------------------------------------------
+    console.log('[Script] Clearing session and navigating to Public Landing Page');
+    await send('Runtime.evaluate', {
+      expression: `
+        localStorage.clear();
+        window.location.href = 'http://127.0.0.1:${PORT}/';
+      `,
+    });
+    await wait(2000);
+
+    // 0. Capture Public Landing Page at 2x Retina
+    console.log('[Script] Capturing 00_landing_hero_desktop.png');
+    const snapHero = await send('Page.captureScreenshot', { format: 'png' });
+    saveScreenshot('00_landing_hero_desktop.png', snapHero.data);
+    saveScreenshot('landing_white_hero.png', snapHero.data);
+
+    // Scroll to below-the-fold #native & #product sections
+    await send('Runtime.evaluate', {
+      expression: `document.getElementById('native')?.scrollIntoView({ behavior: 'instant' });`,
+    });
+    await wait(600);
+    console.log('[Script] Capturing 00b_landing_sections_desktop.png');
+    const snapSections = await send('Page.captureScreenshot', { format: 'png' });
+    saveScreenshot('00b_landing_sections_desktop.png', snapSections.data);
+    saveScreenshot('landing_white_sections.png', snapSections.data);
+
+    // Scroll to #product section
+    await send('Runtime.evaluate', {
+      expression: `document.getElementById('product')?.scrollIntoView({ behavior: 'instant' });`,
+    });
+    await wait(600);
+    console.log('[Script] Capturing 00b2_landing_product_desktop.png');
+    const snapProduct = await send('Page.captureScreenshot', { format: 'png' });
+    saveScreenshot('00b2_landing_product_desktop.png', snapProduct.data);
+
+    // Test scrolled floating navbar (expanded state via real CDP mouseMoved event)
+    const isleBox = await send('Runtime.evaluate', {
+      expression: `
+        (() => {
+          window.scrollTo(0, 800);
+          const isle = document.querySelector('.nav__isle');
+          if (!isle) return JSON.stringify({ x: 720, y: 28 });
+          const rect = isle.getBoundingClientRect();
+          return JSON.stringify({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+        })()
+      `,
+    });
+    const navPos = JSON.parse(isleBox.result.value);
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: navPos.x, y: navPos.y });
+    await wait(700);
+    console.log('[Script] Capturing 00a_scrolled_floating_navbar.png');
+    const snapNav = await send('Page.captureScreenshot', { format: 'png' });
+    saveScreenshot('00a_scrolled_floating_navbar.png', snapNav.data);
+
+    // Scroll to #workspace section
+    await send('Runtime.evaluate', {
+      expression: `document.getElementById('workspace')?.scrollIntoView({ behavior: 'instant' });`,
+    });
+    await wait(600);
+    console.log('[Script] Capturing 00c_landing_workspace_desktop.png');
+    const snapWs = await send('Page.captureScreenshot', { format: 'png' });
+    saveScreenshot('00c_landing_workspace_desktop.png', snapWs.data);
+    saveScreenshot('landing_white_workspace.png', snapWs.data);
+
+    // Scroll to #details section (substantive architecture workbench)
+    await send('Runtime.evaluate', {
+      expression: `document.getElementById('details')?.scrollIntoView({ behavior: 'instant' });`,
+    });
+    await wait(600);
+    console.log('[Script] Capturing 00c2_landing_details_desktop.png');
+    const snapDetails = await send('Page.captureScreenshot', { format: 'png' });
+    saveScreenshot('00c2_landing_details_desktop.png', snapDetails.data);
+
+    // Scroll to #download section (Run RelayGate)
+    await send('Runtime.evaluate', {
+      expression: `document.getElementById('download')?.scrollIntoView({ behavior: 'instant' });`,
+    });
+    await wait(600);
+    console.log('[Script] Capturing 00e_landing_download_desktop.png');
+    const snapDownload = await send('Page.captureScreenshot', { format: 'png' });
+    saveScreenshot('00e_landing_download_desktop.png', snapDownload.data);
+
+    // Scroll to footer
+    await send('Runtime.evaluate', {
+      expression: `document.querySelector('footer')?.scrollIntoView({ behavior: 'instant' });`,
+    });
+    await wait(600);
+    console.log('[Script] Capturing 00f_landing_footer_desktop.png');
+    const snapFooter = await send('Page.captureScreenshot', { format: 'png' });
+    saveScreenshot('00f_landing_footer_desktop.png', snapFooter.data);
+
+    // Test clicking "Open Console" -> LoginPage
+    await send('Runtime.evaluate', {
+      expression: `
+        window.scrollTo(0, 0);
+        const openBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim() === 'Open Console');
+        if (openBtn) openBtn.click();
+      `,
+    });
+    await wait(700);
+    console.log('[Script] Capturing 00d_landing_to_auth.png');
+    const snapAuth = await send('Page.captureScreenshot', { format: 'png' });
+    saveScreenshot('00d_landing_to_auth.png', snapAuth.data);
+    saveScreenshot('landing_to_login.png', snapAuth.data);
 
     ws.close();
     browserProc.kill();

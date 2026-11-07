@@ -2134,9 +2134,9 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(html, />Open Console<\/button>/, 'Must render Open Console hero CTA');
     assert.match(html, />Explore Engine<\/button>/, 'Must render Explore Engine hero CTA');
 
-    // 2. Authentic RelayGate Brand Icon geometry (hexagon polygon + inner circle stroke-2)
-    assert.match(html, /polygon\s+points="12\s+2\.5\s+20\.2\s+7\.25\s+20\.2\s+16\.75\s+12\s+21\.5\s+3\.8\s+16\.75\s+3\.8\s+7\.25"/, 'Must render authentic polygon hexagon geometry');
-    assert.match(html, /circle\s+cx="12"\s+cy="12"\s+r="3\.5"/, 'Must render centered circle core');
+    // 2. Authentic RelayGate Brand Icon geometry (stylized gate vector with speed lines & core node)
+    assert.match(html, /viewBox="0 0 113 79"/, 'Must render authentic RelayGate vector icon');
+    assert.match(html, /fill-rule="evenodd"/, 'Must render evenodd vector fill rule');
 
     // 3. Clean Dashboard Window Preview centerpiece & removal of casino roulette
     assert.doesNotMatch(html, /hero-roulette\.webp/, 'Must NOT reference casino roulette image');
@@ -2189,7 +2189,7 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(html, /6-digit OTP|local dev email preview/i, 'Must mention local dev email preview mode for OTP verification');
 
     // 6. Footer authentic brand mark verification
-    assert.match(html, /class="footer__top[^"]*">[\s\S]*?polygon\s+points="12\s+2\.5\s+20\.2\s+7\.25\s+20\.2\s+16\.75\s+12\s+21\.5\s+3\.8\s+16\.75\s+3\.8\s+7\.25"/, 'Footer must render authentic RelayGate brand icon');
+    assert.match(html, /class="footer__top[^"]*">[\s\S]*?viewBox="0 0 113 79"/, 'Footer must render authentic RelayGate brand icon');
 
     // 7. Tailwind config hygiene: zero casino leftover
     const tailwindSource = fs.readFileSync(path.join(__dirname, '../tailwind.config.js'), 'utf8');

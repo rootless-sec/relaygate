@@ -21,6 +21,7 @@ import {
   HardDrive,
   Sliders,
 } from 'lucide-react';
+import { RelayGateIcon, RelayGateLogo } from './RelayGateLogo';
 
 interface LandingPageProps {
   onOpenLogin: () => void;
@@ -95,24 +96,10 @@ const FAQ_ITEMS = [
   },
 ];
 
+export { RelayGateIcon, RelayGateLogo };
+
 export function RelayGateMark({ size = 20, className = '' }: { size?: number; className?: string }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <polygon points="12 2.5 20.2 7.25 20.2 16.75 12 21.5 3.8 16.75 3.8 7.25" />
-      <circle cx="12" cy="12" r="3.5" />
-    </svg>
-  );
+  return <RelayGateIcon size={size} className={className} />;
 }
 
 export function ProviderMark({ provider, size = 20 }: { provider: string; size?: number }) {
@@ -870,13 +857,13 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                     <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
                     <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
                     <span className="w-2.5 h-2.5 rounded-full bg-zinc-300 inline-block" />
-                    <span className="ml-2 font-mono text-[11px] text-zinc-500">http://127.0.0.1:8080/#overview</span>
+                    <span className="ml-2 font-mono text-[11px] text-zinc-500">http://127.0.0.1:8080/#events</span>
                   </div>
-                  <span className="font-mono text-[11px] text-zinc-400">OPERATOR CONSOLE :: REAL TIME</span>
+                  <span className="font-mono text-[11px] text-zinc-400">LIVE EVENT STREAM &amp; INGRESS</span>
                 </div>
                 <img
-                  src="/dashboard-preview.png"
-                  alt="RelayGate Operator Console Dashboard"
+                  src="/shots/stream.png"
+                  alt="RelayGate Live Webhook Event Stream and Ingress"
                   className="w-full h-auto object-cover block"
                   loading="lazy"
                 />
