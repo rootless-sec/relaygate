@@ -64,7 +64,7 @@ async function run() {
     '--remote-allow-origins=*',
     `--remote-debugging-port=${CDP_PORT}`,
     `--user-data-dir=${userDataDir}`,
-    '--window-size=1440,920',
+    '--window-size=1440,1050',
     '--force-device-scale-factor=2',
     '--no-first-run',
     '--no-default-browser-check',

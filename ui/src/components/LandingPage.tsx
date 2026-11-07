@@ -6,6 +6,7 @@ import {
   Check,
   Copy,
   Lock,
+  Mail,
   Menu,
   Plus,
   RotateCcw,
@@ -42,7 +43,7 @@ const WORKSPACE_STEPS = [
   {
     id: 'stream',
     label: 'Live event stream',
-    body: 'Watch inbound deliveries arrive over WebSocket in real time. Pause the stream at any moment to inspect a burst without losing buffered frames.',
+    body: 'Watch inbound deliveries arrive over Server-Sent Events (SSE) in real time via /api/v1/stream. Pause the stream at any moment to inspect a burst without losing buffered frames.',
   },
   {
     id: 'inspector',
@@ -77,6 +78,10 @@ const FAQ_ITEMS = [
   {
     q: 'How does dead-letter replay distinguish request defects from downstream outages?',
     a: 'RelayGate classifies every failure into one of 8 canonical failure families. Downstream 5xx errors and network timeouts can be replayed immediately with a reset 5-attempt quota, whereas missing signature headers or expired timestamps are flagged with clear remediation guidance.',
+  },
+  {
+    q: 'How does email verification work if SMTP is not configured for local development?',
+    a: 'RelayGate includes a local dev email preview mode. When SMTP credentials are not configured, the 6-digit OTP verification code is output directly to the server logs and returned in dev preview headers, allowing complete local authentication testing without external mail dependencies.',
   },
   {
     q: 'Do webhook payloads or signing secrets leave my server?',
@@ -456,21 +461,42 @@ function WebhookRoutingPipeline() {
             </div>
           </div>
 
-          {/* Flow Wire 1 */}
+          {/* Flow Wire 1: Mobile Vertical Connector */}
+          <div className="flex lg:hidden flex-col items-center justify-center py-1 relative" aria-hidden="true">
+            <svg width="24" height="32" viewBox="0 0 24 32" fill="none">
+              <path
+                d="M12 0 V32"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeDasharray="4 4"
+                className={`text-zinc-300 ${isSimulating ? 'rg-flow-wire text-zinc-900' : ''}`}
+              />
+              {isSimulating && (
+                <circle cx="12" cy="2" r="3.5" fill="currentColor" className="text-zinc-950 rg-packet-ping-v" />
+              )}
+            </svg>
+            <span className="text-[10px] font-mono font-medium text-zinc-600 bg-zinc-50 px-1.5 py-0.5 rounded border border-zinc-200 mt-0.5">
+              POST
+            </span>
+          </div>
+
+          {/* Flow Wire 1: Desktop Horizontal Wire with Packet Ping */}
           <div className="lg:col-span-1 hidden lg:flex flex-col items-center justify-center relative">
             <svg className="w-full h-8" viewBox="0 0 80 32" fill="none">
               <path
                 d="M0 16 H80"
                 stroke="currentColor"
                 strokeWidth="2"
+                strokeDasharray="4 4"
                 className={`text-zinc-300 ${isSimulating ? 'rg-flow-wire text-zinc-900' : ''}`}
               />
+              {isSimulating && (
+                <circle cx="4" cy="16" r="3.5" fill="currentColor" className="text-zinc-950 rg-packet-ping" />
+              )}
             </svg>
-            {isSimulating && (
-              <span className="absolute text-[10px] font-mono font-semibold text-zinc-900 bg-zinc-100 px-1.5 py-0.5 rounded border border-zinc-300">
-                POST
-              </span>
-            )}
+            <span className="absolute text-[10px] font-mono font-semibold text-zinc-900 bg-zinc-100 px-1.5 py-0.5 rounded border border-zinc-300">
+              POST
+            </span>
           </div>
 
           {/* Node 2: RelayGate Core Engine Node */}
@@ -554,15 +580,38 @@ function WebhookRoutingPipeline() {
             </div>
           </div>
 
-          {/* Flow Wire 2 */}
+          {/* Flow Wire 2: Mobile Vertical Connector */}
+          <div className="flex lg:hidden flex-col items-center justify-center py-1 relative" aria-hidden="true">
+            <svg width="24" height="32" viewBox="0 0 24 32" fill="none">
+              <path
+                d="M12 0 V32"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeDasharray="4 4"
+                className={`text-zinc-300 ${isSimulating ? 'rg-flow-wire text-zinc-900' : ''}`}
+              />
+              {isSimulating && pipelineStep >= 3 && (
+                <circle cx="12" cy="2" r="3.5" fill="currentColor" className="text-zinc-950 rg-packet-ping-v" />
+              )}
+            </svg>
+            <span className="text-[10px] font-mono font-medium text-zinc-600 bg-zinc-50 px-1.5 py-0.5 rounded border border-zinc-200 mt-0.5">
+              DISPATCH
+            </span>
+          </div>
+
+          {/* Flow Wire 2: Desktop Horizontal Wire with Packet Ping */}
           <div className="lg:col-span-1 hidden lg:flex flex-col items-center justify-center relative">
             <svg className="w-full h-8" viewBox="0 0 80 32" fill="none">
               <path
                 d="M0 16 H80"
                 stroke="currentColor"
                 strokeWidth="2"
+                strokeDasharray="4 4"
                 className={`text-zinc-300 ${isSimulating ? 'rg-flow-wire text-zinc-900' : ''}`}
               />
+              {isSimulating && pipelineStep >= 3 && (
+                <circle cx="4" cy="16" r="3.5" fill="currentColor" className="text-zinc-950 rg-packet-ping" />
+              )}
             </svg>
             {pipelineStep >= 3 && (
               <span className="absolute text-[10px] font-mono font-semibold text-zinc-900 bg-zinc-100 px-1.5 py-0.5 rounded border border-zinc-300">
@@ -675,7 +724,7 @@ function WorkspacePreview({ stepIndex }: { stepIndex: number }) {
               <i />
               <i />
             </div>
-            <span className="rg-win__title">relaygate :: live event stream (ws://127.0.0.1:8080/api/v1/ws)</span>
+            <span className="rg-win__title">relaygate :: live event stream (GET /api/v1/stream · Server-Sent Events)</span>
             <span className="font-mono text-[11px] text-zinc-500">STREAM ACTIVE</span>
           </div>
           <div className="p-5 grid grid-cols-1 sm:grid-cols-12 gap-4 text-left">
@@ -1046,7 +1095,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
         )}
 
         {/* Hero Copy Stack */}
-        <section id="top" className="relative z-20 max-w-[920px] mx-auto px-6 pt-10 sm:pt-14 pb-8 text-center flex flex-col items-center">
+        <section id="top" className="relative z-20 max-w-[920px] mx-auto px-6 pt-8 sm:pt-10 pb-6 text-center flex flex-col items-center">
           <button
             type="button"
             onClick={() => scrollToSection('native')}
@@ -1061,7 +1110,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
             <ArrowRight className="w-3.5 h-3.5 text-zinc-500 group-hover:translate-x-0.5 transition-transform" />
           </button>
 
-          <h1 className="mt-6 text-[clamp(2.5rem,4.5vw,4.125rem)] font-bold tracking-[-0.035em] leading-[1.06] text-zinc-950">
+          <h1 className="mt-5 text-[clamp(2.5rem,4.5vw,4.125rem)] font-bold tracking-[-0.035em] leading-[1.06] text-zinc-950">
             Every webhook.
             <br />
             Zero dropped events.
@@ -1071,7 +1120,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
             RelayGate verifies cryptographic signatures at the edge, buffers deliveries in an embedded SQLite WAL queue, and dispatches to downstream services with exponential backoff and dead-letter isolation.
           </p>
 
-          <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
             <button
               type="button"
               onClick={onOpenLogin}
@@ -1505,6 +1554,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                     <Layers className="w-[18px] h-[18px]" />
                   </span>
                   <h3 className="tile__title">8 failure families</h3>
+                  <p className="tile__body">Strict taxonomy distinguishing retryable downstream 5xx errors from request defects.</p>
                 </div>
               </li>
               <li>
@@ -1513,6 +1563,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                     <GitBranch className="w-[18px] h-[18px]" />
                   </span>
                   <h3 className="tile__title">Multi-provider routes</h3>
+                  <p className="tile__body">Stripe, GitHub, Shopify, Xendit, Midtrans, and generic HMAC with per-route secrets.</p>
                 </div>
               </li>
               <li>
@@ -1521,7 +1572,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                     <PauseCircle className="w-[18px] h-[18px]" />
                   </span>
                   <h3 className="tile__title">Pause mid-stream</h3>
-                  <p className="tile__body">Freeze the live WebSocket feed while inspecting a payload drawer.</p>
+                  <p className="tile__body">Freeze the live Server-Sent Events (SSE) feed while inspecting a payload drawer.</p>
                 </div>
               </li>
               <li>
@@ -1530,6 +1581,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                     <Sliders className="w-[18px] h-[18px]" />
                   </span>
                   <h3 className="tile__title">Bounded worker pool</h3>
+                  <p className="tile__body">Default 10 concurrent in-memory dispatch workers with exponential backoff and jitter.</p>
                 </div>
               </li>
               <li>
@@ -1544,10 +1596,19 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
               <li>
                 <div className="tile">
                   <span className="tile__icon">
+                    <Mail className="w-[18px] h-[18px]" />
+                  </span>
+                  <h3 className="tile__title">Dev email preview</h3>
+                  <p className="tile__body">Local preview mode outputs 6-digit OTP codes directly when SMTP is unconfigured.</p>
+                </div>
+              </li>
+              <li>
+                <div className="tile">
+                  <span className="tile__icon">
                     <HardDrive className="w-[18px] h-[18px]" />
                   </span>
                   <h3 className="tile__title">Embedded web UI</h3>
-                  <p className="tile__body">Compiled into the Go binary via embed.FS with zero external assets.</p>
+                  <p className="tile__body">Compiled into the Go binary via embed.FS with zero external runtime assets.</p>
                 </div>
               </li>
             </ul>
@@ -1586,7 +1647,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                 <Layers className="w-[18px] h-[18px] shrink-0 text-zinc-700" />
                 <span>
                   <strong>Operator Console</strong>
-                  <small>Browser · WebSocket</small>
+                  <small>Browser · Server-Sent Events (SSE)</small>
                 </span>
               </li>
               <li className="mach__client">
@@ -1874,7 +1935,11 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
 
       {/* Footer */}
       <footer className="footer rg-container">
-        <div className="footer__top">
+        <div className="footer__top flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
+          <div className="flex items-center gap-2.5">
+            <RelayGateMark size={22} className="text-zinc-950 shrink-0" />
+            <span className="font-bold text-base tracking-tight text-zinc-950">RelayGate</span>
+          </div>
           <nav className="footer__links" aria-label="Footer">
             <button type="button" onClick={onOpenLogin} className="cursor-pointer">
               Console

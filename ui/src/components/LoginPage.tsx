@@ -241,13 +241,26 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialErr
   return (
     <div className="min-h-screen bg-zinc-50 flex items-center justify-center p-4">
       <div className="w-full max-w-sm bg-white border border-zinc-200 rounded-xl p-8 shadow-sm">
-        {/* Header with Logo */}
+        {/* Header with Authentic Brand Mark */}
         <div className="flex flex-col items-center text-center mb-6">
-          <img
-            src="/logo.png"
-            alt="RelayGate"
-            className="h-10 mb-4 object-contain"
-          />
+          <div className="flex items-center gap-2.5 mb-4">
+            <svg
+              width="32"
+              height="32"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-zinc-950 shrink-0"
+              aria-hidden="true"
+            >
+              <polygon points="12 2.5 20.2 7.25 20.2 16.75 12 21.5 3.8 16.75 3.8 7.25" />
+              <circle cx="12" cy="12" r="3.5" />
+            </svg>
+            <span className="text-xl font-bold tracking-tight text-zinc-950">RelayGate</span>
+          </div>
           {mode === 'login' ? (
             <>
               <h1 className="text-xl font-bold tracking-tight text-zinc-900">

@@ -1476,21 +1476,46 @@ code, kbd, pre, .mono, .font-mono {
   }
 }
 
-.rg-node-pulse {
-  animation: rg-node-glow 2.4s ease-in-out infinite;
+@keyframes rg-packet-travel-h {
+  0% {
+    transform: translateX(0px);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(64px);
+    opacity: 0;
+  }
 }
 
-@keyframes rg-pulse-badge {
-  0%, 100% {
-    transform: scale(1);
+.rg-packet-ping {
+  animation: rg-packet-travel-h 0.85s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes rg-packet-travel-v {
+  0% {
+    transform: translateY(0px);
+    opacity: 0;
   }
-  50% {
-    transform: scale(1.02);
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(28px);
+    opacity: 0;
   }
 }
 
-.rg-badge-pulse {
-  animation: rg-pulse-badge 2s ease-in-out infinite;
+.rg-packet-ping-v {
+  animation: rg-packet-travel-v 0.85s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

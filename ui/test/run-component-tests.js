@@ -2182,6 +2182,22 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(html, /active:scale-\[0\.97\]/, 'Buttons must include tactile active:scale-[0.97] press state');
     assert.match(html, /focus-visible:ring-2/, 'Interactive controls must include visible focus-visible ring');
     assert.doesNotMatch(html, /animate-pulse|animate-ping/, 'LandingPage must not use infinite pulsing/pinging animations');
+
+    // 5. Honest Engineering Copywriting & Real Transport assertions
+    assert.match(html, /Server-Sent Events|SSE|\/api\/v1\/stream/, 'Must describe real Server-Sent Events (SSE) stream');
+    assert.doesNotMatch(html, /ws:\/\/127\.0\.0\.1/, 'Must NOT advertise non-existent WebSocket ws:// endpoint');
+    assert.match(html, /6-digit OTP|local dev email preview/i, 'Must mention local dev email preview mode for OTP verification');
+
+    // 6. Footer authentic brand mark verification
+    assert.match(html, /class="footer__top[^"]*">[\s\S]*?polygon\s+points="12\s+2\.5\s+20\.2\s+7\.25\s+20\.2\s+16\.75\s+12\s+21\.5\s+3\.8\s+16\.75\s+3\.8\s+7\.25"/, 'Footer must render authentic RelayGate brand icon');
+
+    // 7. Tailwind config hygiene: zero casino leftover
+    const tailwindSource = fs.readFileSync(path.join(__dirname, '../tailwind.config.js'), 'utf8');
+    assert.doesNotMatch(tailwindSource, /casino:/, 'tailwind.config.js must NOT contain casino palette');
+
+    // 8. Fluid packet ping animations
+    assert.match(landingSource, /rg-packet-ping/, 'LandingPage must include desktop packet ping pulse');
+    assert.match(landingSource, /rg-packet-ping-v/, 'LandingPage must include mobile vertical packet ping pulse');
   });
 
   // Cleanup temp files
