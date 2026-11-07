@@ -381,15 +381,15 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                   </div>
 
                   {/* Read-Only Account Details */}
-                  <div className="pt-2 border-t border-zinc-100 space-y-2 text-xs">
+                  <div className="pt-4 border-t border-zinc-100 space-y-3.5 text-xs">
                     <div className="flex items-center justify-between text-zinc-600">
                       <div className="flex items-center gap-2 text-zinc-500">
                         <Mail className="w-3.5 h-3.5" />
                         <span>Alamat Email</span>
                       </div>
-                      <div className="flex items-center gap-2 text-xs text-zinc-900">
+                      <div className="flex items-center gap-3 text-xs text-zinc-900">
                         <span className="font-normal">{currentUser.email}</span>
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-zinc-100 text-zinc-700 border border-zinc-200/80">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-[11px] font-medium bg-zinc-100 text-zinc-700 border border-zinc-200/80">
                           Terverifikasi
                         </span>
                       </div>
@@ -400,7 +400,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                         <ShieldCheck className="w-3.5 h-3.5" />
                         <span>Peran Akses</span>
                       </div>
-                      <span className="text-[11px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-md bg-zinc-100 text-zinc-700 border border-zinc-200/80">
+                      <span className="text-[11px] font-medium uppercase tracking-wider px-2.5 py-0.5 rounded-md bg-zinc-100 text-zinc-700 border border-zinc-200/80">
                         {currentUser.role || 'viewer'}
                       </span>
                     </div>
