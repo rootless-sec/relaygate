@@ -131,7 +131,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <aside className="w-56 lg:w-60 shrink-0 flex flex-col justify-between select-none bg-white border-r border-zinc-200/80 h-full">
       <div className="flex flex-col min-h-0 flex-1">
         {/* Brand & Workspace Title */}
-        <div className="h-12 px-4 flex items-center justify-between shrink-0 border-b border-zinc-100">
+        <div className="h-14 px-4 flex items-center justify-between shrink-0 border-b border-zinc-200/80">
           <div className="flex items-center gap-2.5 min-w-0">
             <img
               src="/relaygate-icon.png"

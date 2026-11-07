@@ -20,6 +20,10 @@ html {
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 
+html, body, #root {
+  height: 100%;
+}
+
 body {
   background-color: var(--bg);
   color: var(--text);

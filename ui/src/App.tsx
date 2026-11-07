@@ -449,7 +449,7 @@ export const App: React.FC = () => {
   const activeBreadcrumb = breadcrumbMeta[currentTab];
 
   return (
-    <div className="flex h-dvh w-full overflow-hidden bg-white text-zinc-900 antialiased">
+    <div className="flex h-full h-dvh w-full overflow-hidden bg-white text-zinc-900 antialiased">
       {/* Left Workspace Navigation Sidebar */}
       <Sidebar
         currentTab={currentTab}
@@ -471,8 +471,8 @@ export const App: React.FC = () => {
 
       {/* Main Content Canvas */}
       <main className="flex-1 flex flex-col min-w-0 min-h-0 relative overflow-hidden bg-white">
-        {/* Top 48px Breadcrumb Header Bar (Navattic Pattern: "Section / [Active View v]") */}
-        <header className="h-12 border-b border-zinc-200/80 flex items-center justify-between px-4 lg:px-7 gap-3 shrink-0 bg-white select-none">
+        {/* Top 56px Breadcrumb Header Bar (Navattic Pattern: "Section / [Active View v]") */}
+        <header className="h-14 border-b border-zinc-200/80 flex items-center justify-between px-4 lg:px-7 gap-3 shrink-0 bg-white select-none">
           <div className="flex items-center gap-2.5 min-w-0 text-xs">
             <span className="text-zinc-500 font-medium">{activeBreadcrumb.group}</span>
             <span className="text-zinc-300">/</span>

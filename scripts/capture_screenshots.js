@@ -1,10 +1,11 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const http = require('http');
 
 const PORT = 8099;
-const CDP_PORT = 9222;
+const CDP_PORT = 9333;
 const SCREENSHOTS_DIR = path.join(__dirname, '..', 'screenshots');
 
 if (!fs.existsSync(SCREENSHOTS_DIR)) {
@@ -102,7 +103,7 @@ async function run() {
       throw new Error('Neither Chrome nor Edge found on system.');
     }
 
-    const userDataDir = path.join(__dirname, '..', '.temp_chrome_profile');
+    const userDataDir = path.join(os.tmpdir(), 'rg_chrome_' + Date.now());
     if (!fs.existsSync(userDataDir)) {
       fs.mkdirSync(userDataDir, { recursive: true });
     }
@@ -203,6 +204,18 @@ async function run() {
     });
     await wait(1000);
 
+    const layoutMetrics = await send('Runtime.evaluate', {
+      expression: `
+        JSON.stringify({
+          windowInnerHeight: window.innerHeight,
+          logoRect: document.querySelector('img[alt="RelayGate"]')?.getBoundingClientRect(),
+          sidebarHeaderRect: document.querySelector('aside > div:first-child > div:first-child')?.getBoundingClientRect(),
+          mainHeaderRect: document.querySelector('header')?.getBoundingClientRect(),
+        })
+      `,
+    });
+    console.log('[Script] Layout metrics:', layoutMetrics.result.value);
+
     // 1. Dashboard Screenshot
     console.log('[Script] Capturing 01_dashboard.png');
     const snap1 = await send('Page.captureScreenshot', { format: 'png' });
@@ -259,6 +272,29 @@ async function run() {
     console.log('[Script] Capturing 04_endpoints_view.png');
     const snap4 = await send('Page.captureScreenshot', { format: 'png' });
     fs.writeFileSync(path.join(SCREENSHOTS_DIR, '04_endpoints_view.png'), Buffer.from(snap4.data, 'base64'));
+
+    // 4b. Open Tambah Endpoint Modal
+    console.log('[Script] Opening Tambah Endpoint Modal');
+    await send('Runtime.evaluate', {
+      expression: `
+        const addBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('Tambah Endpoint'));
+        if (addBtn) addBtn.click();
+      `,
+    });
+    await wait(800);
+
+    console.log('[Script] Capturing 04b_add_endpoint_modal.png');
+    const snapModal = await send('Page.captureScreenshot', { format: 'png' });
+    fs.writeFileSync(path.join(SCREENSHOTS_DIR, '04b_add_endpoint_modal.png'), Buffer.from(snapModal.data, 'base64'));
+
+    // Close Tambah Endpoint Modal
+    await send('Runtime.evaluate', {
+      expression: `
+        const closeAddBtn = document.querySelector('button[aria-label="Tutup modal tambah endpoint"]');
+        if (closeAddBtn) closeAddBtn.click();
+      `,
+    });
+    await wait(500);
 
     // 5. Navigate to Dead-Letter Queue (DLQ) view
     console.log('[Script] Navigating to Dead-Letter Queue view');
