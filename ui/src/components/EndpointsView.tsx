@@ -39,14 +39,36 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const openAddModalBtnRef = useRef<HTMLButtonElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
+
+  const handleOpenModal = () => {
+    setError(null);
+    setShowAddModal(true);
+  };
+
+  const handleCloseModal = () => {
+    setShowAddModal(false);
+    setError(null);
+    setTimeout(() => {
+      openAddModalBtnRef.current?.focus();
+    }, 40);
+  };
 
   useEffect(() => {
     if (showAddModal) {
-      setTimeout(() => modalRef.current?.focus(), 40);
+      setTimeout(() => {
+        const nameInput = document.getElementById('endpoint-name') as HTMLInputElement | null;
+        if (nameInput) {
+          nameInput.focus();
+        } else {
+          modalRef.current?.focus();
+        }
+      }, 50);
+
       const handleKeyDown = (e: KeyboardEvent) => {
         if (e.key === 'Escape') {
-          setShowAddModal(false);
+          handleCloseModal();
         }
       };
       window.addEventListener('keydown', handleKeyDown);
@@ -80,8 +102,22 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !targetUrl.trim()) {
+    const trimmedName = name.trim();
+    const trimmedUrl = targetUrl.trim();
+
+    if (!trimmedName || !trimmedUrl) {
       setError('Nama dan Target URL wajib diisi.');
+      return;
+    }
+
+    try {
+      const parsed = new URL(trimmedUrl);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        setError('Target URL harus menggunakan protokol http:// atau https://');
+        return;
+      }
+    } catch {
+      setError('Format Target URL tidak valid. Gunakan URL lengkap (cth: https://api.internal.id/webhooks)');
       return;
     }
 
@@ -89,9 +125,9 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
     setError(null);
     try {
       await onAddEndpoint({
-        name: name.trim(),
+        name: trimmedName,
         provider,
-        target_url: targetUrl.trim(),
+        target_url: trimmedUrl,
         secret_key: secretKey.trim() || undefined,
       });
       setName('');
@@ -99,6 +135,9 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
       setSecretKey('');
       setShowAddModal(false);
       onToast('Endpoint berhasil ditambahkan');
+      setTimeout(() => {
+        openAddModalBtnRef.current?.focus();
+      }, 40);
     } catch (err: any) {
       setError(err?.message || 'Gagal menambahkan endpoint');
     } finally {
@@ -120,9 +159,10 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
         </div>
 
         <button
+          ref={openAddModalBtnRef}
           type="button"
-          onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-1.5 h-8 px-3 bg-zinc-900 hover:bg-zinc-800 text-white rounded-md text-xs font-medium shadow-2xs transition-colors cursor-pointer"
+          onClick={handleOpenModal}
+          className="flex items-center gap-1.5 h-8 px-3 bg-zinc-900 hover:bg-zinc-800 active:scale-[0.98] text-white rounded-md text-xs font-medium shadow-2xs transition-all cursor-pointer"
         >
           <Plus className="w-3.5 h-3.5" />
           <span>Tambah Endpoint</span>
@@ -159,7 +199,8 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
               </tr>
             ) : (
               endpoints.map((ep) => {
-                const ingestUrl = `${window.location.origin}/ingest/${ep.id}`;
+                const origin = typeof window !== 'undefined' ? window.location.origin : '';
+                const ingestUrl = `${origin}/ingest/${ep.id}`;
                 const isSecretVisible = visibleSecrets.has(ep.id);
 
               return (
@@ -283,7 +324,7 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
           className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-zinc-950/20 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-150"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
-              setShowAddModal(false);
+              handleCloseModal();
             }
           }}
           role="dialog"
@@ -293,9 +334,10 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
           <div
             ref={modalRef}
             tabIndex={-1}
-            className="w-full max-w-md bg-white border border-zinc-200/90 rounded-xl p-5 sm:p-6 shadow-xl shadow-zinc-950/5 animate-in zoom-in-95 duration-150 outline-none my-auto"
+            className="w-full max-w-md max-h-[calc(100dvh-2rem)] flex flex-col bg-white border border-zinc-200/90 rounded-xl shadow-xl shadow-zinc-950/5 animate-in zoom-in-95 duration-150 outline-none my-auto"
           >
-            <div className="flex items-start justify-between mb-4">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between p-5 sm:p-6 pb-0">
               <div>
                 <h2 id="add-endpoint-modal-title" className="text-sm font-semibold text-zinc-950 tracking-tight">
                   Tambah Endpoint Baru
@@ -306,7 +348,7 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => setShowAddModal(false)}
+                onClick={handleCloseModal}
                 className="size-7 -mr-1 -mt-1 rounded-md flex items-center justify-center text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 active:scale-[0.98] transition-all cursor-pointer"
                 aria-label="Tutup modal tambah endpoint"
               >
@@ -314,117 +356,129 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
               </button>
             </div>
 
-            {error && (
-              <div className="mb-4 p-3 rounded-lg bg-rose-50 border border-rose-200/80 text-xs text-rose-700 flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                <span>{error}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleCreate} className="space-y-4 text-xs">
-              <div className="space-y-1.5">
-                <label htmlFor="endpoint-name" className="block text-xs font-medium text-zinc-700">
-                  Nama Endpoint
-                </label>
-                <input
-                  id="endpoint-name"
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="orders-service"
-                  className="w-full h-9 px-3 text-xs bg-white rounded-lg border border-zinc-200/90 text-zinc-950 placeholder:text-zinc-400 placeholder:font-normal focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 focus:outline-none transition-colors"
-                />
-                <p className="text-[11px] text-zinc-500">
-                  Identifier unik untuk menandai rute layanan tujuan.
-                </p>
-              </div>
-
-              <div className="space-y-1.5">
-                <label htmlFor="endpoint-provider" className="block text-xs font-medium text-zinc-700">
-                  Provider
-                </label>
-                <div className="relative">
-                  <select
-                    id="endpoint-provider"
-                    value={provider}
-                    onChange={(e) => setProvider(e.target.value as ProviderType)}
-                    className="w-full h-9 py-2 pl-3 pr-9 text-xs bg-white rounded-lg border border-zinc-200/90 text-zinc-900 appearance-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 focus:outline-none cursor-pointer transition-colors shadow-2xs"
-                  >
-                    <option value="generic">Generic (HMAC-SHA256)</option>
-                    <option value="stripe">Stripe</option>
-                    <option value="xendit">Xendit</option>
-                    <option value="midtrans">Midtrans</option>
-                    <option value="github">GitHub</option>
-                  </select>
-                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-zinc-400">
-                    <ChevronDown className="w-3.5 h-3.5" />
-                  </div>
+            {/* Modal Form Scrollable Area */}
+            <div className="p-5 sm:p-6 pt-4 overflow-y-auto">
+              {error && (
+                <div className="mb-4 p-3 rounded-lg bg-rose-50 border border-rose-200/80 text-xs text-rose-700 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{error}</span>
                 </div>
-                <p className="text-[11px] text-zinc-500">
-                  Format verifikasi signature webhook yang diharapkan.
-                </p>
-              </div>
+              )}
 
-              <div className="space-y-1.5">
-                <label htmlFor="endpoint-target-url" className="block text-xs font-medium text-zinc-700">
-                  Target URL Downstream
-                </label>
-                <input
-                  id="endpoint-target-url"
-                  type="url"
-                  required
-                  value={targetUrl}
-                  onChange={(e) => setTargetUrl(e.target.value)}
-                  placeholder="https://api.internal.id/webhooks"
-                  className="w-full h-9 px-3 text-xs bg-white rounded-lg border border-zinc-200/90 text-zinc-950 placeholder:text-zinc-400 placeholder:font-normal focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 focus:outline-none transition-colors"
-                />
-                <p className="text-[11px] text-zinc-500">
-                  URL tujuan backend internal yang akan menerima webhook via HTTP POST.
-                </p>
-              </div>
+              <form onSubmit={handleCreate} className="space-y-4">
+                <div className="space-y-1.5">
+                  <label htmlFor="endpoint-name" className="block text-xs font-medium text-zinc-700">
+                    Nama Endpoint
+                  </label>
+                  <input
+                    id="endpoint-name"
+                    type="text"
+                    required
+                    value={name}
+                    onChange={(e) => {
+                      setName(e.target.value);
+                      if (error) setError(null);
+                    }}
+                    placeholder="orders-service"
+                    className="w-full h-10 px-3 text-sm bg-white rounded-lg border border-zinc-200/90 text-zinc-950 placeholder:text-zinc-400 placeholder:font-normal focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 focus:outline-none transition-colors shadow-2xs"
+                  />
+                  <p className="text-[11px] text-zinc-500">
+                    Identifier unik untuk menandai rute layanan tujuan.
+                  </p>
+                </div>
 
-              <div className="space-y-1.5">
-                <label htmlFor="endpoint-secret-key" className="block text-xs font-medium text-zinc-700">
-                  Secret Key / Callback Token <span className="text-zinc-400 font-normal">(Opsional)</span>
-                </label>
-                <input
-                  id="endpoint-secret-key"
-                  type="text"
-                  value={secretKey}
-                  onChange={(e) => setSecretKey(e.target.value)}
-                  placeholder="whsec_..."
-                  className="w-full h-9 px-3 text-xs bg-white rounded-lg border border-zinc-200/90 text-zinc-950 placeholder:text-zinc-400 placeholder:font-normal focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 focus:outline-none transition-colors"
-                />
-                <p className="text-[11px] text-zinc-500">
-                  Kunci rahasia untuk memverifikasi HMAC signature payload webhook.
-                </p>
-              </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="endpoint-provider" className="block text-xs font-medium text-zinc-700">
+                    Provider
+                  </label>
+                  <div className="relative">
+                    <select
+                      id="endpoint-provider"
+                      value={provider}
+                      onChange={(e) => setProvider(e.target.value as ProviderType)}
+                      className="w-full h-10 py-2 pl-3 pr-9 text-sm bg-white rounded-lg border border-zinc-200/90 text-zinc-900 appearance-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 focus:outline-none cursor-pointer transition-colors shadow-2xs"
+                    >
+                      <option value="generic">Generic (HMAC-SHA256)</option>
+                      <option value="stripe">Stripe</option>
+                      <option value="xendit">Xendit</option>
+                      <option value="midtrans">Midtrans</option>
+                      <option value="github">GitHub</option>
+                    </select>
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-zinc-400">
+                      <ChevronDown className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-zinc-500">
+                    Format verifikasi signature webhook yang diharapkan.
+                  </p>
+                </div>
 
-              <div className="pt-3 flex items-center justify-end gap-2.5 border-t border-zinc-100">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="h-8 px-3.5 bg-white hover:bg-zinc-50 active:scale-[0.98] border border-zinc-200/90 text-zinc-700 hover:text-zinc-950 rounded-lg text-xs font-medium shadow-2xs transition-all cursor-pointer"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="h-8 px-4 bg-zinc-900 hover:bg-zinc-800 active:scale-[0.98] text-white rounded-lg text-xs font-medium shadow-2xs transition-all disabled:opacity-50 disabled:pointer-events-none cursor-pointer flex items-center gap-1.5"
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Menyimpan...</span>
-                    </>
-                  ) : (
-                    <span>Simpan Endpoint</span>
-                  )}
-                </button>
-              </div>
-            </form>
+                <div className="space-y-1.5">
+                  <label htmlFor="endpoint-target-url" className="block text-xs font-medium text-zinc-700">
+                    Target URL Downstream
+                  </label>
+                  <input
+                    id="endpoint-target-url"
+                    type="url"
+                    required
+                    value={targetUrl}
+                    onChange={(e) => {
+                      setTargetUrl(e.target.value);
+                      if (error) setError(null);
+                    }}
+                    placeholder="https://api.internal.id/webhooks"
+                    className="w-full h-10 px-3 text-sm bg-white rounded-lg border border-zinc-200/90 text-zinc-950 placeholder:text-zinc-400 placeholder:font-normal focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 focus:outline-none transition-colors shadow-2xs"
+                  />
+                  <p className="text-[11px] text-zinc-500">
+                    URL tujuan backend internal yang akan menerima webhook via HTTP POST.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label htmlFor="endpoint-secret-key" className="block text-xs font-medium text-zinc-700">
+                    Secret Key / Callback Token <span className="text-zinc-400 font-normal">(Opsional)</span>
+                  </label>
+                  <input
+                    id="endpoint-secret-key"
+                    type="text"
+                    value={secretKey}
+                    onChange={(e) => {
+                      setSecretKey(e.target.value);
+                      if (error) setError(null);
+                    }}
+                    placeholder="whsec_..."
+                    className="w-full h-10 px-3 text-sm bg-white rounded-lg border border-zinc-200/90 text-zinc-950 placeholder:text-zinc-400 placeholder:font-normal focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 focus:outline-none transition-colors shadow-2xs"
+                  />
+                  <p className="text-[11px] text-zinc-500">
+                    Kunci rahasia untuk memverifikasi HMAC signature payload webhook.
+                  </p>
+                </div>
+
+                <div className="pt-3 flex items-center justify-end gap-2.5 border-t border-zinc-100">
+                  <button
+                    type="button"
+                    onClick={handleCloseModal}
+                    className="h-9 px-4 bg-white hover:bg-zinc-50 active:scale-[0.98] border border-zinc-200/90 text-zinc-700 hover:text-zinc-950 rounded-lg text-xs font-medium shadow-2xs transition-all cursor-pointer"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="h-9 px-4 bg-zinc-900 hover:bg-zinc-800 active:scale-[0.98] text-white rounded-lg text-xs font-medium shadow-2xs transition-all disabled:opacity-50 disabled:pointer-events-none cursor-pointer flex items-center gap-1.5"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Menyimpan...</span>
+                      </>
+                    ) : (
+                      <span>Simpan Endpoint</span>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       )}

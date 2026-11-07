@@ -81,6 +81,18 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     loader: { '.tsx': 'tsx', '.ts': 'ts' },
   });
 
+  const endpointsFile = path.join(outDir, 'endpoints-bundle.mjs');
+
+  await build({
+    entryPoints: [path.join(__dirname, '../src/components/EndpointsView.tsx')],
+    bundle: true,
+    format: 'esm',
+    outfile: endpointsFile,
+    external: ['react', 'react-dom', 'lucide-react'],
+    jsx: 'transform',
+    loader: { '.tsx': 'tsx', '.ts': 'ts' },
+  });
+
   const { InspectorDrawer } = await import(`file://${drawerFile.replace(/\\/g, '/')}`);
   const { 
     isSensitiveHeader, 
@@ -95,6 +107,7 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
   const { BulkReplayModal } = await import(`file://${bulkFile.replace(/\\/g, '/')}`);
   const { EventsView } = await import(`file://${eventsFile.replace(/\\/g, '/')}`);
   const { ProfileModal } = await import(`file://${profileFile.replace(/\\/g, '/')}`);
+  const { EndpointsView } = await import(`file://${endpointsFile.replace(/\\/g, '/')}`);
   const React = (await import('react')).default;
   const { renderToString } = await import('react-dom/server');
 
@@ -1932,6 +1945,112 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
       overviewSource,
       /failed\s*>\s*0\s*\?\s*'text-rose-700'\s*:\s*'text-zinc-950'/,
       'OverviewView DLQ metric value must be neutral text-zinc-950 when failed is 0'
+    );
+  });
+
+  await suite.test('EndpointsView and Tambah Endpoint Modal Design Craft Invariants', () => {
+    // 1. Test empty state render
+    const emptyHtml = renderToString(
+      React.createElement(EndpointsView, {
+        endpoints: [],
+        onAddEndpoint: async () => {},
+        onToggleActive: async () => {},
+        onToast: () => {},
+      })
+    );
+    assert.match(emptyHtml, /Belum ada endpoint terdaftar/, 'Must render empty state message when endpoints array is empty');
+    assert.match(emptyHtml, /Tambah Endpoint/, 'Must render Tambah Endpoint button');
+
+    // 2. Test populated state render
+    const testEndpoints = [
+      {
+        id: 'ep-orders',
+        name: 'Orders Service',
+        provider: 'stripe',
+        target_url: 'https://api.internal.id/webhooks/orders',
+        secret_key: 'whsec_test123',
+        is_active: true,
+      },
+    ];
+    const populatedHtml = renderToString(
+      React.createElement(EndpointsView, {
+        endpoints: testEndpoints,
+        onAddEndpoint: async () => {},
+        onToggleActive: async () => {},
+        onToast: () => {},
+      })
+    );
+    assert.match(populatedHtml, /Orders Service/, 'Must render endpoint name');
+    assert.match(populatedHtml, /stripe/, 'Must render endpoint provider');
+    assert.match(populatedHtml, /Aktif/, 'Must render active status');
+
+    // 3. Inspect EndpointsView source code for required design system tokens
+    const srcDir = path.join(__dirname, '../src');
+    const endpointsSource = fs.readFileSync(path.join(srcDir, 'components', 'EndpointsView.tsx'), 'utf8');
+
+    // Provider select dropdown styling: py-2 px-3 text-sm with appearance-none and chevron
+    assert.match(
+      endpointsSource,
+      /py-2\s+pl-3\s+pr-9\s+text-sm/,
+      'Provider dropdown must use py-2 pl-3 pr-9 text-sm padding tokens'
+    );
+    assert.match(
+      endpointsSource,
+      /appearance-none/,
+      'Provider dropdown must suppress native OS select styling with appearance-none'
+    );
+    assert.match(
+      endpointsSource,
+      /<ChevronDown\b/,
+      'Provider dropdown must use Lucide ChevronDown icon'
+    );
+
+    // Form inputs: text-sm, h-10, sans placeholders
+    assert.match(
+      endpointsSource,
+      /placeholder:text-zinc-400\s+placeholder:font-normal/,
+      'Form inputs must use refined placeholder styling with normal font weight'
+    );
+    assert.match(
+      endpointsSource,
+      /focus:border-zinc-900\s+focus:ring-1\s+focus:ring-zinc-900/,
+      'Form inputs must use zinc-900 focus border and focus ring tokens'
+    );
+
+    // Modal card and backdrop
+    assert.match(
+      endpointsSource,
+      /bg-zinc-950\/20\s+backdrop-blur-sm/,
+      'Modal backdrop must use bg-zinc-950/20 with backdrop-blur-sm'
+    );
+    assert.match(
+      endpointsSource,
+      /max-h-\[calc\(100dvh-2rem\)\]\s+flex\s+flex-col/,
+      'Modal card must enforce max-h-[calc(100dvh-2rem)] flex flex-col to prevent vertical clipping on small screens'
+    );
+
+    // Button active scaling
+    assert.match(
+      endpointsSource,
+      /active:scale-\[0\.98\]/,
+      'Modal buttons must have polished active:scale-[0.98] interaction state'
+    );
+
+    // Dialog accessibility attributes
+    assert.match(
+      endpointsSource,
+      /role="dialog"/,
+      'Modal container must declare role="dialog"'
+    );
+    assert.match(
+      endpointsSource,
+      /aria-modal="true"/,
+      'Modal container must declare aria-modal="true"'
+    );
+    assert.match(
+      endpointsSource,
+      /aria-labelledby="add-endpoint-modal-title"/,
+      'Modal container must declare aria-labelledby="add-endpoint-modal-title"'
     );
   });
 
