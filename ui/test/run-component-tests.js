@@ -2258,6 +2258,7 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(htmlWithNotice, /bg-amber-50\/90/, 'Session notice banner must use warm dignified amber-50 background');
     assert.match(htmlWithNotice, /text-amber-950/, 'Session notice banner must use accessible text-amber-950');
     assert.match(htmlWithNotice, /aria-label="Tutup pemberitahuan"/, 'Session notice must provide dismissible close action with aria-label');
+    assert.match(htmlWithNotice, /min-h-\[44px\] min-w-\[44px\]/, 'Session notice dismiss button must enforce 44px touch target');
 
     // 2. Render with initialError="Sesi berakhir" backwards-compatibility
     const htmlWithCompat = renderToString(
@@ -2281,6 +2282,9 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(sidebarSource, /onCloseMobile/, 'Sidebar must support onCloseMobile handler');
     assert.match(sidebarSource, /hidden md:flex/, 'Desktop sidebar must be hidden on mobile screens');
     assert.match(sidebarSource, /md:hidden/, 'Mobile drawer overlay must be hidden on desktop screens');
+    assert.match(sidebarSource, /Escape/, 'Sidebar mobile drawer must listen to Escape key');
+    assert.match(sidebarSource, /tabIndex=\{-1\}/, 'Sidebar mobile drawer panel must have tabIndex={-1} for focus management');
+    assert.match(sidebarSource, /min-h-\[44px\] min-w-\[44px\]/, 'Sidebar mobile close button must enforce 44px touch target');
   });
 
   // Cleanup temp files

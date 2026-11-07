@@ -58,6 +58,15 @@ export const App: React.FC = () => {
 
   const [sessionExpiredMessage, setSessionExpiredMessage] = useState<string | null>(null);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
+  const mobileMenuBtnRef = useRef<HTMLButtonElement | null>(null);
+  const prevMobileSidebarOpen = useRef<boolean>(mobileSidebarOpen);
+
+  useEffect(() => {
+    if (prevMobileSidebarOpen.current && !mobileSidebarOpen) {
+      mobileMenuBtnRef.current?.focus();
+    }
+    prevMobileSidebarOpen.current = mobileSidebarOpen;
+  }, [mobileSidebarOpen]);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
     try {
       const stored = localStorage.getItem('relaygate_auth');
@@ -361,6 +370,10 @@ export const App: React.FC = () => {
       }
 
       if (e.key === 'Escape') {
+        if (mobileSidebarOpen) {
+          setMobileSidebarOpen(false);
+          return;
+        }
         setSelectedEvent(null);
         return;
       }
@@ -520,8 +533,9 @@ export const App: React.FC = () => {
           <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 text-xs">
             <button
               type="button"
+              ref={mobileMenuBtnRef}
               onClick={() => setMobileSidebarOpen(true)}
-              className="md:hidden size-8 -ml-1 rounded-md border border-zinc-200/90 bg-white hover:bg-zinc-50 active:scale-[0.97] flex items-center justify-center text-zinc-700 shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 shadow-2xs"
+              className="md:hidden min-h-[44px] min-w-[44px] -ml-2 rounded-md border border-zinc-200/90 bg-white hover:bg-zinc-50 active:scale-[0.97] flex items-center justify-center text-zinc-700 shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 shadow-2xs"
               aria-label="Buka menu navigasi"
             >
               <Menu className="w-4 h-4" />
@@ -533,7 +547,7 @@ export const App: React.FC = () => {
             <div className="relative inline-flex items-center shrink-0">
               <div className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-zinc-200/90 bg-white text-xs font-medium text-zinc-800 shadow-2xs whitespace-nowrap">
                 {activeBreadcrumb.icon}
-                <span className="whitespace-nowrap">{activeBreadcrumb.title}</span>
+                <span className="truncate max-w-[110px] xs:max-w-[150px] sm:max-w-none">{activeBreadcrumb.title}</span>
                 <ChevronDown className="w-3 h-3 text-zinc-400 ml-0.5 shrink-0" />
               </div>
               <select

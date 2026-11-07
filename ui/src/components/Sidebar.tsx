@@ -41,6 +41,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isMobileOpen = false,
   onCloseMobile,
 }) => {
+  const drawerRef = React.useRef<HTMLElement | null>(null);
+
+  // Keyboard accessibility: Escape to close and focus entry per Production UI Rule 6
+  React.useEffect(() => {
+    if (!isMobileOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onCloseMobile?.();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    const timer = setTimeout(() => {
+      drawerRef.current?.focus();
+    }, 40);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      clearTimeout(timer);
+    };
+  }, [isMobileOpen, onCloseMobile]);
+
   const analyzeItems: {
     id: NavTab;
     label: string;
@@ -241,7 +265,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             aria-hidden="true"
           />
           <aside
-            className="relative z-10 w-72 max-w-[85vw] h-full bg-white border-r border-zinc-200 flex flex-col justify-between shadow-2xl animate-in"
+            ref={drawerRef}
+            tabIndex={-1}
+            role="dialog"
+            aria-modal="true"
+            className="relative z-10 w-72 max-w-[85vw] h-full bg-white border-r border-zinc-200 flex flex-col justify-between shadow-2xl animate-in focus:outline-none"
             aria-label="Navigasi mobile"
           >
             <div className="flex flex-col min-h-0 flex-1">
@@ -260,7 +288,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <button
                   type="button"
                   onClick={onCloseMobile}
-                  className="size-8 rounded-lg text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 flex items-center justify-center transition-colors cursor-pointer"
+                  className="min-h-[44px] min-w-[44px] rounded-lg text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
                   aria-label="Tutup menu navigasi"
                 >
                   <X className="w-4 h-4" />

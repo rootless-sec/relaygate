@@ -62,6 +62,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       } else {
         setError(initialError);
       }
+    } else {
+      setSessionNoticeState(null);
     }
   }, [sessionNotice, initialError]);
 
@@ -273,8 +275,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   };
 
   return (
-    <div className="min-h-dvh bg-zinc-50 flex items-center justify-center p-4 sm:p-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] px-[max(1rem,env(safe-area-inset-left))]">
-      <div className="w-full max-w-sm mx-auto bg-white border border-zinc-200 rounded-xl p-5 sm:p-8 shadow-sm">
+    <div className="min-h-dvh bg-zinc-50 flex items-center justify-center p-4 sm:p-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(4.5rem,calc(env(safe-area-inset-top,0px)+3.75rem))] sm:pt-6 px-[max(1rem,env(safe-area-inset-left))]">
+      <div className="w-full max-w-sm mx-auto my-auto bg-white border border-zinc-200 rounded-xl p-5 sm:p-8 shadow-sm">
         {/* Header with Authentic Brand Mark */}
         <div className="flex flex-col items-center text-center mb-5 sm:mb-6">
           <div className="flex items-center justify-center mb-3 sm:mb-4">
@@ -314,7 +316,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         </div>
 
         {/* Polished Session State Notification Banner */}
-        {sessionNoticeState && (
+        {mode === 'login' && sessionNoticeState && (
           <div
             role="status"
             aria-live="polite"
@@ -327,7 +329,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             <button
               type="button"
               onClick={handleDismissNotice}
-              className="text-amber-800/70 hover:text-amber-950 p-1 -mr-1 -mt-0.5 rounded transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-500 cursor-pointer min-h-[24px] min-w-[24px] flex items-center justify-center"
+              className="text-amber-800/70 hover:text-amber-950 min-h-[44px] min-w-[44px] -mr-2.5 -mt-2.5 p-2.5 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 cursor-pointer flex items-center justify-center shrink-0"
               aria-label="Tutup pemberitahuan"
             >
               <X className="w-3.5 h-3.5" />
@@ -398,7 +400,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="min-h-[36px] px-2 py-1 -mr-2 text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center gap-1 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-900 rounded"
+                  className="min-h-[44px] px-2.5 py-1.5 -mr-2 text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center gap-1 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-900 rounded"
                 >
                   {showPassword ? (
                     <>
@@ -503,7 +505,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="min-h-[36px] px-2 py-1 -mr-2 text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center gap-1 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-900 rounded"
+                  className="min-h-[44px] px-2.5 py-1.5 -mr-2 text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center gap-1 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-900 rounded"
                 >
                   {showPassword ? (
                     <>
@@ -540,7 +542,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="min-h-[36px] px-2 py-1 -mr-2 text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center gap-1 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-900 rounded"
+                  className="min-h-[44px] px-2.5 py-1.5 -mr-2 text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center gap-1 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-900 rounded"
                 >
                   {showConfirmPassword ? (
                     <>
@@ -616,7 +618,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                       otpInputs.current[5]?.focus();
                       otpInputs.current[5]?.select();
                     }}
-                    className="text-xs text-zinc-900 font-medium underline hover:text-zinc-700 min-h-[36px] inline-flex items-center cursor-pointer"
+                    className="text-xs text-zinc-900 font-medium underline hover:text-zinc-700 min-h-[44px] inline-flex items-center cursor-pointer"
                   >
                     Isi Otomatis
                   </button>
@@ -685,7 +687,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     type="button"
                     onClick={handleResend}
                     disabled={resending}
-                    className="min-h-[36px] inline-flex items-center font-semibold text-zinc-900 hover:underline disabled:opacity-50 cursor-pointer"
+                    className="min-h-[44px] inline-flex items-center font-semibold text-zinc-900 hover:underline disabled:opacity-50 cursor-pointer"
                   >
                     {resending ? 'Mengirim...' : 'Kirim Ulang Kode'}
                   </button>
@@ -694,7 +696,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               <button
                 type="button"
                 onClick={handleChangeEmail}
-                className="min-h-[36px] inline-flex items-center text-xs text-zinc-500 hover:text-zinc-900 transition-colors cursor-pointer"
+                className="min-h-[44px] inline-flex items-center text-xs text-zinc-500 hover:text-zinc-900 transition-colors cursor-pointer"
               >
                 Ubah Alamat Email
               </button>
