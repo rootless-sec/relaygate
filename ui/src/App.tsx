@@ -444,7 +444,7 @@ export const App: React.FC = () => {
   const activeBreadcrumb = breadcrumbMeta[currentTab];
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-white text-zinc-900 antialiased">
+    <div className="flex h-dvh w-full overflow-hidden bg-white text-zinc-900 antialiased">
       {/* Left Dual-Rail Navigation (Navattic Reference Architecture) */}
       <Sidebar
         currentTab={currentTab}
@@ -465,17 +465,17 @@ export const App: React.FC = () => {
       {/* Main Content Canvas */}
       <main className="flex-1 flex flex-col min-w-0 min-h-0 relative overflow-hidden bg-white">
         {/* Top 48px Breadcrumb Header Bar (Navattic Pattern: "Section / [Active View v]") */}
-        <header className="h-12 border-b border-zinc-200/80 flex items-center justify-between px-7 gap-3 shrink-0 bg-white select-none">
+        <header className="h-12 border-b border-zinc-200/80 flex items-center justify-between px-4 lg:px-7 gap-3 shrink-0 bg-white select-none">
           <div className="flex items-center gap-2.5 min-w-0 text-xs">
             <span className="text-zinc-500 font-medium">{activeBreadcrumb.group}</span>
             <span className="text-zinc-300">/</span>
 
             {/* Navattic View Selector Pill */}
-            <div className="relative inline-flex items-center">
-              <div className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-zinc-200/90 bg-white text-xs font-medium text-zinc-800 shadow-2xs">
+            <div className="relative inline-flex items-center shrink-0">
+              <div className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-zinc-200/90 bg-white text-xs font-medium text-zinc-800 shadow-2xs whitespace-nowrap">
                 {activeBreadcrumb.icon}
-                <span>{activeBreadcrumb.title}</span>
-                <ChevronDown className="w-3 h-3 text-zinc-400 ml-0.5" />
+                <span className="whitespace-nowrap">{activeBreadcrumb.title}</span>
+                <ChevronDown className="w-3 h-3 text-zinc-400 ml-0.5 shrink-0" />
               </div>
               <select
                 aria-label="Pilih tampilan workspace"
@@ -497,7 +497,7 @@ export const App: React.FC = () => {
               <button
                 type="button"
                 onClick={() => handleTabChange('dead')}
-                className="flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-rose-50 hover:bg-rose-100/80 text-rose-700 border border-rose-200/80 text-xs font-medium tabular-nums transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-rose-50 hover:bg-rose-100/80 active:scale-[0.97] text-rose-700 border border-rose-200/80 text-xs font-medium tabular-nums transition-transform cursor-pointer"
                 title="Buka Dead-Letter Queue"
               >
                 <AlertOctagon className="w-3.5 h-3.5 text-rose-600" />
@@ -508,7 +508,7 @@ export const App: React.FC = () => {
             <button
               type="button"
               onClick={() => setIsLive(!isLive)}
-              className="flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200/90 shadow-2xs text-xs font-medium transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-white hover:bg-zinc-50 active:scale-[0.97] text-zinc-700 border border-zinc-200/90 shadow-2xs text-xs font-medium transition-transform cursor-pointer"
               title={isLive ? 'Jeda stream real-time' : 'Lanjutkan stream real-time'}
             >
               {isLive ? (
@@ -527,7 +527,7 @@ export const App: React.FC = () => {
             <button
               type="button"
               onClick={loadInitialData}
-              className="size-7 rounded-md border border-zinc-200/90 bg-white hover:bg-zinc-50 flex items-center justify-center text-zinc-600 hover:text-zinc-900 shadow-2xs transition-colors cursor-pointer"
+              className="size-7 rounded-md border border-zinc-200/90 bg-white hover:bg-zinc-50 active:scale-[0.97] flex items-center justify-center text-zinc-600 hover:text-zinc-900 shadow-2xs transition-transform cursor-pointer"
               title="Segarkan Data"
               aria-label="Segarkan data"
             >

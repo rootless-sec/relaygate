@@ -89,14 +89,14 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
   };
 
   return (
-    <div className="flex-1 overflow-auto px-7 py-5 space-y-4 bg-white">
+    <div className="flex-1 overflow-auto px-4 lg:px-7 py-5 space-y-4 bg-white">
       {/* Page Heading Row */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-zinc-950 tracking-tight">
+          <h1 className="text-xl font-semibold text-zinc-950 tracking-tight text-balance">
             Endpoints
           </h1>
-          <p className="text-xs text-zinc-500 mt-0.5">
+          <p className="text-xs text-zinc-500 mt-0.5 text-pretty">
             Kelola rute tujuan downstream dan secret verifikasi signature untuk setiap provider.
           </p>
         </div>
@@ -163,6 +163,7 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                         onClick={() => copyText(ingestUrl, `URL Ingest ${ep.name}`)}
                         className="p-1 text-zinc-400 hover:text-zinc-900 rounded transition-colors cursor-pointer"
                         title="Salin URL Ingest"
+                        aria-label={`Salin URL Ingest ${ep.name}`}
                       >
                         {copiedKey === `URL Ingest ${ep.name}` ? (
                           <Check className="w-3.5 h-3.5 text-emerald-600" />
@@ -191,6 +192,12 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                           type="button"
                           onClick={() => toggleShowSecret(ep.id)}
                           className="inline-flex items-center gap-1 text-[11px] font-medium text-zinc-600 hover:text-zinc-950 px-1.5 py-0.5 rounded hover:bg-zinc-100 cursor-pointer"
+                          title={isSecretVisible ? 'Sembunyikan secret' : 'Tampilkan secret'}
+                          aria-label={
+                            isSecretVisible
+                              ? `Sembunyikan secret ${ep.name}`
+                              : `Tampilkan secret ${ep.name}`
+                          }
                         >
                           {isSecretVisible ? (
                             <EyeOff className="w-3 h-3" />
@@ -234,6 +241,7 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                 type="button"
                 onClick={() => setShowAddModal(false)}
                 className="size-7 rounded-md flex items-center justify-center text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 cursor-pointer"
+                aria-label="Tutup modal tambah endpoint"
               >
                 <X className="w-4 h-4" />
               </button>

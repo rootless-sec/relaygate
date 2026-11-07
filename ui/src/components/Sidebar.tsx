@@ -131,28 +131,44 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <aside className="flex h-full shrink-0 select-none bg-white border-r border-zinc-200/80">
       {/* Far-Left Narrow Workspace Icon Rail (Navattic Pattern) */}
-      <div className="w-12 shrink-0 bg-zinc-50/50 border-r border-zinc-200/70 flex flex-col items-center justify-between py-3">
+      <div className="w-12 shrink-0 bg-zinc-50/60 border-r border-zinc-200/70 flex flex-col items-center justify-between py-3">
         <div className="flex flex-col items-center gap-2.5">
           <button
             type="button"
             onClick={() => onTabChange('overview')}
-            className="size-8 rounded-lg flex items-center justify-center hover:bg-zinc-200/50 transition-colors cursor-pointer"
+            className="size-8 rounded-lg flex items-center justify-center text-zinc-950 hover:bg-zinc-200/60 active:scale-[0.97] transition-transform cursor-pointer"
             title="RelayGate"
+            aria-label="RelayGate Overview"
           >
-            <span className="w-5 h-5 overflow-hidden flex items-center justify-start">
-              <img
-                src="/logo.png"
-                alt="RelayGate"
-                className="h-5 w-auto max-w-none"
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              className="size-5 text-zinc-950"
+              aria-hidden="true"
+            >
+              <path
+                d="M12 2.75L19.5 7.08V15.75L12 20.08L4.5 15.75V7.08L12 2.75Z"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinejoin="round"
               />
-            </span>
+              <rect
+                x="9.5"
+                y="8.9"
+                width="5"
+                height="5"
+                rx="0.8"
+                fill="currentColor"
+              />
+            </svg>
           </button>
 
           <button
             type="button"
             onClick={() => onTabChange('events')}
-            className="size-8 rounded-lg bg-zinc-950 text-white font-mono text-[10px] font-bold tracking-tight flex items-center justify-center shadow-2xs cursor-pointer"
+            className="size-8 rounded-lg bg-zinc-950 text-white font-mono text-[10px] font-bold flex items-center justify-center shadow-2xs active:scale-[0.97] transition-transform cursor-pointer"
             title="RelayGate Workspace"
+            aria-label="RelayGate Workspace Events"
           >
             RG
           </button>
@@ -160,8 +176,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             type="button"
             onClick={() => onTabChange('endpoints')}
-            className="size-8 rounded-lg bg-white border border-zinc-200/90 text-zinc-700 hover:bg-zinc-50 flex items-center justify-center shadow-2xs transition-colors cursor-pointer"
+            className={`size-8 rounded-lg border flex items-center justify-center shadow-2xs active:scale-[0.97] transition-transform cursor-pointer ${
+              currentTab === 'endpoints'
+                ? 'bg-zinc-100 border-zinc-300 text-zinc-950'
+                : 'bg-white border-zinc-200/90 text-zinc-700 hover:bg-zinc-50'
+            }`}
             title="Rute Endpoint"
+            aria-label="Rute Endpoint"
           >
             <LayoutGrid className="w-3.5 h-3.5" />
           </button>
@@ -177,7 +198,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onTabChange('events');
               }
             }}
-            className="size-8 rounded-lg text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200/50 flex items-center justify-center transition-colors cursor-pointer"
+            className="size-8 rounded-lg text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200/60 active:scale-[0.97] flex items-center justify-center transition-transform cursor-pointer"
             title="Cari event ( / )"
             aria-label="Cari event"
           >
@@ -187,7 +208,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             type="button"
             onClick={onToggleLive}
-            className="size-8 rounded-lg text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200/50 flex items-center justify-center transition-colors cursor-pointer"
+            className="size-8 rounded-lg text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200/60 active:scale-[0.97] flex items-center justify-center transition-transform cursor-pointer"
             title={isLive ? 'Stream Aktif' : 'Stream Dijeda'}
             aria-label="Status stream"
           >
@@ -204,11 +225,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Secondary Navigation Column (Navattic Pattern) */}
-      <div className="w-52 flex flex-col justify-between h-full bg-white">
+      <div className="hidden md:flex w-44 lg:w-52 flex-col justify-between h-full bg-white">
         <div className="flex flex-col min-h-0 flex-1">
           {/* Top Brand / Product Title */}
           <div className="h-12 px-4 flex items-center justify-between shrink-0">
-            <span className="text-sm font-semibold text-zinc-950 tracking-tight truncate">
+            <span className="text-sm font-semibold text-zinc-950 truncate">
               Webhook Gateway
             </span>
           </div>
@@ -255,7 +276,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       title={`${ep.name} (${ep.target_url})`}
                     >
                       <span className="truncate font-mono text-[11px]">{ep.name}</span>
-                      <span className="text-[10px] font-mono uppercase text-zinc-400">
+                      <span className="text-[10px] font-mono uppercase text-zinc-400 ml-1.5 shrink-0">
                         {ep.provider}
                       </span>
                     </button>
@@ -268,7 +289,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Bottom Status Pill & Operator Sign-Out (Navattic Footer Pattern) */}
         <div className="p-3 space-y-2 shrink-0 border-t border-zinc-100">
-          <div className="px-3 py-1.5 rounded-lg border border-zinc-200 bg-white shadow-2xs flex items-center justify-between text-xs font-medium text-zinc-800">
+          <div className="px-3 py-1.5 rounded-full border border-zinc-200/90 bg-white shadow-2xs flex items-center justify-between text-xs font-medium text-zinc-800">
             <div className="flex items-center gap-2 min-w-0">
               <span
                 className={`size-2.5 rounded-full border-2 shrink-0 ${

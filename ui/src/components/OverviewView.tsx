@@ -39,14 +39,14 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
   const deliveryRate = total > 0 ? Math.round((delivered / total) * 100) : 100;
 
   return (
-    <div className="flex-1 overflow-auto px-7 py-5 space-y-5 bg-white">
+    <div className="flex-1 overflow-auto px-4 lg:px-7 py-5 space-y-5 bg-white">
       {/* Top Page Heading Row */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-zinc-950 tracking-tight">
+          <h1 className="text-xl font-semibold text-zinc-950 text-balance">
             Overview
           </h1>
-          <p className="text-xs text-zinc-500 mt-0.5">
+          <p className="text-xs text-zinc-500 mt-0.5 text-pretty">
             Ringkasan throughput webhook, keandalan pengiriman rute endpoint, dan insiden DLQ terbaru.
           </p>
         </div>
@@ -56,14 +56,14 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
             <button
               type="button"
               onClick={() => onNavigate('events')}
-              className="h-8 px-3 rounded-md bg-white hover:bg-zinc-50 border border-zinc-200/90 text-zinc-800 text-xs font-medium shadow-2xs transition-colors cursor-pointer"
+              className="h-8 px-3 rounded-md bg-white hover:bg-zinc-50 active:scale-[0.97] border border-zinc-200/90 text-zinc-800 text-xs font-medium shadow-2xs transition-transform cursor-pointer tabular-nums"
             >
               Semua Event ({total})
             </button>
             <button
               type="button"
               onClick={() => onNavigate('dead')}
-              className="h-8 px-3 rounded-md bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-medium shadow-2xs transition-colors cursor-pointer"
+              className="h-8 px-3 rounded-md bg-zinc-900 hover:bg-zinc-800 active:scale-[0.97] text-white text-xs font-medium shadow-2xs transition-transform cursor-pointer tabular-nums"
             >
               Inspeksi DLQ ({failed})
             </button>
@@ -72,7 +72,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
       </div>
 
       {/* Navattic "Session summary" Style Bordered Divided Summary Box */}
-      <div className="border border-zinc-200/90 rounded-lg overflow-hidden bg-white">
+      <div className="border border-zinc-200/90 rounded-lg overflow-hidden bg-white shadow-2xs">
         <div className="px-4 py-2.5 bg-zinc-50/90 border-b border-zinc-200/80 flex items-center justify-between">
           <span className="text-xs font-medium text-zinc-700">Ringkasan metrik pengiriman</span>
           <span className="text-[11px] font-mono text-zinc-400">Real-time</span>
@@ -80,32 +80,32 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
 
         <div className="grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 lg:divide-x divide-zinc-200/80">
           <div className="p-4 text-center">
-            <div className="text-xl font-semibold text-zinc-950 tabular-nums tracking-tight">
+            <div className="text-xl font-semibold text-zinc-950 tabular-nums">
               {total}
             </div>
             <div className="text-xs text-zinc-500 mt-1">Total webhook masuk</div>
           </div>
 
           <div className="p-4 text-center">
-            <div className="text-xl font-semibold text-zinc-950 tabular-nums tracking-tight">
+            <div className="text-xl font-semibold text-zinc-950 tabular-nums">
               {deliveryRate}%
             </div>
-            <div className="text-xs text-zinc-500 mt-1">
+            <div className="text-xs text-zinc-500 mt-1 tabular-nums">
               Tingkat keberhasilan ({delivered} terkirim)
             </div>
           </div>
 
           <div className="p-4 text-center">
-            <div className="text-xl font-semibold text-zinc-950 tabular-nums tracking-tight">
+            <div className="text-xl font-semibold text-zinc-950 tabular-nums">
               {pending + retrying}
             </div>
-            <div className="text-xs text-zinc-500 mt-1">
+            <div className="text-xs text-zinc-500 mt-1 tabular-nums">
               Antrean & retry ({retrying} aktif)
             </div>
           </div>
 
           <div className="p-4 text-center">
-            <div className="text-xl font-semibold text-rose-700 tabular-nums tracking-tight">
+            <div className="text-xl font-semibold text-rose-700 tabular-nums">
               {failed}
             </div>
             <div className="text-xs text-zinc-500 mt-1">Dead-Letter Queue (DLQ)</div>
@@ -117,9 +117,9 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         {/* Left Column: Endpoint Breakdown Table */}
         <div className="lg:col-span-7">
-          <div className="border border-zinc-200/90 rounded-lg overflow-hidden bg-white">
+          <div className="border border-zinc-200/90 rounded-lg overflow-hidden bg-white shadow-2xs">
             <div className="px-4 py-2.5 bg-zinc-50/90 border-b border-zinc-200/80 flex items-center justify-between">
-              <span className="text-xs font-medium text-zinc-700">
+              <span className="text-xs font-medium text-zinc-700 tabular-nums">
                 Keandalan per Endpoint ({endpoint_breakdown.length})
               </span>
             </div>
@@ -170,9 +170,9 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
 
         {/* Right Column: Navattic "Conversion Events" Style Incident Timeline Card */}
         <div className="lg:col-span-5">
-          <div className="border border-zinc-200/90 rounded-lg overflow-hidden bg-white">
+          <div className="border border-zinc-200/90 rounded-lg overflow-hidden bg-white shadow-2xs">
             <div className="px-4 py-2.5 bg-zinc-50/90 border-b border-zinc-200/80 flex items-center justify-between">
-              <span className="text-xs font-medium text-zinc-700">
+              <span className="text-xs font-medium text-zinc-700 tabular-nums">
                 Insiden Kegagalan Terbaru ({recent_failed.length})
               </span>
             </div>
@@ -184,8 +184,16 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                   return (
                     <div
                       key={ev.id}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => onSelectEvent(ev)}
-                      className="px-4 py-3 hover:bg-zinc-50/80 cursor-pointer transition-colors flex items-start justify-between gap-3"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onSelectEvent(ev);
+                        }
+                      }}
+                      className="px-4 py-3 hover:bg-zinc-50/80 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-zinc-900 outline-none cursor-pointer transition-colors flex items-start justify-between gap-3"
                     >
                       <div className="flex items-start gap-2.5 min-w-0 flex-1">
                         <div className="size-5 rounded-full bg-zinc-100 border border-zinc-200 flex items-center justify-center text-zinc-500 shrink-0 mt-0.5">

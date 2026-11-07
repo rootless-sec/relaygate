@@ -4,11 +4,11 @@ import {
   RotateCw,
   Radio,
   Inbox,
-  Pause,
-  Play,
   ListFilter,
   X,
   Webhook,
+  Check,
+  Copy,
 } from 'lucide-react';
 import { Endpoint, EventStatus, StatsSummary, WebhookEvent } from '../types';
 import { BulkReplayModal, BulkModalState } from './BulkReplayModal';
@@ -43,8 +43,6 @@ export const EventsView: React.FC<EventsViewProps> = ({
   onReplayEvent,
   onBulkReplayFailed,
   onBulkReplay,
-  isLive,
-  onToggleLive,
   bufferedCount,
   onFlushBuffer,
   searchInputRef,
@@ -54,6 +52,16 @@ export const EventsView: React.FC<EventsViewProps> = ({
   const [endpointFilter, setEndpointFilter] = useState<string>('');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const handleCopyId = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      navigator.clipboard.writeText(id);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 1500);
+    } catch {}
+  };
 
   const [bulkModal, setBulkModal] = useState<BulkModalState>({
     open: false,
@@ -394,15 +402,15 @@ export const EventsView: React.FC<EventsViewProps> = ({
     (searchQuery ? 1 : 0) + (statusFilter ? 1 : 0) + (endpointFilter ? 1 : 0);
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-white px-7 py-5 overflow-hidden">
+    <div className="flex-1 flex flex-col min-h-0 bg-white px-4 lg:px-7 py-5 overflow-hidden">
       {/* Top Heading + Unified Horizontal Summary Strip */}
       <div className="flex flex-wrap items-center justify-between gap-4 pb-4 shrink-0">
         <div className="min-w-0">
-          <h1 className="text-xl font-semibold text-zinc-950 tracking-tight whitespace-nowrap truncate">
+          <h1 className="text-xl font-semibold text-zinc-950 tracking-tight whitespace-nowrap truncate text-balance">
             Semua Webhook Event
           </h1>
           <p
-            className={`text-xs text-zinc-500 mt-0.5 ${
+            className={`text-xs text-zinc-500 mt-0.5 text-pretty ${
               selectedEventId ? 'hidden xl:block' : 'block'
             }`}
           >
@@ -489,7 +497,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
             <div className="inline-flex items-center gap-1.5 h-8 px-2.5 bg-white border border-zinc-200/90 rounded-md text-xs font-medium text-zinc-700 shadow-2xs select-none">
               <ListFilter className="w-3.5 h-3.5 text-zinc-500" />
               <span>Filter</span>
-              <span className="px-1.5 py-0.2 rounded bg-zinc-100 text-zinc-700 font-mono text-[11px] tabular-nums">
+              <span className="px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 font-mono text-[11px] tabular-nums">
                 {activeFilterCount}
               </span>
             </div>
@@ -511,25 +519,6 @@ export const EventsView: React.FC<EventsViewProps> = ({
               <span className={eligibleCount > 0 ? 'text-white' : 'text-zinc-600'}>
                 Replay yang eligible ({eligibleCount})
               </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={onToggleLive}
-              title={isLive ? 'Jeda stream real-time' : 'Lanjutkan stream real-time'}
-              className="flex items-center gap-1.5 h-8 px-3 bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200/90 rounded-md text-xs font-medium shadow-2xs transition-colors cursor-pointer"
-            >
-              {isLive ? (
-                <>
-                  <Pause className="w-3.5 h-3.5 text-zinc-500" />
-                  <span>Pause Stream</span>
-                </>
-              ) : (
-                <>
-                  <Play className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Resume Stream</span>
-                </>
-              )}
             </button>
           </div>
         </div>
@@ -626,59 +615,103 @@ export const EventsView: React.FC<EventsViewProps> = ({
           </thead>
           <tbody className="divide-y divide-zinc-200/70">
             {paginatedEvents.length > 0 ? (
-              paginatedEvents.map((ev) => {
+              paginatedEvents.map((ev, rowIdx) => {
                 const isSelected = selectedEventId === ev.id;
+                const endpointName =
+                  endpoints.find((ep) => ep.id === ev.endpoint_id)?.name || ev.endpoint_id;
                 return (
                   <tr
                     key={ev.id}
                     id={`event-row-${ev.id}`}
+                    tabIndex={0}
                     onClick={() => onSelectEvent(ev)}
-                    className={`cursor-pointer transition-colors divide-x divide-zinc-100 ${
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onSelectEvent(ev);
+                      } else if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        const next = paginatedEvents[rowIdx + 1];
+                        if (next) {
+                          document.getElementById(`event-row-${next.id}`)?.focus();
+                          onSelectEvent(next);
+                        }
+                      } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        const prev = paginatedEvents[rowIdx - 1];
+                        if (prev) {
+                          document.getElementById(`event-row-${prev.id}`)?.focus();
+                          onSelectEvent(prev);
+                        }
+                      }
+                    }}
+                    className={`cursor-pointer transition-colors divide-x divide-zinc-100 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-zinc-900 outline-none ${
                       isSelected ? 'bg-zinc-100/80' : 'hover:bg-zinc-50/70'
                     }`}
                   >
                     {/* Navattic Avatar + Two-Line Primary Cell */}
-                    <td className="py-3 px-3.5 whitespace-nowrap">
+                    <td className="py-2.5 px-3.5 whitespace-nowrap">
                       <div className="flex items-center gap-3">
                         <div className="size-7 rounded-full bg-zinc-100 border border-zinc-200/80 flex items-center justify-center text-zinc-600 shrink-0">
                           <Webhook className="w-3.5 h-3.5" />
                         </div>
                         <div className="flex flex-col min-w-0">
-                          <span
-                            className="font-mono font-medium text-zinc-900 text-xs"
-                            title={ev.id}
-                          >
-                            {selectedEventId ? `${ev.id.slice(0, 10)}...` : ev.id}
-                          </span>
-                          <span className="text-[11px] text-zinc-500 truncate">
-                            {ev.endpoint_id} · {ev.provider}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className="font-mono font-medium text-zinc-900 text-xs"
+                              title={ev.id}
+                            >
+                              {ev.id.slice(0, 8)}...
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => handleCopyId(ev.id, e)}
+                              className="p-0.5 rounded text-zinc-400 hover:text-zinc-900 hover:bg-zinc-200/60 transition-colors cursor-pointer"
+                              title="Salin Event ID lengkap"
+                              aria-label="Salin Event ID"
+                            >
+                              {copiedId === ev.id ? (
+                                <Check className="w-3 h-3 text-emerald-600" />
+                              ) : (
+                                <Copy className="w-3 h-3" />
+                              )}
+                            </button>
+                          </div>
+                          {selectedEventId ? (
+                            <span className="text-[11px] text-zinc-500 truncate">
+                              {ev.endpoint_id} · {ev.provider}
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-zinc-500 truncate">
+                              {endpointName}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </td>
 
-                    <td className="py-3 px-3.5 whitespace-nowrap">
+                    <td className="py-2.5 px-3.5 whitespace-nowrap">
                       {getStatusBadge(ev.status)}
                     </td>
 
-                    <td className="py-3 px-3.5 font-mono text-zinc-600 whitespace-nowrap tabular-nums">
+                    <td className="py-2.5 px-3.5 font-mono text-zinc-600 whitespace-nowrap tabular-nums">
                       {formatTime(ev.created_at)}
                     </td>
 
                     {!selectedEventId && (
-                      <td className="py-3 px-3.5 text-zinc-800 font-medium whitespace-nowrap">
+                      <td className="py-2.5 px-3.5 text-zinc-800 font-medium font-mono text-xs whitespace-nowrap">
                         {ev.endpoint_id}
                       </td>
                     )}
 
                     {!selectedEventId && (
-                      <td className="py-3 px-3.5 text-zinc-500 uppercase font-mono text-[11px] whitespace-nowrap">
+                      <td className="py-2.5 px-3.5 text-zinc-500 uppercase font-mono text-[11px] whitespace-nowrap">
                         {ev.provider}
                       </td>
                     )}
 
                     {!selectedEventId && (
-                      <td className="py-3 px-3.5 text-center whitespace-nowrap">
+                      <td className="py-2.5 px-3.5 text-center whitespace-nowrap">
                         {ev.is_verified === 1 ? (
                           <span className="text-emerald-700 font-bold" title="Signature valid">
                             ✓
@@ -696,7 +729,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
                     )}
 
                     {!selectedEventId && (
-                      <td className="py-3 px-3.5 text-zinc-600 whitespace-nowrap tabular-nums">
+                      <td className="py-2.5 px-3.5 text-zinc-600 whitespace-nowrap tabular-nums">
                         {(() => {
                           const attInfo = formatAttemptsDisplay(ev);
                           return attInfo.isRejected ? (
@@ -734,7 +767,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
 
                     {!selectedEventId && (
                       <td
-                        className="py-3 px-3.5 text-right whitespace-nowrap"
+                        className="py-2.5 px-3.5 text-right whitespace-nowrap"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <button
@@ -760,6 +793,19 @@ export const EventsView: React.FC<EventsViewProps> = ({
                     <p className="text-xs text-zinc-500">
                       Coba ubah kata kunci pencarian atau reset filter.
                     </p>
+                    {activeFilterCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleSearchChange('');
+                          handleStatusFilterChange('');
+                          handleEndpointFilterChange('');
+                        }}
+                        className="mt-1 px-3 py-1.5 bg-white hover:bg-zinc-50 border border-zinc-200/90 text-zinc-800 text-xs font-medium rounded-md shadow-2xs transition-colors cursor-pointer"
+                      >
+                        Reset Filter
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>

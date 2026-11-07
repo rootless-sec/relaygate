@@ -764,12 +764,12 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
     (dateRangeFilter !== 'all' ? 1 : 0);
 
   return (
-    <div className="flex-1 overflow-hidden px-7 py-5 flex flex-col bg-white">
+    <div className="flex-1 overflow-hidden px-4 lg:px-7 py-5 flex flex-col bg-white">
       {/* 1. Page Heading + Class Filter Pills (Navattic / Stripe Pattern) */}
       <div className="pb-4 shrink-0 flex flex-wrap items-start justify-between gap-3">
         <div className="shrink-0">
           <div className="flex items-center gap-2.5">
-            <h1 className="text-xl font-semibold text-zinc-950 tracking-tight whitespace-nowrap">
+            <h1 className="text-xl font-semibold text-zinc-950 tracking-tight whitespace-nowrap text-balance">
               Dead-Letter Queue (DLQ)
             </h1>
             <span className="text-xs font-mono font-medium px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200/80 rounded-md shrink-0 tabular-nums">
@@ -777,7 +777,7 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
             </span>
           </div>
           <p
-            className={`text-xs text-zinc-500 mt-0.5 ${
+            className={`text-xs text-zinc-500 mt-0.5 text-pretty ${
               selectedEventId ? 'hidden xl:block' : 'block'
             }`}
           >
@@ -853,7 +853,7 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
             <div className="inline-flex items-center gap-1.5 h-8 px-2.5 bg-white border border-zinc-200/90 rounded-md text-xs font-medium text-zinc-700 shadow-2xs select-none">
               <ListFilter className="w-3.5 h-3.5 text-zinc-500" />
               <span>Filter</span>
-              <span className="px-1.5 py-0.2 rounded bg-zinc-100 text-zinc-700 font-mono text-[11px] tabular-nums">
+              <span className="px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 font-mono text-[11px] tabular-nums">
                 {activeFilterCount}
               </span>
             </div>
@@ -1179,7 +1179,7 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
 
                     {/* Percobaan (hidden when panel open) */}
                     {!selectedEventId && (
-                      <td className="py-3 px-3.5 whitespace-nowrap">
+                      <td className="py-3 px-3.5 whitespace-nowrap tabular-nums">
                         {(() => {
                           const attInfo = formatAttemptsDisplay(ev);
                           return attInfo.isRejected ? (
@@ -1194,7 +1194,7 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
                               )}
                             </div>
                           ) : (
-                            <div className="flex flex-col font-mono text-xs text-zinc-700">
+                            <div className="flex flex-col font-mono text-xs text-zinc-700 tabular-nums">
                               <span>{attInfo.primaryText.replace(/\s+/g, '')}</span>
                               {attInfo.secondaryText && (
                                 <span className="text-[11px] font-sans text-zinc-500 whitespace-nowrap">
@@ -1208,7 +1208,7 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
                     )}
 
                     {/* Gagal Pada */}
-                    <td className="py-3 px-3.5 font-mono text-zinc-600 whitespace-nowrap">
+                    <td className="py-3 px-3.5 font-mono text-zinc-600 whitespace-nowrap tabular-nums">
                       <span
                         className="underline decoration-dotted decoration-zinc-400 underline-offset-4 cursor-help"
                         title={formatAbsoluteTime(failedTime)}

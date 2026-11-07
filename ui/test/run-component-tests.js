@@ -1777,6 +1777,59 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.strictEqual(kpiEvents.delivered + kpiEvents.pending + kpiEvents.retrying + kpiEvents.failed, kpiEvents.total, 'Sum of status KPI cards from events must equal Total Events');
   });
 
+  await suite.test('Navattic UI/UX Craft Invariants: single Pause Stream, EventsView keyboard rows, stacked InspectorDrawer metadata, valid Tailwind v3 tokens', () => {
+    const eventsHtml = renderToString(
+      React.createElement(EventsView, {
+        events: [mockEvent],
+        stats: null,
+        endpoints: [],
+        selectedEventId: null,
+        onSelectEvent: () => {},
+        onReplayEvent: () => {},
+        onBulkReplayFailed: () => {},
+        isLive: true,
+        onToggleLive: () => {},
+        bufferedCount: 0,
+        onFlushBuffer: () => {},
+        searchInputRef: { current: null },
+      })
+    );
+    assert.ok(
+      !eventsHtml.includes('Pause Stream') && !eventsHtml.includes('Resume Stream'),
+      'EventsView must not render a duplicate Pause/Resume Stream button (owned by App top bar)'
+    );
+    assert.match(eventsHtml, /id="event-row-evt-test-12345678"/, 'EventsView row must have id="event-row-..."');
+    assert.match(eventsHtml, /tabindex="0"/, 'EventsView row must be keyboard focusable via tabIndex={0}');
+
+    const srcRoot = path.join(__dirname, '../src');
+    const drawerSrc = fs.readFileSync(path.join(srcRoot, 'components', 'InspectorDrawer.tsx'), 'utf8');
+    assert.ok(
+      drawerSrc.includes('event-row-${evId}') && drawerSrc.includes('dlq-row-${evId}'),
+      'InspectorDrawer handleClose must restore focus to both dlq-row and event-row'
+    );
+    assert.ok(
+      drawerSrc.includes('flex flex-col gap-0.5'),
+      'InspectorDrawer metadata cells must stack label above value (flex flex-col gap-0.5)'
+    );
+
+    const twConfig = fs.readFileSync(path.join(__dirname, '..', 'tailwind.config.js'), 'utf8');
+    assert.ok(
+      twConfig.includes("'2xs'") && twConfig.includes('backdropBlur'),
+      'tailwind.config.js must define 2xs/xs boxShadow and backdropBlur tokens for Tailwind v3'
+    );
+
+    const compDir = path.join(srcRoot, 'components');
+    for (const f of fs.readdirSync(compDir)) {
+      if (f.endsWith('.tsx')) {
+        const content = fs.readFileSync(path.join(compDir, f), 'utf8');
+        assert.ok(
+          !content.includes('py-0.2'),
+          `${f} must not use non-existent Tailwind class py-0.2`
+        );
+      }
+    }
+  });
+
   // Cleanup temp files
   try {
     fs.rmSync(outDir, { recursive: true, force: true, maxRetries: 0 });

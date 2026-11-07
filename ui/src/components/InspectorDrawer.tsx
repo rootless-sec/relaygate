@@ -103,7 +103,10 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
     onClose();
     if (evId) {
       setTimeout(() => {
-        document.getElementById(`dlq-row-${evId}`)?.focus();
+        (
+          document.getElementById(`dlq-row-${evId}`) ||
+          document.getElementById(`event-row-${evId}`)
+        )?.focus();
       }, 30);
     }
   };
@@ -248,7 +251,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
       <div
         ref={drawerRef}
         tabIndex={-1}
-        className={`bg-white flex flex-col select-text transition-all duration-200 outline-none overflow-hidden ${
+        className={`bg-white flex flex-col select-text transition-transform duration-200 ease-out outline-none overflow-hidden ${
           isSplitView
             ? 'fixed inset-y-0 right-0 w-full sm:w-[460px] z-40 border-l border-zinc-200 xl:relative xl:inset-auto xl:z-10 xl:w-[470px] xl:shrink-0 xl:my-2.5 xl:mr-2.5 xl:rounded-xl xl:border xl:border-zinc-200/90 xl:shadow-lg shadow-2xl'
             : 'fixed inset-y-0 right-0 w-[460px] max-w-full z-40 border-l border-zinc-200 shadow-xl'
@@ -408,17 +411,19 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
           )}
 
         {/* 3. Navattic Metadata Summary Row (`Title / N/A`, `Record Owner / N/A`) */}
-        <div className="grid grid-cols-2 gap-y-2.5 gap-x-4 px-5 py-3 border-b border-zinc-200/80 bg-white text-xs shrink-0">
-          <div>
-            <span className="text-zinc-500 font-medium">Provider:</span>
-            <span className="ml-2 font-semibold text-zinc-900 uppercase">{event.provider}</span>
+        <div className="grid grid-cols-2 gap-y-3 gap-x-4 px-5 py-3 border-b border-zinc-200/80 bg-white text-xs shrink-0">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[11px] text-zinc-500 font-medium">Provider:</span>
+            <span className="font-semibold text-zinc-900 uppercase">{event.provider}</span>
           </div>
-          <div>
-            <span className="text-zinc-500 font-medium">IP Asal:</span>
-            <span className="ml-2 font-mono text-zinc-900">{formatSourceIP(event.source_ip)}</span>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[11px] text-zinc-500 font-medium">IP Asal:</span>
+            <span className="font-mono text-zinc-900 tabular-nums">
+              {formatSourceIP(event.source_ip)}
+            </span>
           </div>
-          <div>
-            <span className="text-zinc-500 font-medium">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[11px] text-zinc-500 font-medium">
               {event.status === 'DELIVERED'
                 ? 'Terkirim pada:'
                 : event.status === 'PENDING' || event.status === 'RETRYING'
@@ -426,7 +431,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                 : 'Gagal pada:'}
             </span>
             <span
-              className="ml-2 font-mono text-zinc-900 underline decoration-dotted decoration-zinc-400 underline-offset-4 cursor-help"
+              className="font-mono text-zinc-900 underline decoration-dotted decoration-zinc-400 underline-offset-4 cursor-help tabular-nums w-fit"
               title={formatAbsoluteTime(
                 event.status === 'DELIVERED'
                   ? event.updated_at || event.created_at
@@ -451,9 +456,11 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
           {(() => {
             const attemptsInfo = formatAttemptsDisplay(event);
             return (
-              <div>
-                <span className="text-zinc-500 font-medium whitespace-nowrap">Percobaan:</span>
-                <span className="ml-2">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[11px] text-zinc-500 font-medium whitespace-nowrap">
+                  Percobaan:
+                </span>
+                <div>
                   {attemptsInfo.isRejected ? (
                     <span className="inline-flex flex-col">
                       <span
@@ -464,7 +471,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                       </span>
                       {attemptsInfo.secondaryText && (
                         <span
-                          className="text-[10px] text-zinc-500 whitespace-nowrap"
+                          className="text-[11px] text-zinc-500 whitespace-nowrap"
                           data-testid="attempts-stop-reason"
                         >
                           {attemptsInfo.secondaryText}
@@ -474,7 +481,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                   ) : (
                     <span className="inline-flex flex-col">
                       <span
-                        className={`font-mono text-xs whitespace-nowrap ${
+                        className={`font-mono text-xs whitespace-nowrap tabular-nums ${
                           event.status === 'DELIVERED'
                             ? 'text-emerald-700 font-medium'
                             : 'text-zinc-900 font-medium'
@@ -485,7 +492,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                       </span>
                       {attemptsInfo.secondaryText && (
                         <span
-                          className={`text-[10px] whitespace-nowrap ${
+                          className={`text-[11px] whitespace-nowrap ${
                             event.status === 'RETRYING'
                               ? 'text-amber-700 font-medium'
                               : 'text-zinc-500'
@@ -497,19 +504,19 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                       )}
                     </span>
                   )}
-                </span>
+                </div>
               </div>
             );
           })()}
           {(event.status === 'DELIVERED' || (!isRejected && event.status !== 'PENDING')) && (
-            <div>
-              <span className="text-zinc-500 font-medium">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[11px] text-zinc-500 font-medium">
                 {event.verification_kind === 'static_token' ||
                 event.provider?.toLowerCase() === 'xendit'
                   ? 'Token:'
                   : 'Signature:'}
               </span>
-              <span className="ml-2">
+              <div>
                 {event.is_verified === 1 ? (
                   <span className="inline-flex items-center gap-1 text-emerald-700 font-semibold">
                     <ShieldCheck className="w-3.5 h-3.5" /> Valid
@@ -519,7 +526,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                     <ShieldOff className="w-3.5 h-3.5" /> Dilewati
                   </span>
                 )}
-              </span>
+              </div>
             </div>
           )}
         </div>
@@ -757,7 +764,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                           <span className="font-mono font-medium text-zinc-500 text-[11px] flex items-center gap-1.5">
                             <span>{key}</span>
                             {sensitive && (
-                              <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 uppercase">
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 uppercase">
                                 Sensitif
                               </span>
                             )}
