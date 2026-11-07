@@ -426,7 +426,7 @@ export const App: React.FC = () => {
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-white text-zinc-900 antialiased">
-      {/* Left Dual-Rail Navigation (Navattic Reference Architecture) */}
+      {/* Left Workspace Navigation Sidebar */}
       <Sidebar
         currentTab={currentTab}
         onTabChange={handleTabChange}

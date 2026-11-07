@@ -115,15 +115,23 @@ async function run() {
       'about:blank',
     ]);
 
-    await wait(1500);
-
-    // Get websocket target
-    const cdpTargets = await httpRequest({
-      hostname: '127.0.0.1',
-      port: CDP_PORT,
-      path: '/json',
-      method: 'GET',
-    });
+    let cdpTargets;
+    const cdpStart = Date.now();
+    while (Date.now() - cdpStart < 10000) {
+      try {
+        cdpTargets = await httpRequest({
+          hostname: '127.0.0.1',
+          port: CDP_PORT,
+          path: '/json',
+          method: 'GET',
+        });
+        if (cdpTargets.status === 200) break;
+      } catch {}
+      await wait(300);
+    }
+    if (!cdpTargets || cdpTargets.status !== 200) {
+      throw new Error('Chrome CDP failed to respond on port ' + CDP_PORT);
+    }
 
     const targets = JSON.parse(cdpTargets.body);
     const pageTarget = targets.find((t) => t.type === 'page');

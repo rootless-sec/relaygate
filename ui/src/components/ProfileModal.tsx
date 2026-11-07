@@ -318,7 +318,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                           type="button"
                           onClick={handleDeleteAvatar}
                           disabled={avatarUploading}
-                          className="flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-white hover:bg-rose-50 border border-zinc-200/90 hover:border-rose-200 text-xs font-medium text-rose-700 transition-colors disabled:opacity-50 cursor-pointer"
+                          className="flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-white hover:bg-rose-50 border border-zinc-200/90 hover:border-rose-200/80 text-xs font-medium text-zinc-600 hover:text-rose-700 transition-colors disabled:opacity-50 cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                           <span>Hapus</span>
@@ -332,7 +332,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 </div>
 
                 {avatarError && (
-                  <div className="p-2.5 rounded-md bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center gap-2">
+                  <div className="p-2.5 rounded-lg bg-rose-50/80 border border-rose-200/80 text-xs text-rose-700 flex items-center gap-2">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                     <span>{avatarError}</span>
                   </div>
@@ -361,7 +361,11 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                       <button
                         type="submit"
                         disabled={savingName || name.trim() === currentUser.name}
-                        className="h-8 px-3 rounded-md bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-medium shadow-2xs transition-colors disabled:opacity-40 cursor-pointer flex items-center gap-1.5 shrink-0"
+                        className={`h-8 px-3 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 shrink-0 ${
+                          savingName || name.trim() === currentUser.name
+                            ? 'bg-zinc-100 text-zinc-400 border border-zinc-200/80 cursor-not-allowed shadow-none'
+                            : 'bg-zinc-900 hover:bg-zinc-800 text-white shadow-2xs cursor-pointer'
+                        }`}
                       >
                         {savingName ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -383,10 +387,11 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                         <Mail className="w-3.5 h-3.5" />
                         <span>Alamat Email</span>
                       </div>
-                      <div className="flex items-center gap-1.5 font-mono text-[11px] text-zinc-900">
-                        <span>{currentUser.email}</span>
-                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          Terverifikasi
+                      <div className="flex items-center gap-2 text-xs text-zinc-900">
+                        <span className="font-normal">{currentUser.email}</span>
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium bg-zinc-100 text-zinc-700 border border-zinc-200/80">
+                          <span className="size-1.5 rounded-full bg-emerald-600" />
+                          <span>Terverifikasi</span>
                         </span>
                       </div>
                     </div>
@@ -396,7 +401,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                         <ShieldCheck className="w-3.5 h-3.5" />
                         <span>Peran Akses</span>
                       </div>
-                      <span className="font-mono text-[11px] uppercase px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-800 border border-zinc-200">
+                      <span className="text-[11px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-md bg-zinc-100 text-zinc-700 border border-zinc-200/80">
                         {currentUser.role || 'viewer'}
                       </span>
                     </div>
@@ -407,7 +412,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                           <Calendar className="w-3.5 h-3.5" />
                           <span>Terdaftar Sejak</span>
                         </div>
-                        <span className="text-[11px] text-zinc-700">
+                        <span className="text-xs text-zinc-700 font-normal">
                           {formatAbsoluteTime(currentUser.created_at)}
                         </span>
                       </div>
@@ -429,7 +434,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 </div>
 
                 {passwordError && (
-                  <div className="p-2.5 rounded-md bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center gap-2">
+                  <div className="p-2.5 rounded-lg bg-rose-50/80 border border-rose-200/80 text-xs text-rose-700 flex items-center gap-2">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                     <span>{passwordError}</span>
                   </div>
@@ -517,7 +522,11 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                   <button
                     type="submit"
                     disabled={savingPassword}
-                    className="flex items-center gap-1.5 h-8 px-4 rounded-md bg-zinc-900 hover:bg-zinc-800 text-white font-medium shadow-2xs transition-colors disabled:opacity-40 cursor-pointer"
+                    className={`flex items-center gap-1.5 h-8 px-4 rounded-md text-xs font-medium transition-colors ${
+                      savingPassword
+                        ? 'bg-zinc-100 text-zinc-400 border border-zinc-200/80 cursor-not-allowed shadow-none'
+                        : 'bg-zinc-900 hover:bg-zinc-800 text-white shadow-2xs cursor-pointer'
+                    }`}
                   >
                     {savingPassword ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
