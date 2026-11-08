@@ -2324,6 +2324,8 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(loginSource, /github\.com/, 'Must route to genuine GitHub portal');
     assert.match(loginSource, /gitlab\.com/, 'Must route to genuine GitLab portal');
     assert.match(loginSource, /_blank/, 'Must open genuine OAuth provider URL in a new blank tab');
+    assert.match(loginSource, /noopener\s+noreferrer|noopener,noreferrer/, 'Must enforce noopener noreferrer on OAuth redirection');
+    assert.match(loginSource, /<a[^>]*href=\{getOAuthProviderUrl\('google'\)\}/, 'Google option must render as native anchor link for popup blocker immunity');
     assert.match(loginSource, /getOAuthProviderUrl/, 'LoginPage must export getOAuthProviderUrl helper');
 
     // 6. Zero unicode em dashes in LoginPage, App, and api

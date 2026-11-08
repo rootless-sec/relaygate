@@ -365,13 +365,13 @@ async function run() {
     // =========================================================================
     // PART 3: DESKTOP SESSION NOTICE (1440 x 920)
     // =========================================================================
-    console.log('[Script] Capturing Desktop session notice...');
-    await send('Emulation.clearDeviceMetricsOverride');
+    console.log('[Script] Capturing Desktop session notice (1440x900)...');
+    await setDeviceMetrics(1440, 900, 2, false);
     await send('Runtime.evaluate', {
       expression: `
         localStorage.removeItem('relaygate_auth');
         window.dispatchEvent(new CustomEvent('relaygate_session_expired', {
-          detail: { message: 'Sesi berakhir' }
+          detail: { message: 'Sesi Anda telah berakhir demi keamanan. Silakan masuk kembali.' }
         }));
       `,
     });

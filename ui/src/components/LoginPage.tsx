@@ -169,10 +169,20 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     onDismissNotice?.();
   };
 
-  const handleOAuthClick = (provider: 'google' | 'github' | 'gitlab') => {
+  const handleOAuthClick = (provider: 'google' | 'github' | 'gitlab', e?: React.MouseEvent) => {
     const targetUrl = getOAuthProviderUrl(provider);
     if (typeof window !== 'undefined') {
-      window.open(targetUrl, '_blank', 'noopener,noreferrer');
+      try {
+        const popup = window.open(targetUrl, '_blank', 'noopener,noreferrer');
+        // If browser popup blocker intercepts the new window, navigate directly so user is never stranded
+        if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+          window.location.href = targetUrl;
+        } else {
+          e?.preventDefault();
+        }
+      } catch {
+        // Fallback: allow native link navigation
+      }
     }
   };
 
@@ -386,7 +396,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           role="status"
           aria-live="polite"
           aria-label="Pemberitahuan sesi"
-          className="fixed top-6 left-4 right-4 sm:left-auto sm:right-6 sm:w-96 z-50 p-4 rounded-xl bg-white/95 backdrop-blur-md border border-amber-200/80 shadow-lg text-zinc-900 animate-in fade-in slide-in-from-top-3 duration-200 flex items-start gap-3"
+          className="fixed top-[4.5rem] left-4 right-4 sm:top-6 sm:left-auto sm:right-6 sm:w-96 z-50 p-4 rounded-xl bg-white/95 backdrop-blur-md border border-amber-200/80 shadow-lg text-zinc-900 animate-in fade-in slide-in-from-top-3 duration-200 flex items-start gap-3"
         >
           <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200/60 flex items-center justify-center shrink-0 text-amber-700">
             <Clock className="w-4 h-4" />
@@ -482,40 +492,46 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           <div className="mb-4">
             <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
               {/* Google Button */}
-              <button
-                type="button"
-                onClick={() => handleOAuthClick('google')}
+              <a
+                href={getOAuthProviderUrl('google')}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => handleOAuthClick('google', e)}
                 className="flex items-center justify-center gap-1.5 min-h-[44px] py-2 px-2 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 active:scale-[0.98] text-xs font-semibold text-zinc-800 transition-all shadow-2xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
                 aria-label={mode === 'register' ? 'Daftar dengan Google' : 'Masuk dengan Google'}
                 title={mode === 'register' ? 'Daftar dengan Google' : 'Masuk dengan Google'}
               >
                 <GoogleIcon className="w-4 h-4 shrink-0" />
                 <span className="truncate">Google</span>
-              </button>
+              </a>
 
               {/* GitHub Button */}
-              <button
-                type="button"
-                onClick={() => handleOAuthClick('github')}
+              <a
+                href={getOAuthProviderUrl('github')}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => handleOAuthClick('github', e)}
                 className="flex items-center justify-center gap-1.5 min-h-[44px] py-2 px-2 rounded-lg border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 active:scale-[0.98] text-xs font-semibold text-white transition-all shadow-2xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
                 aria-label={mode === 'register' ? 'Daftar dengan GitHub' : 'Masuk dengan GitHub'}
                 title={mode === 'register' ? 'Daftar dengan GitHub' : 'Masuk dengan GitHub'}
               >
                 <GitHubIcon className="w-4 h-4 shrink-0" />
                 <span className="truncate">GitHub</span>
-              </button>
+              </a>
 
               {/* GitLab Button */}
-              <button
-                type="button"
-                onClick={() => handleOAuthClick('gitlab')}
+              <a
+                href={getOAuthProviderUrl('gitlab')}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => handleOAuthClick('gitlab', e)}
                 className="flex items-center justify-center gap-1.5 min-h-[44px] py-2 px-2 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 active:scale-[0.98] text-xs font-semibold text-zinc-800 transition-all shadow-2xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
                 aria-label={mode === 'register' ? 'Daftar dengan GitLab' : 'Masuk dengan GitLab'}
                 title={mode === 'register' ? 'Daftar dengan GitLab' : 'Masuk dengan GitLab'}
               >
                 <GitLabIcon className="w-4 h-4 shrink-0" />
                 <span className="truncate">GitLab</span>
-              </button>
+              </a>
             </div>
 
             {/* Clean UI Divider */}
