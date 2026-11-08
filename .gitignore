@@ -39,3 +39,8 @@ Thumbs.db
 e2e-output/
 verify.txt
 *.log
+
+# Environment Secrets
+.env
+.env.*
+!.env.example
