@@ -10,7 +10,7 @@
 
 ---
 
-When payment gateways or SaaS providers (Stripe, Midtrans, Xendit, GitHub, Shopify) send webhooks while your downstream service is deploying, overloaded, or unreachable, events are dropped once the provider exhausts its retry window.
+When webhook providers (Generic, Stripe, Midtrans, GitHub, Xendit, Shopify) send webhooks while your downstream service is deploying, overloaded, or unreachable, events are dropped once the provider exhausts its retry window.
 
 RelayGate sits in front of your application as a persistent ingestion queue and control plane. When a webhook arrives at `/ingest/{endpoint_id}`, RelayGate writes the raw payload and headers synchronously to a local SQLite Write-Ahead Log (WAL), returns `202 Accepted` to the provider, and hands the event off to a background worker pool.
 
@@ -19,7 +19,7 @@ If signature verification fails or a downstream target returns `4xx`/`5xx`/timeo
 ## Architecture
 
 ```text
-Provider (Stripe / Midtrans / Xendit / GitHub / Shopify / Generic)
+Provider (Generic / Stripe / Midtrans / GitHub / Xendit / Shopify)
    │
    ▼  POST /ingest/{endpoint_id}
 RelayGate Ingest Handler
@@ -30,7 +30,7 @@ RelayGate Ingest Handler
 Worker Pool & Verifier
    ├──► Signature / Token Verification (HMAC-SHA256, SHA-512, Constant-Time Token)
    ├──► Downstream HTTP Dispatcher (exponential backoff + jitter, per-event mutex)
-   └──► SSE Hub (/api/events/stream) ──► Embedded React Console (ui/dist via embed.FS)
+   └──► SSE Hub (/api/v1/stream) ──► Embedded React Console (ui/dist via embed.FS)
 ```
 
 ### Repository Layout
@@ -72,14 +72,14 @@ Events in `FAILED` state are categorized by server-assigned `failure_code` value
 2. Replaying an eligible event resets `attempts` to `0`, transitions status to `PENDING`, preserves the last `http_status_code` for operator context, and guards against concurrent duplicate dispatches via a per-event keyed mutex and atomic database transition (`409 Conflict` on duplicate in-flight requests).
 3. Sensitive headers matching authentication keywords (`token`, `secret`, `signature`, `auth`, `key`, `password`, `cookie`) are masked as `••••••••` in API responses and replaced with `<TOKEN>` in generated `cURL` commands. Revealing raw header values requires an `ADMIN` session and writes an immutable entry to `reveal_audit_logs` before returning data (fail-closed).
 
-## Building and Running
+## Quickstart
 
 ### Prerequisites
 
 * Go 1.22 or newer (pure Go SQLite driver via `modernc.org/sqlite`, no CGO required)
 * Node.js 20+ (only required when rebuilding frontend assets in `ui/dist`)
 
-### Build from Source
+### Build and Run
 
 ```bash
 # 1. Build frontend assets (optional if ui/dist is already up to date)
@@ -91,8 +91,8 @@ cd ..
 # 2. Compile standalone binary
 go build -o relaygate ./cmd/relaygate
 
-# 3. Start server (listens on :8080 by default, stores SQLite DB in ./data/relaygate.db)
-./relaygate
+# 3. Start server with optional configuration flags
+./relaygate -addr :8080 -db ./data/relaygate.db -workers 10
 ```
 
 Open `http://127.0.0.1:8080` in your browser to access the dashboard.
@@ -111,29 +111,49 @@ npm --prefix ui test
 
 | Method | Path | Auth | Description |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/ingest/{endpoint_id}` | Public (Provider Signature) | Ingest webhook payload into SQLite WAL and enqueue dispatch |
-| `POST` | `/api/auth/register` | Public | Register a new account and issue a 6-digit email verification code |
-| `POST` | `/api/auth/verify` | Public | Verify 6-digit OTP code and activate user account |
-| `POST` | `/api/auth/login` | Public | Authenticate user and set `HttpOnly; SameSite=Strict` session cookie |
-| `POST` | `/api/auth/logout` | Session | Revoke active server-side session and clear cookie |
-| `GET` | `/api/stats` | Session / Bearer | Aggregate KPI counts (`total`, `delivered`, `pending`, `retrying`, `failed`) |
-| `GET` | `/api/events` | Session / Bearer | List events with filtering (`status`, `provider`, `failure_code`, `search`) |
-| `GET` | `/api/events/{id}` | Session / Bearer | Fetch single event details with masked sensitive headers |
-| `POST` | `/api/events/{id}/reveal-headers` | Session (`ADMIN`) | Audit and return unmasked request headers for a specific event |
-| `POST` | `/api/events/{id}/replay` | Session / Bearer | Reset attempts and enqueue immediate re-verification and delivery |
-| `POST` | `/api/events/replay-bulk` | Session / Bearer | Preview or execute bulk replay for all eligible `FAILED` events |
-| `GET` | `/api/events/stream` | Session / Bearer | Server-Sent Events (SSE) real-time status stream |
-| `GET` | `/api/endpoints` | Session / Bearer | List configured webhook endpoints |
-| `POST` | `/api/endpoints` | Session (`ADMIN`) | Create a new webhook endpoint |
-| `PUT` | `/api/endpoints/{id}` | Session (`ADMIN`) | Update endpoint target URL, provider, secret key, or active status |
-| `DELETE` | `/api/endpoints/{id}` | Session (`ADMIN`) | Delete a webhook endpoint |
+| `GET` | `/healthz` | Public | Service health and version check |
+| `POST` | `/ingest/{endpoint_id}` | Public (Provider Signature) | Ingest webhook payload into SQLite WAL and enqueue dispatch (alias `/v1/webhook/{endpoint_id}`) |
+| `POST` | `/api/v1/auth/register` | Public | Register a new account and issue a 6-digit email verification code |
+| `POST` | `/api/v1/auth/verify` | Public | Verify 6-digit OTP code and activate user account |
+| `POST` | `/api/v1/auth/resend-code` | Public | Resend 6-digit email OTP verification code |
+| `POST` | `/api/v1/auth/login` | Public | Authenticate user and set `HttpOnly; SameSite=Strict` session cookie |
+| `POST` | `/api/v1/auth/oauth` | Public | Authenticate or register via OAuth provider (`google`, `github`, `gitlab`) |
+| `POST` | `/api/v1/auth/logout` | Session | Revoke active server-side session and clear cookie |
+| `GET` | `/api/v1/profile` | Session / Bearer | Fetch authenticated user profile details |
+| `PATCH` | `/api/v1/profile` | Session / Bearer | Update user display name |
+| `POST` | `/api/v1/profile/password` | Session / Bearer | Change password or set password for OAuth-registered account |
+| `POST` | `/api/v1/profile/avatar` | Session / Bearer | Upload custom user profile avatar image (PNG/JPEG/WebP) |
+| `DELETE` | `/api/v1/profile/avatar` | Session / Bearer | Remove custom user profile avatar |
+| `GET` | `/api/v1/stats` | Session / Bearer | Aggregate KPI counts (`total`, `delivered`, `pending`, `retrying`, `failed`) |
+| `GET` | `/api/v1/overview` | Session / Bearer | Global dashboard metrics, 1-minute throughput buckets, and recent failures |
+| `GET` | `/api/v1/events` | Session / Bearer | List events with filtering (`status`, `provider`, `failure_code`, `search`, `page`, `limit`) |
+| `GET` | `/api/v1/events/{id}` | Session / Bearer | Fetch single event details with masked sensitive headers |
+| `GET` | `/api/v1/events/{id}?reveal=1` | Session (`ADMIN`) | Audit and return unmasked request headers (recorded to `reveal_audit_logs`) |
+| `POST` | `/api/v1/events/{id}/replay` | Session / Bearer | Reset attempts and enqueue immediate re-verification and delivery |
+| `POST` | `/api/v1/events/bulk-replay` | Session / Bearer | Execute bulk replay for all eligible `FAILED` events |
+| `GET` | `/api/v1/stream` | Session / Bearer | Server-Sent Events (SSE) real-time event stream |
+| `GET` | `/api/v1/endpoints` | Session / Bearer | List configured webhook endpoints |
+| `POST` | `/api/v1/endpoints` | Session (`ADMIN`) | Create a new webhook endpoint |
+| `PATCH` | `/api/v1/endpoints/{id}` | Session (`ADMIN`) | Update endpoint target URL, provider, secret key, or active status |
+| `DELETE` | `/api/v1/endpoints/{id}` | Session (`ADMIN`) | Delete a webhook endpoint |
 
-## Configuration and Security
+## Configuration Flags and Environment Variables
 
-RelayGate is configured via environment variables:
+### CLI Flags
+
+| Flag | Default | Environment Override | Description |
+| :--- | :--- | :--- | :--- |
+| `-addr` | `:8080` | `RELAYGATE_ADDR` / `PORT` | HTTP server listening address |
+| `-db` | `./data/relaygate.db` | `RELAYGATE_DB_PATH` | SQLite database file path |
+| `-workers` | `10` | `RELAYGATE_WORKERS` | Number of concurrent background dispatch workers |
+
+### Environment Variables
 
 | Environment Variable | Default | Description |
 | :--- | :--- | :--- |
+| `RELAYGATE_ADDR` / `PORT` | `:8080` | HTTP server listening address |
+| `RELAYGATE_DB_PATH` | `./data/relaygate.db` | SQLite database file path |
+| `RELAYGATE_WORKERS` | `10` | Number of concurrent background dispatch workers |
 | `RELAYGATE_SESSION_ABSOLUTE_TIMEOUT` | `12h` | Maximum session lifetime regardless of activity. Expired sessions return `401` and are deleted. |
 | `RELAYGATE_SESSION_IDLE_TIMEOUT` | `30m` | Inactivity timeout window before a session is invalidated. |
 | `RELAYGATE_TRUSTED_PROXIES` | `127.0.0.1/32,::1/128` | Comma-separated list of trusted proxy CIDRs. Invalid CIDRs abort startup immediately. |
@@ -141,6 +161,11 @@ RelayGate is configured via environment variables:
 | `RELAYGATE_WORKER_BASE_BACKOFF` | `10s` | Initial exponential backoff delay for retrying failed dispatches. |
 | `RELAYGATE_WORKER_POLL_INTERVAL` | `3s` | Polling interval for background retry workers. |
 | `RELAYGATE_WORKER_HTTP_TIMEOUT` | `15s` | HTTP client timeout when dispatching to downstream target URLs. |
+| `SMTP_HOST` | _empty_ | SMTP server hostname (runs in local dev preview mode when empty). |
+| `SMTP_PORT` | `587` | SMTP server port. |
+| `SMTP_USER` | _empty_ | SMTP username / email address for authentication. |
+| `SMTP_PASS` | _empty_ | SMTP password / app password for authentication. |
+| `SMTP_FROM` | `RelayGate <noreply@relaygate.local>` | Sender email header for 6-digit OTP verification codes. |
 
 ### Cookie and CSRF Policy
 
