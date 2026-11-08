@@ -9,17 +9,12 @@ import {
   AlertCircle,
   Clock,
   X,
-  Check,
-  Shield,
-  UserPlus,
-  Server,
 } from 'lucide-react';
 import {
   loginUser,
   registerUser,
   verifyRegistrationCode,
   resendVerificationCode,
-  oauthLogin,
 } from '../api';
 import { RelayGateLogo } from './RelayGateLogo';
 
@@ -65,6 +60,30 @@ export const GitLabIcon: React.FC<{ className?: string }> = ({ className = 'w-4 
     <path className="fill-orange-600" d="M22.05 8.7h-5.92l2.45-7.54c.22-.68 1.18-.68 1.4 0l2.07 7.54z" />
   </svg>
 );
+
+export function getOAuthProviderUrl(provider: 'google' | 'github' | 'gitlab'): string {
+  const env = (typeof import.meta !== 'undefined' && (import.meta as any).env) || {};
+  switch (provider) {
+    case 'google':
+      if (env.VITE_GOOGLE_AUTH_URL) return env.VITE_GOOGLE_AUTH_URL;
+      if (env.VITE_GOOGLE_CLIENT_ID) {
+        return `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(env.VITE_GOOGLE_CLIENT_ID)}&response_type=code&scope=openid%20profile%20email&prompt=select_account`;
+      }
+      return 'https://accounts.google.com/signin';
+    case 'github':
+      if (env.VITE_GITHUB_AUTH_URL) return env.VITE_GITHUB_AUTH_URL;
+      if (env.VITE_GITHUB_CLIENT_ID) {
+        return `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(env.VITE_GITHUB_CLIENT_ID)}&scope=read:user%20user:email`;
+      }
+      return 'https://github.com/login';
+    case 'gitlab':
+      if (env.VITE_GITLAB_AUTH_URL) return env.VITE_GITLAB_AUTH_URL;
+      if (env.VITE_GITLAB_CLIENT_ID) {
+        return `https://gitlab.com/oauth/authorize?client_id=${encodeURIComponent(env.VITE_GITLAB_CLIENT_ID)}&scope=read_user%20openid%20profile%20email&response_type=code`;
+      }
+      return 'https://gitlab.com/users/sign_in';
+  }
+}
 
 interface LoginPageProps {
   onLoginSuccess: (email: string) => void;
@@ -150,108 +169,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     onDismissNotice?.();
   };
 
-  // OAuth states & handlers
-  type OAuthProvider = 'google' | 'github' | 'gitlab';
-  const [activeOAuth, setActiveOAuth] = useState<OAuthProvider | null>(null);
-  const [oauthStep, setOauthStep] = useState<'select' | 'authorizing' | 'success'>('select');
-  const [oauthStatusMessage, setOauthStatusMessage] = useState<string>('');
-  const [oauthError, setOauthError] = useState<string | null>(null);
-  const [customOAuthEmail, setCustomOAuthEmail] = useState<string>('');
-  const [customOAuthName, setCustomOAuthName] = useState<string>('');
-  const [showCustomOAuth, setShowCustomOAuth] = useState<boolean>(false);
-
-  const handleOpenOAuth = (provider: OAuthProvider) => {
-    setActiveOAuth(provider);
-    setOauthStep('select');
-    setOauthError(null);
-    setOauthStatusMessage('');
-    setShowCustomOAuth(false);
-    if (provider === 'google') {
-      setCustomOAuthEmail('alex.developer@gmail.com');
-      setCustomOAuthName('Alex Prasetyo');
-    } else if (provider === 'github') {
-      setCustomOAuthEmail('hazama3321@gmail.com');
-      setCustomOAuthName('Mafifrizi');
-    } else {
-      setCustomOAuthEmail('devops.lead@gitlab.company');
-      setCustomOAuthName('DevOps Engineer');
-    }
-  };
-
-  const handleCloseOAuth = () => {
-    if (oauthStep === 'authorizing') return;
-    setActiveOAuth(null);
-    setOauthStep('select');
-    setOauthError(null);
-    setOauthStatusMessage('');
-    setShowCustomOAuth(false);
-  };
-
-  useEffect(() => {
-    if (!activeOAuth) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && oauthStep !== 'authorizing') {
-        handleCloseOAuth();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeOAuth, oauthStep]);
-
-  const executeOAuth = async (
-    provider: OAuthProvider,
-    targetEmail: string,
-    targetName: string,
-    avatarUrl?: string
-  ) => {
-    setOauthError(null);
-    setOauthStep('authorizing');
-
-    if (provider === 'google') {
-      setOauthStatusMessage('Menghubungkan ke Google Identity Services...');
-    } else if (provider === 'github') {
-      setOauthStatusMessage('Menerima callback OAuth dari api.github.com...');
-    } else {
-      setOauthStatusMessage('Sinkronisasi identitas GitLab OIDC...');
-    }
-
-    try {
-      await new Promise((r) => setTimeout(r, 350));
-      if (provider === 'google') {
-        setOauthStatusMessage('Memvalidasi token Google ID...');
-      } else if (provider === 'github') {
-        setOauthStatusMessage(`Sinkronisasi profil ${targetName}...`);
-      } else {
-        setOauthStatusMessage('Memvalidasi token JWT GitLab...');
-      }
-      await new Promise((r) => setTimeout(r, 300));
-
-      const res = await oauthLogin({
-        provider,
-        email: targetEmail.trim(),
-        name: targetName.trim(),
-        avatar_url: avatarUrl,
-      });
-
-      setOauthStep('success');
-      setOauthStatusMessage('Autentikasi terverifikasi!');
-
-      localStorage.setItem(
-        'relaygate_auth',
-        JSON.stringify({
-          token: res.token,
-          email: res.user.email,
-          name: res.user.name,
-          role: res.user.role,
-          loggedInAt: Date.now(),
-        })
-      );
-
-      await new Promise((r) => setTimeout(r, 200));
-      onLoginSuccess(res.user.email);
-    } catch (err: any) {
-      setOauthStep('select');
-      setOauthError(err?.message || `Gagal melakukan autentikasi dengan ${provider}.`);
+  const handleOAuthClick = (provider: 'google' | 'github' | 'gitlab') => {
+    const targetUrl = getOAuthProviderUrl(provider);
+    if (typeof window !== 'undefined') {
+      window.open(targetUrl, '_blank', 'noopener,noreferrer');
     }
   };
 
@@ -458,7 +379,37 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   };
 
   return (
-    <div className="min-h-dvh bg-zinc-50 flex items-center justify-center p-4 sm:p-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(4.5rem,calc(env(safe-area-inset-top,0px)+3.75rem))] sm:pt-6 px-[max(1rem,env(safe-area-inset-left))]">
+    <div className="relative min-h-dvh bg-zinc-50 flex items-center justify-center p-4 sm:p-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(4.5rem,calc(env(safe-area-inset-top,0px)+3.75rem))] sm:pt-6 px-[max(1rem,env(safe-area-inset-left))]">
+      {/* Sleek Floating Toast / Notification Popup for Session Expiration */}
+      {sessionNoticeState && (
+        <aside
+          role="status"
+          aria-live="polite"
+          aria-label="Pemberitahuan sesi"
+          className="fixed top-6 left-4 right-4 sm:left-auto sm:right-6 sm:w-96 z-50 p-4 rounded-xl bg-white/95 backdrop-blur-md border border-amber-200/80 shadow-lg text-zinc-900 animate-in fade-in slide-in-from-top-3 duration-200 flex items-start gap-3"
+        >
+          <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200/60 flex items-center justify-center shrink-0 text-amber-700">
+            <Clock className="w-4 h-4" />
+          </div>
+          <div className="flex-1 min-w-0 pr-1">
+            <h4 className="text-xs font-semibold text-zinc-900 leading-snug">
+              Sesi Berakhir
+            </h4>
+            <p className="text-xs text-zinc-600 mt-0.5 leading-relaxed">
+              {sessionNoticeState}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleDismissNotice}
+            className="text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100/60 min-h-[44px] min-w-[44px] -mr-2 -mt-2 p-2.5 rounded-lg transition-colors flex items-center justify-center cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 shrink-0"
+            aria-label="Tutup pemberitahuan"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </aside>
+      )}
+
       <div className="w-full max-w-sm mx-auto my-auto bg-white border border-zinc-200 rounded-xl p-5 sm:p-8 shadow-sm">
         {/* Header with Authentic Brand Mark */}
         <div className="flex flex-col items-center text-center mb-5 sm:mb-6">
@@ -498,28 +449,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           )}
         </div>
 
-        {/* Polished Session State Notification Banner */}
-        {mode === 'login' && sessionNoticeState && (
-          <div
-            role="status"
-            aria-live="polite"
-            className="mb-5 p-3 rounded-lg bg-amber-50/90 border border-amber-200/90 text-amber-950 flex items-start gap-2.5 shadow-2xs animate-in"
-          >
-            <Clock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-            <div className="flex-1 text-xs leading-relaxed font-medium">
-              {sessionNoticeState}
-            </div>
-            <button
-              type="button"
-              onClick={handleDismissNotice}
-              className="text-amber-800/70 hover:text-amber-950 min-h-[44px] min-w-[44px] -mr-2.5 -mt-2.5 p-2.5 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 cursor-pointer flex items-center justify-center shrink-0"
-              aria-label="Tutup pemberitahuan"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
-
         {/* Tab Toggle (only visible in login or register mode) */}
         {mode !== 'verify' && (
           <div className="flex p-1 bg-zinc-100 rounded-lg mb-5 border border-zinc-200">
@@ -555,7 +484,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               {/* Google Button */}
               <button
                 type="button"
-                onClick={() => handleOpenOAuth('google')}
+                onClick={() => handleOAuthClick('google')}
                 className="flex items-center justify-center gap-1.5 min-h-[44px] py-2 px-2 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 active:scale-[0.98] text-xs font-semibold text-zinc-800 transition-all shadow-2xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
                 aria-label={mode === 'register' ? 'Daftar dengan Google' : 'Masuk dengan Google'}
                 title={mode === 'register' ? 'Daftar dengan Google' : 'Masuk dengan Google'}
@@ -567,7 +496,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               {/* GitHub Button */}
               <button
                 type="button"
-                onClick={() => handleOpenOAuth('github')}
+                onClick={() => handleOAuthClick('github')}
                 className="flex items-center justify-center gap-1.5 min-h-[44px] py-2 px-2 rounded-lg border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 active:scale-[0.98] text-xs font-semibold text-white transition-all shadow-2xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
                 aria-label={mode === 'register' ? 'Daftar dengan GitHub' : 'Masuk dengan GitHub'}
                 title={mode === 'register' ? 'Daftar dengan GitHub' : 'Masuk dengan GitHub'}
@@ -579,7 +508,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               {/* GitLab Button */}
               <button
                 type="button"
-                onClick={() => handleOpenOAuth('gitlab')}
+                onClick={() => handleOAuthClick('gitlab')}
                 className="flex items-center justify-center gap-1.5 min-h-[44px] py-2 px-2 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 active:scale-[0.98] text-xs font-semibold text-zinc-800 transition-all shadow-2xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
                 aria-label={mode === 'register' ? 'Daftar dengan GitLab' : 'Masuk dengan GitLab'}
                 title={mode === 'register' ? 'Daftar dengan GitLab' : 'Masuk dengan GitLab'}
@@ -659,13 +588,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full pl-9 pr-10 py-2.5 sm:py-2 min-h-[44px] text-base sm:text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors font-mono"
+                  className="w-full pl-9 pr-3 py-2.5 sm:py-2 min-h-[44px] text-base sm:text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors"
                 />
               </div>
             </div>
 
             {error && (
-              <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium flex items-center gap-2">
+              <div
+                role="alert"
+                className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium flex items-center gap-2 animate-in"
+              >
                 <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
                 <span>{error}</span>
               </div>
@@ -679,7 +611,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               {loading ? (
                 <span className="flex items-center gap-2">
                   <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Memeriksa autentikasi...
+                  Memverifikasi...
                 </span>
               ) : (
                 <span className="flex items-center gap-2">
@@ -690,22 +622,22 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             </button>
           </form>
         ) : mode === 'register' ? (
-          <form onSubmit={handleRegister} className="space-y-3.5">
+          <form onSubmit={handleRegister} className="space-y-4">
             <div>
               <label
                 className="block text-xs font-semibold text-zinc-900 mb-1.5"
-                htmlFor="register-name"
+                htmlFor="reg-name"
               >
                 Nama Lengkap / Username
               </label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                 <input
-                  id="register-name"
+                  id="reg-name"
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="cth. John Doe atau johndoe"
+                  placeholder="Nama Lengkap"
                   className="w-full pl-9 pr-3 py-2.5 sm:py-2 min-h-[44px] text-base sm:text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors"
                   autoFocus
                 />
@@ -715,14 +647,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             <div>
               <label
                 className="block text-xs font-semibold text-zinc-900 mb-1.5"
-                htmlFor="register-email"
+                htmlFor="reg-email"
               >
                 Alamat Email
               </label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                 <input
-                  id="register-email"
+                  id="reg-email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -736,7 +668,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               <div className="flex items-center justify-between mb-1.5">
                 <label
                   className="block text-xs font-semibold text-zinc-900"
-                  htmlFor="register-password"
+                  htmlFor="reg-password"
                 >
                   Password
                 </label>
@@ -759,12 +691,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                 <input
-                  id="register-password"
+                  id="reg-password"
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Minimal 6 karakter"
-                  className="w-full pl-9 pr-10 py-2.5 sm:py-2 min-h-[44px] text-base sm:text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors font-mono"
+                  className="w-full pl-9 pr-3 py-2.5 sm:py-2 min-h-[44px] text-base sm:text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors"
                 />
               </div>
             </div>
@@ -773,7 +705,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               <div className="flex items-center justify-between mb-1.5">
                 <label
                   className="block text-xs font-semibold text-zinc-900"
-                  htmlFor="register-confirm-password"
+                  htmlFor="reg-confirm"
                 >
                   Konfirmasi Password
                 </label>
@@ -796,18 +728,21 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                 <input
-                  id="register-confirm-password"
+                  id="reg-confirm"
                   type={showConfirmPassword ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Ulangi password"
-                  className="w-full pl-9 pr-10 py-2.5 sm:py-2 min-h-[44px] text-base sm:text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors font-mono"
+                  placeholder="Ketik ulang password"
+                  className="w-full pl-9 pr-3 py-2.5 sm:py-2 min-h-[44px] text-base sm:text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors"
                 />
               </div>
             </div>
 
             {error && (
-              <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium flex items-center gap-2">
+              <div
+                role="alert"
+                className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium flex items-center gap-2 animate-in"
+              >
                 <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
                 <span>{error}</span>
               </div>
@@ -821,42 +756,40 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               {loading ? (
                 <span className="flex items-center gap-2">
                   <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Mengirimkan kode verifikasi...
+                  Mendaftarkan...
                 </span>
               ) : (
                 <span className="flex items-center gap-2">
-                  Daftar Akun Baru
+                  Lanjutkan Verifikasi Email
                   <ArrowRight className="w-4 h-4" />
                 </span>
               )}
             </button>
           </form>
         ) : (
-          /* OTP Verification View */
-          <form onSubmit={handleVerify}>
-            {/* Dev Mock Helper (Shown only when backend operates without SMTP configuration) */}
+          /* OTP Verification Mode */
+          <form onSubmit={handleVerify} className="space-y-4">
+            {/* Dev preview code helper */}
             {devCode && (
-              <div className="mb-4 p-3 rounded-lg bg-zinc-100 border border-zinc-200 text-xs text-zinc-900">
-                <div className="text-[11px] font-medium text-zinc-500 mb-1">
-                  Mode Dev / Lokal (SMTP belum disetel):
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-sm font-bold tracking-widest text-zinc-900">
-                    {devCode}
+              <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 text-xs text-zinc-700">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-semibold text-zinc-900">Local Dev Preview:</span>
+                  <span className="font-mono text-[10px] bg-zinc-200 text-zinc-800 px-1.5 py-0.5 rounded">
+                    SMTP Mock
                   </span>
+                </div>
+                <p className="text-[11px] text-zinc-500 mb-2">
+                  Kode verifikasi 6-digit dikirimkan (karena SMTP eksternal tidak aktif di local):
+                </p>
+                <div className="flex items-center justify-between bg-white border border-zinc-200 rounded p-1.5 font-mono text-sm tracking-widest text-zinc-900 font-bold">
+                  <span>{devCode}</span>
                   <button
                     type="button"
                     onClick={() => {
-                      const digits = devCode.split('').slice(0, 6);
-                      const newOtp = ['', '', '', '', '', ''];
-                      for (let i = 0; i < 6; i++) {
-                        newOtp[i] = digits[i] || '';
-                      }
-                      setOtp(newOtp);
-                      otpInputs.current[5]?.focus();
-                      otpInputs.current[5]?.select();
+                      const digits = devCode.split('');
+                      setOtp(digits);
                     }}
-                    className="text-xs text-zinc-900 font-medium underline hover:text-zinc-700 min-h-[44px] inline-flex items-center cursor-pointer"
+                    className="min-h-[44px] px-2 text-xs font-sans font-medium text-zinc-600 hover:text-zinc-900 underline cursor-pointer"
                   >
                     Isi Otomatis
                   </button>
@@ -864,31 +797,36 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </div>
             )}
 
-            {/* 6-Digit Code Input Boxes */}
-            <div
-              className="flex items-center justify-between gap-1 sm:gap-1.5 mb-5"
-              onPaste={handleOtpPaste}
-            >
-              {otp.map((digit, idx) => (
-                <input
-                  key={idx}
-                  ref={(el) => (otpInputs.current[idx] = el)}
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  maxLength={2}
-                  value={digit}
-                  onFocus={(e) => e.target.select()}
-                  onChange={(e) => handleOtpChange(idx, e.target.value)}
-                  onKeyDown={(e) => handleOtpKeyDown(idx, e)}
-                  onPaste={handleOtpPaste}
-                  className="w-10 sm:w-11 h-12 text-center text-lg font-mono font-semibold bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors"
-                />
-              ))}
+            <div>
+              <label className="block text-xs font-semibold text-zinc-900 mb-2 text-center">
+                Masukkan 6-Digit Kode Verifikasi
+              </label>
+              <div
+                className="flex items-center justify-center gap-2 sm:gap-2.5"
+                onPaste={handleOtpPaste}
+              >
+                {otp.map((digit, idx) => (
+                  <input
+                    key={idx}
+                    ref={(el) => (otpInputs.current[idx] = el)}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={1}
+                    value={digit}
+                    onChange={(e) => handleOtpChange(idx, e.target.value)}
+                    onKeyDown={(e) => handleOtpKeyDown(idx, e)}
+                    className="w-10 h-12 sm:w-11 sm:h-12 text-center text-lg sm:text-xl font-bold font-mono bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 transition-colors"
+                    autoFocus={idx === 0}
+                  />
+                ))}
+              </div>
             </div>
 
             {error && (
-              <div className="mb-4 p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium flex items-center gap-2">
+              <div
+                role="alert"
+                className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium flex items-center gap-2 animate-in"
+              >
                 <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
                 <span>{error}</span>
               </div>
@@ -896,7 +834,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || otp.join('').length < 6}
               className="w-full min-h-[44px] py-2.5 px-4 bg-zinc-900 hover:bg-zinc-800 active:scale-[0.98] text-white text-sm font-semibold rounded-lg shadow-sm disabled:opacity-60 transition-all flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-zinc-900 cursor-pointer"
             >
               {loading ? (
@@ -942,571 +880,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           </form>
         )}
       </div>
-
-      {/* High-Craft Tailored OAuth Modals (Google, GitHub, GitLab) */}
-      {activeOAuth && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={
-            activeOAuth === 'google'
-              ? 'Autentikasi dengan Google'
-              : activeOAuth === 'github'
-              ? 'Autentikasi dengan GitHub'
-              : 'Autentikasi dengan GitLab'
-          }
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in"
-        >
-          {/* 1. GOOGLE IDENTITY SERVICES MODAL */}
-          {activeOAuth === 'google' && (
-            <div className="w-full max-w-sm bg-white border border-zinc-200 rounded-2xl shadow-2xl overflow-hidden p-6 text-zinc-900 animate-in">
-              {/* Google Header */}
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-2.5">
-                  <GoogleIcon className="w-6 h-6 shrink-0" />
-                  <div>
-                    <h2 className="text-base font-bold text-zinc-900 leading-tight">
-                      {mode === 'register' ? 'Daftar dengan Google' : 'Masuk dengan Google'}
-                    </h2>
-                    <p className="text-xs text-zinc-500">Pilih akun untuk melanjutkan ke RelayGate</p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleCloseOAuth}
-                  disabled={oauthStep === 'authorizing'}
-                  className="min-h-[44px] min-w-[44px] -mr-2 -mt-2 p-2 rounded-lg text-zinc-400 hover:text-zinc-700 transition-colors flex items-center justify-center cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 disabled:opacity-40"
-                  aria-label="Tutup dialog"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Status / Authorizing state */}
-              {oauthStep === 'authorizing' && (
-                <div className="py-8 flex flex-col items-center text-center">
-                  <div className="w-8 h-8 border-2 border-blue-100 border-t-blue-600 rounded-full animate-spin mb-4" />
-                  <p className="text-sm font-semibold text-zinc-900 mb-1">{oauthStatusMessage}</p>
-                  <p className="text-xs text-zinc-500">Otorisasi single sign-on terenkripsi OIDC</p>
-                </div>
-              )}
-
-              {oauthStep === 'success' && (
-                <div className="py-8 flex flex-col items-center text-center">
-                  <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mb-3">
-                    <Check className="w-5 h-5 stroke-[2.5]" />
-                  </div>
-                  <p className="text-sm font-semibold text-zinc-900 mb-1">{oauthStatusMessage}</p>
-                  <p className="text-xs text-zinc-500">Mengarahkan langsung ke control panel...</p>
-                </div>
-              )}
-
-              {oauthStep === 'select' && (
-                <div className="space-y-3">
-                  {oauthError && (
-                    <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-                      <span>{oauthError}</span>
-                    </div>
-                  )}
-
-                  {!showCustomOAuth ? (
-                    <>
-                      {/* Account 1 */}
-                      <button
-                        type="button"
-                        onClick={() => executeOAuth('google', 'alex.developer@gmail.com', 'Alex Prasetyo')}
-                        className="w-full text-left p-3 rounded-xl border border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50 active:scale-[0.99] transition-all flex items-center justify-between cursor-pointer group"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full bg-blue-600 text-white font-bold text-sm flex items-center justify-center shadow-xs">
-                            A
-                          </div>
-                          <div>
-                            <div className="text-xs font-bold text-zinc-900 group-hover:text-blue-600 transition-colors">
-                              Alex Prasetyo
-                            </div>
-                            <div className="text-[11px] text-zinc-500 font-mono">
-                              alex.developer@gmail.com
-                            </div>
-                          </div>
-                        </div>
-                        <span className="text-[10px] font-medium bg-zinc-100 text-zinc-700 px-2 py-0.5 rounded-md">
-                          Sesi Aktif
-                        </span>
-                      </button>
-
-                      {/* Account 2 */}
-                      <button
-                        type="button"
-                        onClick={() => executeOAuth('google', 'admin@relaygate.local', 'RelayGate Admin')}
-                        className="w-full text-left p-3 rounded-xl border border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50 active:scale-[0.99] transition-all flex items-center justify-between cursor-pointer group"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full bg-emerald-700 text-white font-bold text-sm flex items-center justify-center shadow-xs">
-                            R
-                          </div>
-                          <div>
-                            <div className="text-xs font-bold text-zinc-900 group-hover:text-emerald-700 transition-colors">
-                              RelayGate Admin
-                            </div>
-                            <div className="text-[11px] text-zinc-500 font-mono">
-                              admin@relaygate.local
-                            </div>
-                          </div>
-                        </div>
-                        <span className="text-[10px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-md">
-                          Admin
-                        </span>
-                      </button>
-
-                      {/* Custom Account option */}
-                      <button
-                        type="button"
-                        onClick={() => setShowCustomOAuth(true)}
-                        className="w-full min-h-[44px] py-2 px-3 text-xs text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer font-medium"
-                      >
-                        <UserPlus className="w-3.5 h-3.5" />
-                        <span>Gunakan akun Google lainnya</span>
-                      </button>
-                    </>
-                  ) : (
-                    /* Custom Google account inputs */
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        executeOAuth('google', customOAuthEmail, customOAuthName || 'Pengguna Google');
-                      }}
-                      className="space-y-3 pt-1"
-                    >
-                      <div>
-                        <label className="block text-xs font-semibold text-zinc-900 mb-1" htmlFor="google-email">
-                          Alamat Email Google
-                        </label>
-                        <input
-                          id="google-email"
-                          type="email"
-                          required
-                          value={customOAuthEmail}
-                          onChange={(e) => setCustomOAuthEmail(e.target.value)}
-                          placeholder="pengguna@gmail.com"
-                          className="w-full px-3 py-2 min-h-[44px] text-base sm:text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900"
-                          autoFocus
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-zinc-900 mb-1" htmlFor="google-name">
-                          Nama Akun
-                        </label>
-                        <input
-                          id="google-name"
-                          type="text"
-                          value={customOAuthName}
-                          onChange={(e) => setCustomOAuthName(e.target.value)}
-                          placeholder="Nama Tampilan"
-                          className="w-full px-3 py-2 min-h-[44px] text-base sm:text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900"
-                        />
-                      </div>
-                      <div className="flex items-center gap-2 pt-1">
-                        <button
-                          type="submit"
-                          className="flex-1 min-h-[44px] py-2 px-4 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold rounded-lg shadow-sm cursor-pointer"
-                        >
-                          Lanjutkan
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setShowCustomOAuth(false)}
-                          className="min-h-[44px] px-3 py-2 text-xs text-zinc-600 hover:text-zinc-900 cursor-pointer"
-                        >
-                          Kembali
-                        </button>
-                      </div>
-                    </form>
-                  )}
-
-                  {/* Consent footer */}
-                  <div className="pt-3 border-t border-zinc-100 text-[11px] text-zinc-500 leading-relaxed">
-                    Google akan membagikan nama profil dan alamat email Anda kepada RelayGate. Akun langsung aktif tanpa verifikasi kode.
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 2. GITHUB OAUTH AUTHORIZATION MODAL */}
-          {activeOAuth === 'github' && (
-            <div className="w-full max-w-sm bg-white border border-zinc-200 rounded-2xl shadow-2xl overflow-hidden text-zinc-900 animate-in">
-              {/* GitHub Themed Header */}
-              <div className="bg-zinc-900 text-white p-4 flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <GitHubIcon className="w-5 h-5 text-white shrink-0" />
-                  <span className="text-sm font-semibold tracking-tight">Authorize RelayGate</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleCloseOAuth}
-                  disabled={oauthStep === 'authorizing'}
-                  className="min-h-[44px] min-w-[44px] -mr-2 -my-2 p-2 rounded-lg text-zinc-300 hover:text-white transition-colors flex items-center justify-center cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-40"
-                  aria-label="Tutup dialog"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Host URL indicator */}
-              <div className="bg-zinc-800 px-4 py-1.5 text-[11px] text-zinc-300 font-mono flex items-center gap-1.5 border-b border-zinc-700">
-                <Lock className="w-3 h-3 text-emerald-400 shrink-0" />
-                <span>github.com/login/oauth/authorize</span>
-              </div>
-
-              {/* Status / Authorizing state */}
-              {oauthStep === 'authorizing' && (
-                <div className="py-8 px-5 flex flex-col items-center text-center">
-                  <div className="w-8 h-8 border-2 border-zinc-300 border-t-zinc-900 rounded-full animate-spin mb-4" />
-                  <p className="text-sm font-semibold text-zinc-900 mb-1">{oauthStatusMessage}</p>
-                  <p className="text-xs text-zinc-500 font-mono">POST /api/v1/auth/oauth [provider=github]</p>
-                </div>
-              )}
-
-              {oauthStep === 'success' && (
-                <div className="py-8 px-5 flex flex-col items-center text-center">
-                  <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mb-3">
-                    <Check className="w-5 h-5 stroke-[2.5]" />
-                  </div>
-                  <p className="text-sm font-semibold text-zinc-900 mb-1">{oauthStatusMessage}</p>
-                  <p className="text-xs text-zinc-500">Mengarahkan langsung ke control panel...</p>
-                </div>
-              )}
-
-              {oauthStep === 'select' && (
-                <div className="p-5 space-y-4">
-                  {oauthError && (
-                    <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-                      <span>{oauthError}</span>
-                    </div>
-                  )}
-
-                  {!showCustomOAuth ? (
-                    <>
-                      {/* Connected Diagram */}
-                      <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-lg bg-zinc-900 text-white flex items-center justify-center">
-                            <GitHubIcon className="w-4 h-4 text-white" />
-                          </div>
-                          <div>
-                            <div className="font-semibold text-zinc-900">rootless-sec</div>
-                            <div className="text-[10px] text-zinc-500">Developer Terverifikasi</div>
-                          </div>
-                        </div>
-                        <div className="font-mono text-[10px] bg-zinc-200 text-zinc-800 px-2 py-0.5 rounded">
-                          OAuth 2.0
-                        </div>
-                      </div>
-
-                      {/* Account Card */}
-                      <div className="p-3 rounded-xl border border-zinc-200 bg-white space-y-2">
-                        <div className="text-[11px] font-medium text-zinc-500">Akun GitHub Terhubung:</div>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-8 h-8 rounded-full bg-zinc-900 text-white font-mono text-xs flex items-center justify-center font-bold">
-                              HZ
-                            </div>
-                            <div>
-                              <div className="text-xs font-bold text-zinc-900">Mafifrizi (@hazama3321)</div>
-                              <div className="text-[11px] text-zinc-500 font-mono">hazama3321@gmail.com</div>
-                            </div>
-                          </div>
-                          <span className="text-[10px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-md">
-                            Aktif
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Scope Checklist */}
-                      <div className="space-y-2 text-xs">
-                        <div className="text-[11px] font-semibold text-zinc-700">Izin yang Diminta:</div>
-                        <div className="flex items-start gap-2 text-zinc-700 text-[11px]">
-                          <Check className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
-                          <span><strong>user:email</strong>: Akses alamat email akun</span>
-                        </div>
-                        <div className="flex items-start gap-2 text-zinc-700 text-[11px]">
-                          <Check className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
-                          <span><strong>read:user</strong>: Akses profil publik identitas</span>
-                        </div>
-                        <div className="flex items-start gap-2 text-zinc-500 text-[10px] bg-zinc-50 p-2 rounded-lg border border-zinc-200">
-                          <Shield className="w-3.5 h-3.5 text-zinc-500 mt-0.5 shrink-0" />
-                          <span>Tanpa akses repositori atau kode sumber privat. Langsung masuk tanpa verifikasi OTP.</span>
-                        </div>
-                      </div>
-
-                      {/* Action Buttons */}
-                      <div className="space-y-2 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => executeOAuth('github', 'hazama3321@gmail.com', 'Mafifrizi', 'https://avatars.githubusercontent.com/u/104443916?v=4')}
-                          className="w-full min-h-[44px] py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white text-xs font-semibold rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
-                        >
-                          <span>Authorize rootless-sec/relaygate</span>
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setShowCustomOAuth(true)}
-                          className="w-full min-h-[44px] py-1.5 px-3 text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center justify-center gap-1.5 cursor-pointer font-medium"
-                        >
-                          <UserPlus className="w-3.5 h-3.5" />
-                          <span>Gunakan akun GitHub lainnya</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleCloseOAuth}
-                          className="w-full min-h-[44px] py-2 px-3 text-xs text-zinc-600 hover:text-zinc-900 transition-colors cursor-pointer text-center"
-                        >
-                          Batal
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        executeOAuth('github', customOAuthEmail, customOAuthName || 'Developer GitHub');
-                      }}
-                      className="space-y-3 pt-1"
-                    >
-                      <div>
-                        <label className="block text-xs font-semibold text-zinc-900 mb-1" htmlFor="github-email">
-                          Alamat Email GitHub
-                        </label>
-                        <input
-                          id="github-email"
-                          type="email"
-                          required
-                          value={customOAuthEmail}
-                          onChange={(e) => setCustomOAuthEmail(e.target.value)}
-                          placeholder="username@github.com"
-                          className="w-full px-3 py-2 min-h-[44px] text-base sm:text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900"
-                          autoFocus
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-zinc-900 mb-1" htmlFor="github-name">
-                          Username / Nama Tampilan
-                        </label>
-                        <input
-                          id="github-name"
-                          type="text"
-                          value={customOAuthName}
-                          onChange={(e) => setCustomOAuthName(e.target.value)}
-                          placeholder="Username"
-                          className="w-full px-3 py-2 min-h-[44px] text-base sm:text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900"
-                        />
-                      </div>
-                      <div className="flex items-center gap-2 pt-1">
-                        <button
-                          type="submit"
-                          className="flex-1 min-h-[44px] py-2 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-sm cursor-pointer"
-                        >
-                          Authorize dengan Akun Ini
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setShowCustomOAuth(false)}
-                          className="min-h-[44px] px-3 py-2 text-xs text-zinc-600 hover:text-zinc-900 cursor-pointer"
-                        >
-                          Kembali
-                        </button>
-                      </div>
-                    </form>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 3. GITLAB OIDC SSO MODAL */}
-          {activeOAuth === 'gitlab' && (
-            <div className="w-full max-w-sm bg-white border border-zinc-200 rounded-2xl shadow-2xl overflow-hidden text-zinc-900 animate-in">
-              {/* GitLab Themed Header */}
-              <div className="bg-zinc-900 text-white p-4 flex items-center justify-between border-b border-zinc-800">
-                <div className="flex items-center gap-2.5">
-                  <GitLabIcon className="w-5 h-5 shrink-0" />
-                  <span className="text-sm font-semibold tracking-tight">Otorisasi Aplikasi GitLab</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleCloseOAuth}
-                  disabled={oauthStep === 'authorizing'}
-                  className="min-h-[44px] min-w-[44px] -mr-2 -my-2 p-2 rounded-lg text-zinc-400 hover:text-white transition-colors flex items-center justify-center cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-40"
-                  aria-label="Tutup dialog"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Host URL indicator */}
-              <div className="bg-zinc-800 px-4 py-1.5 text-[11px] text-zinc-300 font-mono flex items-center justify-between border-b border-zinc-700">
-                <div className="flex items-center gap-1.5">
-                  <Server className="w-3 h-3 text-orange-500 shrink-0" />
-                  <span>gitlab.com (SaaS SSO)</span>
-                </div>
-                <span className="text-[10px] bg-zinc-700 text-zinc-200 px-1.5 py-0.5 rounded">OIDC</span>
-              </div>
-
-              {/* Status / Authorizing state */}
-              {oauthStep === 'authorizing' && (
-                <div className="py-8 px-5 flex flex-col items-center text-center">
-                  <div className="w-8 h-8 border-2 border-orange-200 border-t-orange-600 rounded-full animate-spin mb-4" />
-                  <p className="text-sm font-semibold text-zinc-900 mb-1">{oauthStatusMessage}</p>
-                  <p className="text-xs text-zinc-500 font-mono">POST /api/v1/auth/oauth [provider=gitlab]</p>
-                </div>
-              )}
-
-              {oauthStep === 'success' && (
-                <div className="py-8 px-5 flex flex-col items-center text-center">
-                  <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mb-3">
-                    <Check className="w-5 h-5 stroke-[2.5]" />
-                  </div>
-                  <p className="text-sm font-semibold text-zinc-900 mb-1">{oauthStatusMessage}</p>
-                  <p className="text-xs text-zinc-500">Mengarahkan langsung ke control panel...</p>
-                </div>
-              )}
-
-              {oauthStep === 'select' && (
-                <div className="p-5 space-y-4">
-                  {oauthError && (
-                    <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-                      <span>{oauthError}</span>
-                    </div>
-                  )}
-
-                  {!showCustomOAuth ? (
-                    <>
-                      {/* DevOps Identity Card */}
-                      <div className="p-3 rounded-xl border border-zinc-200 bg-white space-y-2">
-                        <div className="text-[11px] font-medium text-zinc-500">Identitas GitLab DevOps:</div>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-8 h-8 rounded-full bg-orange-500/10 border border-orange-500/30 text-orange-600 font-bold text-xs flex items-center justify-center">
-                              GL
-                            </div>
-                            <div>
-                              <div className="text-xs font-bold text-zinc-900">DevOps Engineer (@devops-lead)</div>
-                              <div className="text-[11px] text-zinc-500 font-mono">devops.lead@gitlab.company</div>
-                            </div>
-                          </div>
-                          <span className="text-[10px] font-semibold bg-orange-50 text-orange-800 border border-orange-200 px-2 py-0.5 rounded-md">
-                            Enterprise
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Scopes */}
-                      <div className="space-y-2 text-xs">
-                        <div className="text-[11px] font-semibold text-zinc-700">Cakupan Izin OIDC:</div>
-                        <div className="flex items-start gap-2 text-zinc-700 text-[11px]">
-                          <Check className="w-3.5 h-3.5 text-orange-600 mt-0.5 shrink-0" />
-                          <span><strong>openid</strong>: Single sign-on identitas terpadu</span>
-                        </div>
-                        <div className="flex items-start gap-2 text-zinc-700 text-[11px]">
-                          <Check className="w-3.5 h-3.5 text-orange-600 mt-0.5 shrink-0" />
-                          <span><strong>profile, email</strong>: Detail akun dan alamat email</span>
-                        </div>
-                        <div className="text-[11px] text-zinc-500 bg-zinc-50 p-2 rounded-lg border border-zinc-200">
-                          Otorisasi langsung mengaktifkan sesi dashboard tanpa verifikasi kode 6-digit.
-                        </div>
-                      </div>
-
-                      {/* Action Buttons */}
-                      <div className="space-y-2 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => executeOAuth('gitlab', 'devops.lead@gitlab.company', 'DevOps Engineer', 'https://gitlab.com/uploads/-/system/user/avatar/412356/avatar.png')}
-                          className="w-full min-h-[44px] py-2.5 px-4 bg-orange-600 hover:bg-orange-700 active:scale-[0.98] text-white text-xs font-semibold rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-600"
-                        >
-                          <span>Izinkan Otorisasi GitLab</span>
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setShowCustomOAuth(true)}
-                          className="w-full min-h-[44px] py-1.5 px-3 text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center justify-center gap-1.5 cursor-pointer font-medium"
-                        >
-                          <UserPlus className="w-3.5 h-3.5" />
-                          <span>Gunakan akun GitLab lainnya</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleCloseOAuth}
-                          className="w-full min-h-[44px] py-2 px-3 text-xs text-zinc-600 hover:text-zinc-900 transition-colors cursor-pointer text-center"
-                        >
-                          Tolak
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        executeOAuth('gitlab', customOAuthEmail, customOAuthName || 'DevOps GitLab');
-                      }}
-                      className="space-y-3 pt-1"
-                    >
-                      <div>
-                        <label className="block text-xs font-semibold text-zinc-900 mb-1" htmlFor="gitlab-email">
-                          Alamat Email GitLab
-                        </label>
-                        <input
-                          id="gitlab-email"
-                          type="email"
-                          required
-                          value={customOAuthEmail}
-                          onChange={(e) => setCustomOAuthEmail(e.target.value)}
-                          placeholder="devops@gitlab.com"
-                          className="w-full px-3 py-2 min-h-[44px] text-base sm:text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900"
-                          autoFocus
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-zinc-900 mb-1" htmlFor="gitlab-name">
-                          Nama Akun / DevOps Role
-                        </label>
-                        <input
-                          id="gitlab-name"
-                          type="text"
-                          value={customOAuthName}
-                          onChange={(e) => setCustomOAuthName(e.target.value)}
-                          placeholder="DevOps Lead"
-                          className="w-full px-3 py-2 min-h-[44px] text-base sm:text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900"
-                        />
-                      </div>
-                      <div className="flex items-center gap-2 pt-1">
-                        <button
-                          type="submit"
-                          className="flex-1 min-h-[44px] py-2 px-4 bg-orange-600 hover:bg-orange-700 text-white text-xs font-semibold rounded-lg shadow-sm cursor-pointer"
-                        >
-                          Otorisasi dengan Akun Ini
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setShowCustomOAuth(false)}
-                          className="min-h-[44px] px-3 py-2 text-xs text-zinc-600 hover:text-zinc-900 cursor-pointer"
-                        >
-                          Kembali
-                        </button>
-                      </div>
-                    </form>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 };

@@ -10,6 +10,7 @@ const BRAIN_DIRS = [
   'C:\\Users\\ASUS\\.gemini\\antigravity\\brain\\96f30384-1a5b-49aa-911d-1943ab3ba472',
   'C:\\Users\\ASUS\\.gemini\\antigravity\\brain\\0f626320-fda7-4886-b746-3f6e3d439983',
   'C:\\Users\\ASUS\\.gemini\\antigravity\\brain\\d14c3bc4-d7e1-41c6-b24a-909a4da0bd58',
+  'C:\\Users\\ASUS\\.gemini\\antigravity\\brain\\a3a65308-dfc0-4a49-803a-16058f65b316',
 ];
 const PUBLIC_SHOTS_DIR = path.join(__dirname, '..', 'ui', 'public', 'shots');
 const DIST_SHOTS_DIR = path.join(__dirname, '..', 'ui', 'dist', 'shots');
@@ -143,7 +144,7 @@ async function run() {
         const timer = setTimeout(() => {
           ws.removeEventListener('message', handler);
           reject(new Error(`CDP ${method} timed out`));
-        }, 15000);
+        }, 20000);
         const handler = (evt) => {
           const msg = JSON.parse(evt.data);
           if (msg.id === id) {
@@ -172,96 +173,12 @@ async function run() {
     await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?auth=login` });
     await wait(2000);
 
-    // Capture LoginPage with OAuth buttons
+    // Capture LoginPage with clean OAuth buttons (Google, GitHub, GitLab)
     console.log('[Script] Capturing desktop_login_oauth.png');
     const snapLogin = await send('Page.captureScreenshot', { format: 'png' });
     saveScreenshot('desktop_login_oauth.png', snapLogin.data);
 
-    // 2. Open Google modal
-    console.log('[Script] Opening Google OAuth modal...');
-    let res = await send('Runtime.evaluate', {
-      returnByValue: true,
-      expression: `(() => {
-        const btn = document.querySelector('button[title="Masuk dengan Google"]');
-        if (btn) { btn.click(); return { clicked: true, text: btn.textContent }; }
-        return { clicked: false, allBtns: Array.from(document.querySelectorAll('button')).map(b => b.title || b.textContent) };
-      })()`,
-    });
-    console.log('[Script] Google click result:', JSON.stringify(res.result?.value));
-    await wait(1000);
-    console.log('[Script] Capturing desktop_oauth_google.png');
-    const snapGoogle = await send('Page.captureScreenshot', { format: 'png' });
-    saveScreenshot('desktop_oauth_google.png', snapGoogle.data);
-
-    // Close modal
-    res = await send('Runtime.evaluate', {
-      returnByValue: true,
-      expression: `(() => {
-        const closeBtn = document.querySelector('div[role="dialog"] button[aria-label="Tutup dialog"]');
-        if (closeBtn) { closeBtn.click(); return { closed: true }; }
-        return { closed: false, dialog: !!document.querySelector('div[role="dialog"]') };
-      })()`,
-    });
-    console.log('[Script] Google close result:', JSON.stringify(res.result?.value));
-    await wait(600);
-
-    // 3. Open GitHub modal
-    console.log('[Script] Opening GitHub OAuth modal...');
-    res = await send('Runtime.evaluate', {
-      returnByValue: true,
-      expression: `(() => {
-        const btn = document.querySelector('button[title="Masuk dengan GitHub"]');
-        if (btn) { btn.click(); return { clicked: true, text: btn.textContent }; }
-        return { clicked: false, allBtns: Array.from(document.querySelectorAll('button')).map(b => b.title || b.textContent) };
-      })()`,
-    });
-    console.log('[Script] GitHub click result:', JSON.stringify(res.result?.value));
-    await wait(1000);
-    console.log('[Script] Capturing desktop_oauth_github.png');
-    const snapGitHub = await send('Page.captureScreenshot', { format: 'png' });
-    saveScreenshot('desktop_oauth_github.png', snapGitHub.data);
-
-    // Close modal
-    res = await send('Runtime.evaluate', {
-      returnByValue: true,
-      expression: `(() => {
-        const closeBtn = document.querySelector('div[role="dialog"] button[aria-label="Tutup dialog"]');
-        if (closeBtn) { closeBtn.click(); return { closed: true }; }
-        return { closed: false, dialog: !!document.querySelector('div[role="dialog"]') };
-      })()`,
-    });
-    console.log('[Script] GitHub close result:', JSON.stringify(res.result?.value));
-    await wait(600);
-
-    // 4. Open GitLab modal
-    console.log('[Script] Opening GitLab OAuth modal...');
-    res = await send('Runtime.evaluate', {
-      returnByValue: true,
-      expression: `(() => {
-        const btn = document.querySelector('button[title="Masuk dengan GitLab"]');
-        if (btn) { btn.click(); return { clicked: true, text: btn.textContent }; }
-        return { clicked: false, allBtns: Array.from(document.querySelectorAll('button')).map(b => b.title || b.textContent) };
-      })()`,
-    });
-    console.log('[Script] GitLab click result:', JSON.stringify(res.result?.value));
-    await wait(1000);
-    console.log('[Script] Capturing desktop_oauth_gitlab.png');
-    const snapGitLab = await send('Page.captureScreenshot', { format: 'png' });
-    saveScreenshot('desktop_oauth_gitlab.png', snapGitLab.data);
-
-    // Close modal
-    res = await send('Runtime.evaluate', {
-      returnByValue: true,
-      expression: `(() => {
-        const closeBtn = document.querySelector('div[role="dialog"] button[aria-label="Tutup dialog"]');
-        if (closeBtn) { closeBtn.click(); return { closed: true }; }
-        return { closed: false, dialog: !!document.querySelector('div[role="dialog"]') };
-      })()`,
-    });
-    console.log('[Script] GitLab close result:', JSON.stringify(res.result?.value));
-    await wait(600);
-
-    // 5. Switch to Register tab
+    // 2. Capture Register tab
     console.log('[Script] Switching to Daftar tab...');
     await send('Runtime.evaluate', {
       expression: `
@@ -274,6 +191,58 @@ async function run() {
     console.log('[Script] Capturing desktop_login_register_oauth.png');
     const snapRegister = await send('Page.captureScreenshot', { format: 'png' });
     saveScreenshot('desktop_login_register_oauth.png', snapRegister.data);
+
+    // 3. Capture floating session notice popup
+    console.log('[Script] Triggering session expiration notice...');
+    await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?auth=login` });
+    await wait(1000);
+    await send('Runtime.evaluate', {
+      expression: `
+        window.dispatchEvent(new CustomEvent('relaygate_session_expired', {
+          detail: { message: 'Sesi Anda telah berakhir demi keamanan. Silakan masuk kembali.' }
+        }));
+      `,
+    });
+    await wait(1000);
+    console.log('[Script] Capturing desktop_session_notice.png');
+    const snapSession = await send('Page.captureScreenshot', { format: 'png' });
+    saveScreenshot('desktop_session_notice.png', snapSession.data);
+
+    // 4. Capture real Google Accounts OAuth sign-in portal (genuine Google identity UI)
+    console.log('[Script] Navigating to authentic Google Accounts portal...');
+    try {
+      await send('Page.navigate', { url: 'https://accounts.google.com/signin' });
+      await wait(3000);
+      console.log('[Script] Capturing desktop_oauth_google.png (real Google sign-in)');
+      const snapGoogle = await send('Page.captureScreenshot', { format: 'png' });
+      saveScreenshot('desktop_oauth_google.png', snapGoogle.data);
+    } catch (e) {
+      console.warn('[Script] Could not capture live Google portal:', e.message);
+    }
+
+    // 5. Capture real GitHub OAuth portal
+    console.log('[Script] Navigating to authentic GitHub login portal...');
+    try {
+      await send('Page.navigate', { url: 'https://github.com/login' });
+      await wait(3000);
+      console.log('[Script] Capturing desktop_oauth_github.png (real GitHub login)');
+      const snapGitHub = await send('Page.captureScreenshot', { format: 'png' });
+      saveScreenshot('desktop_oauth_github.png', snapGitHub.data);
+    } catch (e) {
+      console.warn('[Script] Could not capture live GitHub portal:', e.message);
+    }
+
+    // 6. Capture real GitLab portal
+    console.log('[Script] Navigating to authentic GitLab portal...');
+    try {
+      await send('Page.navigate', { url: 'https://gitlab.com/users/sign_in' });
+      await wait(4000);
+      console.log('[Script] Capturing desktop_oauth_gitlab.png (real GitLab portal)');
+      const snapGitLab = await send('Page.captureScreenshot', { format: 'png' });
+      saveScreenshot('desktop_oauth_gitlab.png', snapGitLab.data);
+    } catch (e) {
+      console.warn('[Script] Could not capture live GitLab portal:', e.message);
+    }
 
     ws.close();
     browserProc.kill();

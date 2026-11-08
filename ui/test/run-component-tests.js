@@ -2255,8 +2255,8 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     );
 
     assert.match(htmlWithNotice, /Sesi Anda telah berakhir demi keamanan\. Silakan masuk kembali\./, 'Must render dignified session expiration notice');
-    assert.match(htmlWithNotice, /bg-amber-50\/90/, 'Session notice banner must use warm dignified amber-50 background');
-    assert.match(htmlWithNotice, /text-amber-950/, 'Session notice banner must use accessible text-amber-950');
+    assert.match(htmlWithNotice, /Sesi Berakhir/, 'Floating session notification must render "Sesi Berakhir" heading');
+    assert.match(htmlWithNotice, /backdrop-blur-md/, 'Floating notification must use sleek glassmorphism backdrop-blur-md');
     assert.match(htmlWithNotice, /aria-label="Tutup pemberitahuan"/, 'Session notice must provide dismissible close action with aria-label');
     assert.match(htmlWithNotice, /min-h-\[44px\] min-w-\[44px\]/, 'Session notice dismiss button must enforce 44px touch target');
 
@@ -2310,18 +2310,21 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(loginSource, /atau lanjutkan dengan email/, 'LoginPage must render "atau lanjutkan dengan email" clean UI divider');
     assert.match(loginSource, /initialMode\?: 'login' \| 'register'/, 'LoginPage must declare initialMode prop');
 
-    // 4. Distinct Provider Modals & Experiences
-    assert.match(loginSource, /alex\.developer@gmail\.com/, 'Google OAuth experience must include Google Account Chooser identity');
-    assert.match(loginSource, /hazama3321@gmail\.com/, 'GitHub OAuth experience must include @hazama3321 developer identity');
-    assert.match(loginSource, /devops\.lead@gitlab\.company/, 'GitLab OAuth experience must include GitLab DevOps identity');
-    assert.match(loginSource, /github\.com\/login\/oauth\/authorize/, 'GitHub OAuth modal must render authentic GitHub authorization header');
-    assert.match(loginSource, /gitlab\.com \(SaaS SSO\)/, 'GitLab OAuth modal must render authentic GitLab SaaS SSO header');
-    assert.match(loginSource, /Gunakan akun GitHub lainnya/, 'GitHub modal must support custom account login');
-    assert.match(loginSource, /Gunakan akun GitLab lainnya/, 'GitLab modal must support custom account login');
+    // 4. Real OAuth Redirection Invariants (Zero Fake Modals & Zero Mock Accounts)
+    assert.doesNotMatch(loginSource, /alex\.developer@gmail\.com/, 'Must NOT contain fake Alex Prasetyo mock account');
+    assert.doesNotMatch(loginSource, /Alex Prasetyo/, 'Must NOT contain fake Alex Prasetyo mock name');
+    assert.doesNotMatch(loginSource, /devops\.lead@gitlab\.company/, 'Must NOT contain fake devops.lead mock account');
+    assert.doesNotMatch(loginSource, /devops-lead/, 'Must NOT contain fake devops-lead mock username');
+    assert.doesNotMatch(loginSource, /aria-label="Autentikasi dengan Google"/, 'Must NOT render fake Google in-app modal');
+    assert.doesNotMatch(loginSource, /aria-label="Autentikasi dengan GitHub"/, 'Must NOT render fake GitHub in-app modal');
+    assert.doesNotMatch(loginSource, /aria-label="Autentikasi dengan GitLab"/, 'Must NOT render fake GitLab in-app modal');
 
-    // 5. Direct login without OTP prompt
-    assert.match(loginSource, /executeOAuth/, 'LoginPage must provide instant direct OAuth execution');
-    assert.match(loginSource, /Tanpa akses repositori atau kode sumber privat\. Langsung masuk tanpa verifikasi OTP\./, 'GitHub modal must declare direct login without OTP');
+    // 5. Genuine OAuth Provider URLs & Window Redirection
+    assert.match(loginSource, /accounts\.google\.com/, 'Must route to genuine Google Accounts portal');
+    assert.match(loginSource, /github\.com/, 'Must route to genuine GitHub portal');
+    assert.match(loginSource, /gitlab\.com/, 'Must route to genuine GitLab portal');
+    assert.match(loginSource, /_blank/, 'Must open genuine OAuth provider URL in a new blank tab');
+    assert.match(loginSource, /getOAuthProviderUrl/, 'LoginPage must export getOAuthProviderUrl helper');
 
     // 6. Zero unicode em dashes in LoginPage, App, and api
     assert.doesNotMatch(loginSource, /\u2014/, 'LoginPage.tsx must not contain unicode em dashes');
