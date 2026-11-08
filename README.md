@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://github.com/rootless-sec/relaygate">
-    <img src="docs/assets/relaygate-logo.png" alt="RelayGate Logo" width="280" />
+    <img src="docs/assets/relaygate-icon.png" alt="RelayGate" width="80" height="80" />
   </a>
 </p>
 
