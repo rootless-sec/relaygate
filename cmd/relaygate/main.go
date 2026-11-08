@@ -123,9 +123,12 @@ func main() {
 	// Embedded Vite SPA dashboard handler
 	mux.Handle("/", ui.Handler())
 
+	// Wrap root server mux with defense-in-depth security headers (Clickjacking, CSP, MIME-sniffing)
+	secureHandler := api.SecurityHeaders(mux)
+
 	server := &http.Server{
 		Addr:         *addr,
-		Handler:      mux,
+		Handler:      secureHandler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,

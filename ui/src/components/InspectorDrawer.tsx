@@ -173,12 +173,13 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
     const targetUrl = ep?.target_url || `${origin}/ingest/${event.endpoint_id}`;
     const headersStr = Object.entries(event.headers || {})
       .map(([k, v]) => {
-        const val = isSensitiveHeader(k) ? '<TOKEN>' : v;
-        return `-H '${k}: ${val}'`;
+        const val = isSensitiveHeader(k) ? '<TOKEN>' : String(v).replace(/'/g, "'\\''");
+        const safeKey = k.replace(/['\r\n]/g, '');
+        return `-H '${safeKey}: ${val}'`;
       })
       .join(' ');
-    const raw = getRawPayloadString();
-    return `curl -X POST '${targetUrl}' ${headersStr ? headersStr + ' ' : ''}-d '${raw}'`;
+    const raw = getRawPayloadString().replace(/'/g, "'\\''");
+    return `curl -X POST '${targetUrl.replace(/'/g, "'\\''")}' ${headersStr ? headersStr + ' ' : ''}-d '${raw}'`;
   };
 
   const handleReplayClick = () => {

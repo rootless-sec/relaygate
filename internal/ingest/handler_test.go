@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -236,5 +237,107 @@ func TestIngest_MidtransBodySignature(t *testing.T) {
 	}
 	if saved.Signature != "midtrans_test_sig_9999" {
 		t.Errorf("expected signature extracted from JSON payload, got '%s'", saved.Signature)
+	}
+}
+
+func TestIngest_RateLimitingAndHeaderTamperingPrevention(t *testing.T) {
+	db, _, handler, cleanup := setupIngestEnv(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	ep := &model.Endpoint{
+		ID:        "ep-security-ingest",
+		Name:      "Security Test Ingest",
+		TargetURL: "https://example.com/target",
+		Provider:  model.ProviderGeneric,
+		IsActive:  true,
+	}
+	_ = db.SaveEndpoint(ctx, ep)
+
+	// 1. Configure strict rate limit: max 3 requests per 5-second window
+	handler.SetRateLimit(3, 5*time.Second)
+
+	body := []byte(`{"event":"test"}`)
+
+	// Requests 1-3 succeed
+	for i := 1; i <= 3; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/ingest/ep-security-ingest", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected request %d to succeed with 200 OK, got %d: %s", i, rec.Code, rec.Body.String())
+		}
+	}
+
+	// Request 4 exceeds rate limit and must return 429 Too Many Requests
+	reqRateLimited := httptest.NewRequest(http.MethodPost, "/ingest/ep-security-ingest", bytes.NewReader(body))
+	reqRateLimited.Header.Set("Content-Type", "application/json")
+	recRateLimited := httptest.NewRecorder()
+	handler.ServeHTTP(recRateLimited, reqRateLimited)
+
+	if recRateLimited.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 Too Many Requests on rate limit exceeded, got %d: %s", recRateLimited.Code, recRateLimited.Body.String())
+	}
+	if recRateLimited.Header().Get("Retry-After") != "1" {
+		t.Errorf("expected Retry-After header '1', got %q", recRateLimited.Header().Get("Retry-After"))
+	}
+
+	// 2. Test header tampering defense: internal identity headers must be stripped
+	handler.ResetRateLimits()
+	handler.SetRateLimit(100, 10*time.Second)
+
+	tamperReq := httptest.NewRequest(http.MethodPost, "/ingest/ep-security-ingest", bytes.NewReader(body))
+	tamperReq.Header.Set("Content-Type", "application/json")
+	tamperReq.Header.Set("X-User-Role", "admin")
+	tamperReq.Header.Set("X-Admin", "true")
+	tamperReq.Header.Set("X-User-Email", "root@hacker.com")
+	tamperReq.Header.Set("X-Webhook-Event-Type", "order.completed")
+
+	tamperRec := httptest.NewRecorder()
+	handler.ServeHTTP(tamperRec, tamperReq)
+
+	if tamperRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on header tamper test, got %d", tamperRec.Code)
+	}
+
+	var tamperResp ingest.Response
+	_ = json.Unmarshal(tamperRec.Body.Bytes(), &tamperResp)
+
+	savedEvent, err := db.GetEventByID(ctx, tamperResp.ID)
+	if err != nil {
+		t.Fatalf("failed to retrieve saved event: %v", err)
+	}
+
+	for k := range savedEvent.Headers {
+		if strings.EqualFold(k, "X-User-Role") || strings.EqualFold(k, "X-Admin") || strings.EqualFold(k, "X-User-Email") {
+			t.Errorf("SECURITY DEFECT: Internal identity header %q leaked into stored event headers!", k)
+		}
+	}
+	if _, ok := savedEvent.Headers["X-Webhook-Event-Type"]; !ok {
+		t.Errorf("expected legitimate header X-Webhook-Event-Type to be preserved")
+	}
+
+	// 3. Test IP Resolver defense against spoofed X-Forwarded-For
+	handler.SetIPResolver(func(r *http.Request) string {
+		// Mock trusted proxy resolver that rejects untrusted forwarded headers
+		return "10.0.0.100"
+	})
+
+	ipReq := httptest.NewRequest(http.MethodPost, "/ingest/ep-security-ingest", bytes.NewReader(body))
+	ipReq.Header.Set("Content-Type", "application/json")
+	ipReq.Header.Set("X-Forwarded-For", "1.1.1.1")
+	ipRec := httptest.NewRecorder()
+	handler.ServeHTTP(ipRec, ipReq)
+
+	if ipRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on IP resolver test, got %d", ipRec.Code)
+	}
+	var ipResp ingest.Response
+	_ = json.Unmarshal(ipRec.Body.Bytes(), &ipResp)
+	ipEvent, _ := db.GetEventByID(ctx, ipResp.ID)
+	if ipEvent.SourceIP != "10.0.0.100" {
+		t.Errorf("expected source_ip '10.0.0.100' from resolver, got %q", ipEvent.SourceIP)
 	}
 }

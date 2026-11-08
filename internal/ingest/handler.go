@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,7 +20,50 @@ import (
 const (
 	// MaxPayloadBytes limits the maximum incoming webhook payload size to 10MB
 	MaxPayloadBytes = 10 << 20
+
+	// DefaultIngestLimitPerWindow default rate limit per IP/endpoint (120 reqs / 10s)
+	DefaultIngestLimitPerWindow = 120
+	DefaultIngestWindow         = 10 * time.Second
 )
+
+type ingestRateLimiter struct {
+	mu       sync.Mutex
+	attempts map[string][]time.Time
+}
+
+func newIngestRateLimiter() *ingestRateLimiter {
+	return &ingestRateLimiter{attempts: make(map[string][]time.Time)}
+}
+
+func (l *ingestRateLimiter) checkAndRecord(key string, limit int, window time.Duration) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	now := time.Now().UTC()
+	cutoff := now.Add(-window)
+
+	var valid []time.Time
+	for _, ts := range l.attempts[key] {
+		if ts.After(cutoff) {
+			valid = append(valid, ts)
+		}
+	}
+
+	if len(valid) >= limit {
+		l.attempts[key] = valid
+		return false
+	}
+
+	valid = append(valid, now)
+	l.attempts[key] = valid
+	return true
+}
+
+func (l *ingestRateLimiter) reset() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.attempts = make(map[string][]time.Time)
+}
 
 // Response represents the immediate JSON response returned by the ingest receiver
 type Response struct {
@@ -41,13 +85,36 @@ type Handler struct {
 	pool        *worker.Pool
 	broadcaster model.Broadcaster
 	ipResolver  func(r *http.Request) string
+	limiter     *ingestRateLimiter
+	limit       int
+	window      time.Duration
 }
 
 // NewHandler creates a new Ingest HTTP handler
 func NewHandler(repo storage.Repository, pool *worker.Pool) *Handler {
 	return &Handler{
-		repo: repo,
-		pool: pool,
+		repo:    repo,
+		pool:    pool,
+		limiter: newIngestRateLimiter(),
+		limit:   DefaultIngestLimitPerWindow,
+		window:  DefaultIngestWindow,
+	}
+}
+
+// SetRateLimit configures ingestion rate limit threshold and window duration
+func (h *Handler) SetRateLimit(limit int, window time.Duration) {
+	if limit > 0 {
+		h.limit = limit
+	}
+	if window > 0 {
+		h.window = window
+	}
+}
+
+// ResetRateLimits resets internal rate limiting state (used in testing)
+func (h *Handler) ResetRateLimits() {
+	if h.limiter != nil {
+		h.limiter.reset()
 	}
 }
 
@@ -87,6 +154,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Extract source IP
+	sourceIP := h.extractSourceIP(r)
+
+	// Rate limiting by client IP and endpoint ID
+	rateKey := sourceIP + ":" + endpointID
+	if h.limiter != nil && !h.limiter.checkAndRecord(rateKey, h.limit, h.window) {
+		w.Header().Set("Retry-After", "1")
+		writeJSON(w, http.StatusTooManyRequests, ErrorResponse{
+			Error:   "too many requests",
+			Message: "webhook ingestion rate limit exceeded for this endpoint and IP. Please slow down.",
+		})
+		return
+	}
+
 	// Limit request payload to 10MB
 	r.Body = http.MaxBytesReader(w, r.Body, MaxPayloadBytes)
 	payload, err := io.ReadAll(r.Body)
@@ -95,19 +176,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract headers
+	// Extract headers, filtering out internal identity headers
 	headers := make(map[string]string)
 	for k, v := range r.Header {
-		if len(v) > 0 {
-			headers[k] = strings.Join(v, ", ")
+		if len(v) == 0 {
+			continue
 		}
+		if strings.EqualFold(k, "X-User-Role") ||
+			strings.EqualFold(k, "X-Admin") ||
+			strings.EqualFold(k, "X-User-Email") {
+			continue
+		}
+		headers[k] = strings.Join(v, ", ")
 	}
 
 	// Extract signature (from headers or body)
 	signature := extractSignature(headers, payload)
-
-	// Extract source IP
-	sourceIP := h.extractSourceIP(r)
 
 	// Create WebhookEvent
 	eventID := uuid.NewString()

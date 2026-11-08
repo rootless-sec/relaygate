@@ -42,6 +42,7 @@ type Repository interface {
 	SaveEndpoint(ctx context.Context, endpoint *model.Endpoint) error
 	GetEndpointByID(ctx context.Context, id string) (*model.Endpoint, error)
 	ListEndpoints(ctx context.Context) ([]*model.Endpoint, error)
+	DeleteEndpoint(ctx context.Context, id string) error
 
 	// User methods
 	SaveUser(ctx context.Context, user *model.User) error
@@ -417,6 +418,33 @@ func (d *DB) ListEndpoints(ctx context.Context) ([]*model.Endpoint, error) {
 	}
 
 	return endpoints, nil
+}
+
+// DeleteEndpoint removes an endpoint and its associated delivered/failed events by its unique identifier
+func (d *DB) DeleteEndpoint(ctx context.Context, id string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, "DELETE FROM webhook_events WHERE endpoint_id = ?;", id); err != nil {
+		return fmt.Errorf("failed to delete associated webhook events: %w", err)
+	}
+
+	res, err := tx.ExecContext(ctx, "DELETE FROM endpoints WHERE id = ?;", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete endpoint: %w", err)
+	}
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		return fmt.Errorf("endpoint not found")
+	}
+
+	return tx.Commit()
 }
 
 // SaveUser creates or updates a user account

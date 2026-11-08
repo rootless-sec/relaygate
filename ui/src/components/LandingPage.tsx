@@ -214,6 +214,8 @@ function MagneticBrand({
     setActive(false);
   };
 
+  const isExternal = href.startsWith('http://') || href.startsWith('https://');
+
   return (
     <a
       href={href}
@@ -221,6 +223,8 @@ function MagneticBrand({
       onPointerMove={handlePointerMove}
       onPointerLeave={handlePointerLeave}
       className={className}
+      rel={isExternal ? 'noopener noreferrer' : undefined}
+      target={isExternal ? '_blank' : undefined}
       style={{
         transform: `translate3d(${offset.x.toFixed(1)}px, ${offset.y.toFixed(1)}px, 0)`,
         transition: active ? 'transform 0.08s linear' : 'transform 0.4s cubic-bezier(0.22, 1, 0.36, 1)',

@@ -421,8 +421,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       setError('Alamat email tidak boleh mengandung spasi.');
       return;
     }
-    if (password.length < 6) {
-      setError('Password minimal 6 karakter.');
+    if (password.length < 8) {
+      setError('Password minimal 8 karakter.');
       return;
     }
     if (password !== confirmPassword) {

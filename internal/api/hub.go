@@ -16,33 +16,81 @@ type SSEMessage struct {
 	Data  any    `json:"data,omitempty"`
 }
 
+const (
+	DefaultMaxTotalSSEClients = 500
+	DefaultMaxSSEClientsPerIP = 10
+)
+
 // Hub manages active SSE client subscribers and real-time broadcasts
 type Hub struct {
-	mu      sync.RWMutex
-	clients map[chan []byte]struct{}
+	mu           sync.RWMutex
+	clients      map[chan []byte]string // channel -> client IP/key
+	ipCounts     map[string]int
+	maxTotal     int
+	maxPerClient int
 }
 
 // NewHub initializes an SSE broadcasting hub
 func NewHub() *Hub {
 	return &Hub{
-		clients: make(map[chan []byte]struct{}),
+		clients:      make(map[chan []byte]string),
+		ipCounts:     make(map[string]int),
+		maxTotal:     DefaultMaxTotalSSEClients,
+		maxPerClient: DefaultMaxSSEClientsPerIP,
 	}
 }
 
-// Subscribe adds a new client channel to the hub
-func (h *Hub) Subscribe() chan []byte {
-	ch := make(chan []byte, 100)
+// SetLimits configures total and per-client connection thresholds (useful for tests and tuning)
+func (h *Hub) SetLimits(maxTotal, maxPerClient int) {
 	h.mu.Lock()
-	h.clients[ch] = struct{}{}
-	h.mu.Unlock()
+	defer h.mu.Unlock()
+	if maxTotal > 0 {
+		h.maxTotal = maxTotal
+	}
+	if maxPerClient > 0 {
+		h.maxPerClient = maxPerClient
+	}
+}
+
+// Subscribe adds a new client channel to the hub without IP limits (backward-compatible)
+func (h *Hub) Subscribe() chan []byte {
+	ch, _ := h.SubscribeWithLimit("anonymous")
 	return ch
 }
 
-// Unsubscribe removes a client channel
+// SubscribeWithLimit adds a new client channel while enforcing total and per-client IP limits
+func (h *Hub) SubscribeWithLimit(clientKey string) (chan []byte, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if clientKey == "" {
+		clientKey = "unknown"
+	}
+
+	if len(h.clients) >= h.maxTotal {
+		return nil, fmt.Errorf("batas total koneksi stream tercapai (%d)", h.maxTotal)
+	}
+
+	if h.ipCounts[clientKey] >= h.maxPerClient {
+		return nil, fmt.Errorf("batas koneksi stream per-klien tercapai (%d)", h.maxPerClient)
+	}
+
+	ch := make(chan []byte, 100)
+	h.clients[ch] = clientKey
+	h.ipCounts[clientKey]++
+	return ch, nil
+}
+
+// Unsubscribe removes a client channel and cleans up connection tracking
 func (h *Hub) Unsubscribe(ch chan []byte) {
 	h.mu.Lock()
-	if _, ok := h.clients[ch]; ok {
+	if clientKey, ok := h.clients[ch]; ok {
 		delete(h.clients, ch)
+		if count := h.ipCounts[clientKey]; count > 1 {
+			h.ipCounts[clientKey] = count - 1
+		} else {
+			delete(h.ipCounts, clientKey)
+		}
 		close(ch)
 	}
 	h.mu.Unlock()

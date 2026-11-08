@@ -719,11 +719,25 @@ func (a *API) CreateEndpoint(w http.ResponseWriter, r *http.Request) {
 		provider = model.ProviderGeneric
 	}
 
-	secretKey := req.SecretKey
+	secretKey := strings.TrimSpace(req.SecretKey)
 	if secretKey == "" {
-		randomBytes := make([]byte, 16)
-		_, _ = rand.Read(randomBytes)
+		randomBytes := make([]byte, 32)
+		if _, err := rand.Read(randomBytes); err != nil {
+			writeError(w, http.StatusInternalServerError, "Gagal membuat secret key", err)
+			return
+		}
 		secretKey = "whsec_" + hex.EncodeToString(randomBytes)
+	} else {
+		if len(secretKey) < 8 {
+			writeError(w, http.StatusBadRequest, "Secret key minimal 8 karakter", nil)
+			return
+		}
+		for _, r := range secretKey {
+			if r < 32 || r == 127 {
+				writeError(w, http.StatusBadRequest, "Secret key mengandung karakter tidak valid", nil)
+				return
+			}
+		}
 	}
 
 	endpoint := &model.Endpoint{
@@ -783,8 +797,21 @@ func (a *API) UpdateEndpoint(w http.ResponseWriter, r *http.Request) {
 		}
 		existing.TargetURL = trimmed
 	}
-	if req.SecretKey != nil && strings.TrimSpace(*req.SecretKey) != "" {
-		existing.SecretKey = strings.TrimSpace(*req.SecretKey)
+	if req.SecretKey != nil {
+		trimmedKey := strings.TrimSpace(*req.SecretKey)
+		if trimmedKey != "" {
+			if len(trimmedKey) < 8 {
+				writeError(w, http.StatusBadRequest, "Secret key minimal 8 karakter", nil)
+				return
+			}
+			for _, r := range trimmedKey {
+				if r < 32 || r == 127 {
+					writeError(w, http.StatusBadRequest, "Secret key mengandung karakter tidak valid", nil)
+					return
+				}
+			}
+			existing.SecretKey = trimmedKey
+		}
 	}
 	if req.IsActive != nil {
 		existing.IsActive = *req.IsActive
@@ -796,6 +823,55 @@ func (a *API) UpdateEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, existing)
+}
+
+// DeleteEndpoint handles DELETE /api/v1/endpoints/{id}
+func (a *API) DeleteEndpoint(w http.ResponseWriter, r *http.Request) {
+	session := a.getSession(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Sesi tidak valid atau telah kedaluwarsa. Autentikasi diperlukan untuk menghapus endpoint.", nil)
+		return
+	}
+	if session.Role != "admin" {
+		writeError(w, http.StatusForbidden, "Hanya admin yang memiliki izin untuk menghapus endpoint.", nil)
+		return
+	}
+
+	id := extractPathID(r, "id", "endpoints")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "endpoint id is required", nil)
+		return
+	}
+
+	ep, err := a.repo.GetEndpointByID(r.Context(), id)
+	if err != nil || ep == nil {
+		writeError(w, http.StatusNotFound, "endpoint not found", err)
+		return
+	}
+
+	// Deletion protection: Check if there are active PENDING or RETRYING events for this endpoint
+	events, _, err := a.repo.ListEvents(r.Context(), storage.ListFilter{
+		EndpointID: id,
+		Limit:      100,
+	})
+	if err == nil {
+		for _, ev := range events {
+			if ev.Status == model.StatusPending || ev.Status == model.StatusRetrying {
+				writeError(w, http.StatusConflict, "Endpoint tidak dapat dihapus karena masih memiliki event dalam antrean pengiriman (status Menunggu atau Mencoba ulang).", nil)
+				return
+			}
+		}
+	}
+
+	if err := a.repo.DeleteEndpoint(r.Context(), id); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete endpoint", err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"message": "Endpoint berhasil dihapus",
+		"id":      id,
+	})
 }
 
 // GetStats handles GET /api/v1/stats
@@ -934,7 +1010,16 @@ func (a *API) StreamSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
-	clientCh := a.hub.Subscribe()
+	clientKey := ResolveClientIP(r)
+	if session := a.getSession(r); session != nil && session.UserEmail != "" {
+		clientKey = session.UserEmail + "@" + clientKey
+	}
+
+	clientCh, err := a.hub.SubscribeWithLimit(clientKey)
+	if err != nil {
+		writeError(w, http.StatusTooManyRequests, "Koneksi stream ditolak: "+err.Error(), nil)
+		return
+	}
 	defer a.hub.Unsubscribe(clientCh)
 
 	// Send initial handshake
@@ -1000,13 +1085,19 @@ func (a *API) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Email = cleanEmail
 
-	if len(req.Password) < 6 {
-		writeError(w, http.StatusBadRequest, "Password minimal 6 karakter", nil)
+	if len(req.Password) < 8 {
+		writeError(w, http.StatusBadRequest, "Password minimal 8 karakter", nil)
 		return
 	}
 	if len(req.Password) > 72 {
 		writeError(w, http.StatusBadRequest, "Password maksimal 72 karakter", nil)
 		return
+	}
+	for _, r := range req.Password {
+		if r < 32 || r == 127 {
+			writeError(w, http.StatusBadRequest, "Password mengandung karakter tidak valid", nil)
+			return
+		}
 	}
 
 	unlock := a.authLocks.Lock("email:" + req.Email)
@@ -1485,9 +1576,6 @@ func (a *API) OAuthLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		role := "viewer"
-		if strings.HasPrefix(req.Email, "admin@") {
-			role = "admin"
-		}
 		user = &model.User{
 			ID:        "usr_" + strings.ToLower(uuid.NewString()[:8]),
 			Name:      req.Name,

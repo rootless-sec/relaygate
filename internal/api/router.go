@@ -277,6 +277,9 @@ func extractTokenFromRequest(r *http.Request) string {
 	if cookie, err := r.Cookie("session"); err == nil && cookie != nil && cookie.Value != "" {
 		return strings.TrimSpace(cookie.Value)
 	}
+	if qTok := strings.TrimSpace(r.URL.Query().Get("token")); qTok != "" {
+		return qTok
+	}
 	return ""
 }
 
@@ -357,6 +360,7 @@ func NewRouter(repo storage.Repository, pool *worker.Pool, hub *Hub, mailerOpt .
 	mux.HandleFunc("GET /api/v1/endpoints", api.ListEndpoints)
 	mux.HandleFunc("POST /api/v1/endpoints", api.CreateEndpoint)
 	mux.HandleFunc("PATCH /api/v1/endpoints/{id}", api.UpdateEndpoint)
+	mux.HandleFunc("DELETE /api/v1/endpoints/{id}", api.DeleteEndpoint)
 
 	mux.HandleFunc("GET /api/v1/stats", api.GetStats)
 	mux.HandleFunc("GET /api/v1/overview", api.GetOverview)
@@ -384,8 +388,30 @@ func NewRouter(repo storage.Repository, pool *worker.Pool, hub *Hub, mailerOpt .
 	}
 }
 
+// SetSecurityHeaders injects standard enterprise security headers:
+// X-Frame-Options (DENY), X-Content-Type-Options (nosniff), CSP, Referrer-Policy, Permissions-Policy.
+func SetSecurityHeaders(w http.ResponseWriter) {
+	h := w.Header()
+	h.Set("X-Frame-Options", "DENY")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Content-Security-Policy", "default-src 'self'; font-src 'self' https://fonts.gstatic.com data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; connect-src 'self'; frame-ancestors 'none';")
+	h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+	h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+}
+
+// SecurityHeaders wraps an http.Handler with defensive HTTP security headers.
+func SecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		SetSecurityHeaders(w)
+		next.ServeHTTP(w, r)
+	})
+}
+
 // ServeHTTP delegates to internal mux while injecting CORS headers and enforcing security middleware
 func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Always inject robust security headers across all API routes
+	SetSecurityHeaders(w)
+
 	// Enable CORS for local Vite dev server and cross-origin tools
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")
@@ -449,7 +475,7 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			ctx := context.WithValue(r.Context(), SessionContextKey, sess)
 			r = r.WithContext(ctx)
 		} else {
-			if isBearerAuth {
+			if isBearerAuth || strings.TrimSpace(r.URL.Query().Get("token")) != "" {
 				writeError(w, http.StatusUnauthorized, "Sesi tidak valid atau telah kedaluwarsa", nil)
 				return
 			}

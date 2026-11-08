@@ -22,6 +22,13 @@ func Handler() http.Handler {
 	fileServer := http.FileServer(http.FS(distSub))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Defense-in-depth security headers (Clickjacking, MIME sniffing, CSP)
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; font-src 'self' https://fonts.gstatic.com data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; connect-src 'self'; frame-ancestors 'none';")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+
 		cleanPath := strings.TrimPrefix(r.URL.Path, "/")
 		if cleanPath == "" {
 			cleanPath = "index.html"

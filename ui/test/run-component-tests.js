@@ -2420,6 +2420,28 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.doesNotMatch(loginSource, /\u2014/, 'LoginPage.tsx must have ZERO unicode em dashes');
   });
 
+  await suite.test('Security Hardening & Sanitization Invariants across Landing, Auth & Inspector', async () => {
+    const loginSource = fs.readFileSync(path.join(__dirname, '../src/components/LoginPage.tsx'), 'utf8');
+    const landingSource = fs.readFileSync(path.join(__dirname, '../src/components/LandingPage.tsx'), 'utf8');
+    const drawerSource = fs.readFileSync(path.join(__dirname, '../src/components/InspectorDrawer.tsx'), 'utf8');
+
+    // 1. Password policy: minimum 8 characters enforced on client-side registration
+    assert.match(loginSource, /password\.length < 8/, 'LoginPage must validate minimum 8 characters password');
+    assert.match(loginSource, /Password minimal 8 karakter/, 'LoginPage must display Indonesian error message for password < 8');
+
+    // 2. Landing page: external brand links have target="_blank" and rel="noopener noreferrer"
+    assert.match(landingSource, /rel=\{isExternal \? 'noopener noreferrer' : undefined\}/, 'LandingPage MagneticBrand external links must declare rel="noopener noreferrer"');
+    assert.match(landingSource, /target=\{isExternal \? '_blank' : undefined\}/, 'LandingPage MagneticBrand external links must declare target="_blank"');
+
+    // 3. InspectorDrawer: curlCommand escapes single quotes and strips newlines
+    assert.match(drawerSource, /k\.replace\(\/\[.*\]\/g,\s*''\)/, 'curlCommand must sanitize newline and quote characters in headers');
+    assert.match(drawerSource, /String\(v\)\.replace\(/, 'curlCommand must safely escape single quotes in header values');
+
+    // 4. Invariant: ZERO unicode em dashes across LandingPage and InspectorDrawer
+    assert.doesNotMatch(landingSource, /\u2014/, 'LandingPage.tsx must have ZERO unicode em dashes');
+    assert.doesNotMatch(drawerSource, /\u2014/, 'InspectorDrawer.tsx must have ZERO unicode em dashes');
+  });
+
   // Cleanup temp files
   try {
     fs.rmSync(outDir, { recursive: true, force: true, maxRetries: 0 });

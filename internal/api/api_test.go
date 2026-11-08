@@ -2163,5 +2163,336 @@ func TestAPI_ResendCodeExistingUserConflict(t *testing.T) {
 	}
 }
 
+func TestAPI_SecurityHeaders_ClickjackingAndCSP(t *testing.T) {
+	_, _, _, router, cleanup := setupTestAPI(t)
+	defer cleanup()
+
+	endpoints := []string{
+		"/api/v1/overview",
+		"/api/v1/events",
+		"/api/v1/endpoints",
+		"/api/v1/stats",
+	}
+
+	for _, ep := range endpoints {
+		req := httptest.NewRequest(http.MethodGet, ep, nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Header().Get("X-Frame-Options") != "DENY" {
+			t.Errorf("endpoint %s missing X-Frame-Options: DENY, got %q", ep, rec.Header().Get("X-Frame-Options"))
+		}
+		if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+			t.Errorf("endpoint %s missing X-Content-Type-Options: nosniff, got %q", ep, rec.Header().Get("X-Content-Type-Options"))
+		}
+		csp := rec.Header().Get("Content-Security-Policy")
+		if !strings.Contains(csp, "frame-ancestors 'none'") {
+			t.Errorf("endpoint %s CSP missing frame-ancestors 'none', got %q", ep, csp)
+		}
+		if !strings.Contains(csp, "default-src 'self'") {
+			t.Errorf("endpoint %s CSP missing default-src 'self', got %q", ep, csp)
+		}
+		if rec.Header().Get("Referrer-Policy") != "strict-origin-when-cross-origin" {
+			t.Errorf("endpoint %s missing Referrer-Policy, got %q", ep, rec.Header().Get("Referrer-Policy"))
+		}
+		if !strings.Contains(rec.Header().Get("Permissions-Policy"), "camera=()") {
+			t.Errorf("endpoint %s missing Permissions-Policy, got %q", ep, rec.Header().Get("Permissions-Policy"))
+		}
+	}
+}
+
+func TestAPI_OAuthPrivilegeEscalationDefense(t *testing.T) {
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+	defer db.Close()
+
+	router := api.NewRouter(db, nil, api.NewHub())
+
+	// Attacker tries to register OAuth with email starting with admin@
+	attackerPayload := `{"provider":"google","email":"admin@attacker.com","name":"Malicious User","action":"register"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(attackerPayload))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on oauth registration, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var authRes api.AuthResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &authRes); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	// Security assertion: Attacker must NOT be granted admin role!
+	if authRes.User.Role != "viewer" {
+		t.Fatalf("CRITICAL SECURITY DEFECT: User %s was granted role %q instead of viewer!", authRes.User.Email, authRes.User.Role)
+	}
+
+	// Double-check stored user in database
+	storedUser, err := db.GetUserByEmail(context.Background(), "admin@attacker.com")
+	if err != nil || storedUser == nil {
+		t.Fatalf("failed to fetch user from DB: %v", err)
+	}
+	if storedUser.Role != "viewer" {
+		t.Fatalf("CRITICAL SECURITY DEFECT: User in DB has role %q instead of viewer!", storedUser.Role)
+	}
+}
+
+func TestAPI_PasswordPolicyAndControlChars(t *testing.T) {
+	_, _, _, router, cleanup := setupTestAPI(t)
+	defer cleanup()
+
+	// 1. Password shorter than 8 characters is rejected
+	shortPassPayload := `{"name":"Short Pass","email":"shortpass@test.com","password":"short1"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(shortPassPayload))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for password < 8 chars, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Password minimal 8 karakter") {
+		t.Errorf("expected error message to mention 'Password minimal 8 karakter', got %s", rec.Body.String())
+	}
+
+	// 2. Password with control character (e.g. null byte or tab) is rejected
+	ctrlPassPayload := "{\"name\":\"Ctrl User\",\"email\":\"ctrlpass@test.com\",\"password\":\"Pass\x00word123!\"}"
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(ctrlPassPayload))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for password with control chars, got %d", rec.Code)
+	}
+
+	// 3. Password exceeding 72 bytes (bcrypt limit) is rejected
+	longPass := strings.Repeat("A", 73)
+	longPassPayload := fmt.Sprintf(`{"name":"Long User","email":"longpass@test.com","password":%q}`, longPass)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(longPassPayload))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for password > 72 chars, got %d", rec.Code)
+	}
+}
+
+func TestAPI_EndpointSecretKeyEntropyAndDeletionProtection(t *testing.T) {
+	db, _, _, router, cleanup := setupTestAPI(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// 1. Verify default secret key entropy: 32 bytes (64 hex characters) prefixed by "whsec_"
+	epBody := `{"name":"High Entropy Endpoint","provider":"generic","target_url":"https://api.example.com/hooks"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/endpoints", strings.NewReader(epBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created on endpoint create, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var created model.Endpoint
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+
+	if !strings.HasPrefix(created.SecretKey, "whsec_") {
+		t.Errorf("expected secret_key to start with 'whsec_', got %s", created.SecretKey)
+	}
+	// whsec_ (6 chars) + 64 hex characters = 70 characters (256-bit entropy)
+	if len(created.SecretKey) != 70 {
+		t.Errorf("expected 256-bit secret key of length 70 (64 hex chars), got %d chars: %s", len(created.SecretKey), created.SecretKey)
+	}
+
+	// 2. Custom secret key shorter than 8 characters is rejected
+	shortKeyBody := `{"name":"Short Key Endpoint","provider":"generic","target_url":"https://api.example.com/hooks","secret_key":"weak"}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/endpoints", strings.NewReader(shortKeyBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for custom secret key < 8 chars, got %d", rec.Code)
+	}
+
+	// 3. Deletion Protection Tests:
+	// 3a. Unauthenticated DELETE is rejected
+	delReq := httptest.NewRequest(http.MethodDelete, "/api/v1/endpoints/"+created.ID, nil)
+	delRec := httptest.NewRecorder()
+	router.ServeHTTP(delRec, delReq)
+	if delRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for unauthenticated endpoint deletion, got %d", delRec.Code)
+	}
+
+	// 3b. Non-admin (viewer) DELETE is rejected with 403 Forbidden
+	viewerUser := &model.User{
+		ID:        "usr_viewer_del_test",
+		Email:     "viewer.del@relaygate.local",
+		Name:      "Viewer Delete Test",
+		Role:      "viewer",
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := db.SaveUser(ctx, viewerUser); err != nil {
+		t.Fatalf("failed to save viewer user: %v", err)
+	}
+
+	viewerToken := "sess_viewer_test_token"
+	viewerSession := &model.Session{
+		Token:        viewerToken,
+		UserID:       viewerUser.ID,
+		UserEmail:    viewerUser.Email,
+		Role:         "viewer",
+		ExpiresAt:    time.Now().UTC().Add(1 * time.Hour),
+		LastActiveAt: time.Now().UTC(),
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := db.SaveSession(ctx, viewerSession); err != nil {
+		t.Fatalf("failed to save viewer session: %v", err)
+	}
+
+	delViewerReq := httptest.NewRequest(http.MethodDelete, "/api/v1/endpoints/"+created.ID, nil)
+	delViewerReq.Header.Set("Authorization", "Bearer "+viewerToken)
+	delViewerRec := httptest.NewRecorder()
+	router.ServeHTTP(delViewerRec, delViewerReq)
+	if delViewerRec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for viewer endpoint deletion, got %d: %s", delViewerRec.Code, delViewerRec.Body.String())
+	}
+
+	// Admin session for authorized operations
+	adminUser, err := db.GetUserByEmail(ctx, "admin@relaygate.local")
+	if err != nil || adminUser == nil {
+		t.Fatalf("admin user not found: %v", err)
+	}
+	adminToken := "sess_admin_test_token"
+	adminSession := &model.Session{
+		Token:        adminToken,
+		UserID:       adminUser.ID,
+		UserEmail:    adminUser.Email,
+		Role:         "admin",
+		ExpiresAt:    time.Now().UTC().Add(1 * time.Hour),
+		LastActiveAt: time.Now().UTC(),
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := db.SaveSession(ctx, adminSession); err != nil {
+		t.Fatalf("failed to save admin session: %v", err)
+	}
+
+	// 3c. Deleting endpoint with PENDING events is rejected with 409 Conflict
+	pendingEv := &model.WebhookEvent{
+		ID:         "ev_pending_block_del",
+		EndpointID: created.ID,
+		Provider:   model.ProviderGeneric,
+		Status:     model.StatusPending,
+		Payload:    []byte(`{}`),
+		CreatedAt:  time.Now().UTC(),
+		UpdatedAt:  time.Now().UTC(),
+	}
+	_ = db.SaveEvent(ctx, pendingEv)
+
+	delBlockedReq := httptest.NewRequest(http.MethodDelete, "/api/v1/endpoints/"+created.ID, nil)
+	delBlockedReq.Header.Set("Authorization", "Bearer "+adminToken)
+	delBlockedRec := httptest.NewRecorder()
+	router.ServeHTTP(delBlockedRec, delBlockedReq)
+
+	if delBlockedRec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict when deleting endpoint with pending deliveries, got %d: %s", delBlockedRec.Code, delBlockedRec.Body.String())
+	}
+
+	// 3d. Once event is delivered (or cleared), admin can cleanly delete endpoint
+	_ = db.UpdateEventStatus(ctx, pendingEv.ID, model.StatusDelivered, 200, "")
+
+	delCleanReq := httptest.NewRequest(http.MethodDelete, "/api/v1/endpoints/"+created.ID, nil)
+	delCleanReq.Header.Set("Authorization", "Bearer "+adminToken)
+	delCleanRec := httptest.NewRecorder()
+	router.ServeHTTP(delCleanRec, delCleanReq)
+
+	if delCleanRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on successful endpoint delete by admin, got %d: %s", delCleanRec.Code, delCleanRec.Body.String())
+	}
+
+	// Verify endpoint is gone from database
+	deletedEP, _ := db.GetEndpointByID(ctx, created.ID)
+	if deletedEP != nil {
+		t.Errorf("expected endpoint to be deleted from database")
+	}
+}
+
+func TestAPI_SSEStreamTokenValidationAndConnectionLimits(t *testing.T) {
+	db, _, hub, router, cleanup := setupTestAPI(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// 1. Connecting with invalid token parameter is rejected with 401 Unauthorized
+	badTokenReq := httptest.NewRequest(http.MethodGet, "/api/v1/stream?token=invalid_forged_token", nil)
+	badTokenRec := httptest.NewRecorder()
+	router.ServeHTTP(badTokenRec, badTokenReq)
+
+	if badTokenRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for invalid query token on SSE stream, got %d: %s", badTokenRec.Code, badTokenRec.Body.String())
+	}
+
+	// 2. Connecting with valid token succeeds
+	streamUser := &model.User{
+		ID:        "usr_stream_test",
+		Email:     "stream.user@relaygate.local",
+		Name:      "Stream Test User",
+		Role:      "viewer",
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := db.SaveUser(ctx, streamUser); err != nil {
+		t.Fatalf("failed to save stream user: %v", err)
+	}
+
+	validToken := "sess_stream_valid_token"
+	streamSession := &model.Session{
+		Token:        validToken,
+		UserID:       streamUser.ID,
+		UserEmail:    streamUser.Email,
+		Role:         "viewer",
+		ExpiresAt:    time.Now().UTC().Add(1 * time.Hour),
+		LastActiveAt: time.Now().UTC(),
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := db.SaveSession(ctx, streamSession); err != nil {
+		t.Fatalf("failed to save stream session: %v", err)
+	}
+
+	streamCtx, cancelStream := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancelStream()
+
+	goodTokenReq := httptest.NewRequest(http.MethodGet, "/api/v1/stream?token="+validToken, nil).WithContext(streamCtx)
+	goodTokenRec := httptest.NewRecorder()
+	router.ServeHTTP(goodTokenRec, goodTokenReq)
+
+	if !strings.Contains(goodTokenRec.Body.String(), "event: connected") {
+		t.Errorf("expected SSE connected handshake with valid token, got: %s", goodTokenRec.Body.String())
+	}
+
+	// 3. Test Hub connection limit enforcement (connection starvation defense)
+	hub.SetLimits(2, 2)
+	ch1, err1 := hub.SubscribeWithLimit("192.168.1.50")
+	if err1 != nil || ch1 == nil {
+		t.Fatalf("expected client 1 subscribe to succeed, got %v", err1)
+	}
+	ch2, err2 := hub.SubscribeWithLimit("192.168.1.50")
+	if err2 != nil || ch2 == nil {
+		t.Fatalf("expected client 2 subscribe to succeed, got %v", err2)
+	}
+
+	// Client 3 exceeds per-client limit of 2 and must be rejected
+	_, err3 := hub.SubscribeWithLimit("192.168.1.50")
+	if err3 == nil {
+		t.Fatalf("expected client 3 to be rejected due to connection limit, but succeeded")
+	}
+
+	hub.Unsubscribe(ch1)
+	hub.Unsubscribe(ch2)
+}
+
 
 
