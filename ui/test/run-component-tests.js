@@ -2127,8 +2127,8 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(html, />Workspace<\/a>/, 'Must render Workspace nav link');
     assert.match(html, />Deploy<\/a>/, 'Must render Deploy nav link');
     assert.match(html, />Questions<\/a>/, 'Must render Questions nav link');
-    assert.match(html, />Sign in<\/button>/, 'Must render Sign in header button');
-    assert.match(html, />Get started<\/button>/, 'Must render Get started header button');
+    assert.match(html, />Sign in<\/button>/, 'Must render single clean Sign in header button');
+    assert.doesNotMatch(html, />Get started<\/button>/, 'Must not render redundant duplicate Get started button in header');
     assert.match(html, />New<\/span>/, 'Must render New pill badge');
     assert.match(html, /Every webhook\.<br\s*\/?>Zero dropped events\./, 'Must render 2-line RelayGate H1');
     assert.match(html, />Open Console<\/button>/, 'Must render Open Console hero CTA');

@@ -563,20 +563,13 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                     </a>
                   </nav>
 
-                  <div className="hidden md:flex items-center gap-1.5 lg:gap-2 shrink-0">
+                  <div className="hidden md:flex items-center shrink-0">
                     <button
                       type="button"
                       onClick={onOpenLogin}
-                      className="min-h-[44px] px-2.5 lg:px-3.5 py-1.5 rounded-lg text-xs font-medium text-zinc-700 bg-zinc-100 hover:bg-zinc-200 border border-zinc-200 transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 cursor-pointer shrink-0 whitespace-nowrap"
+                      className="min-h-[44px] px-3.5 lg:px-4 py-1.5 rounded-lg text-xs font-semibold text-white bg-zinc-900 hover:bg-zinc-800 transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 cursor-pointer shadow-xs shrink-0 whitespace-nowrap"
                     >
                       Sign in
-                    </button>
-                    <button
-                      type="button"
-                      onClick={onOpenRegister}
-                      className="min-h-[44px] px-3 lg:px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-zinc-900 hover:bg-zinc-800 transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 cursor-pointer shadow-xs shrink-0 whitespace-nowrap"
-                    >
-                      Get started
                     </button>
                   </div>
                 </div>
@@ -621,26 +614,16 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                 </a>
               ))}
             </nav>
-            <div className="pt-2 border-t border-zinc-200 grid grid-cols-2 gap-2.5">
+            <div className="pt-2 border-t border-zinc-200">
               <button
                 type="button"
                 onClick={() => {
                   setMobileMenuOpen(false);
                   onOpenLogin();
                 }}
-                className="min-h-[44px] px-4 py-2.5 rounded-lg text-xs font-medium text-zinc-800 bg-zinc-100 border border-zinc-200 active:scale-[0.97]"
+                className="w-full min-h-[44px] px-4 py-2.5 rounded-lg text-xs font-semibold text-white bg-zinc-900 active:scale-[0.97] flex items-center justify-center cursor-pointer shadow-xs"
               >
                 Sign in
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  onOpenRegister();
-                }}
-                className="min-h-[44px] px-4 py-2.5 rounded-lg text-xs font-semibold text-white bg-zinc-900 active:scale-[0.97]"
-              >
-                Get started
               </button>
             </div>
           </div>
