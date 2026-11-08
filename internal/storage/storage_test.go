@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -946,6 +947,78 @@ func TestStorage_DeleteSessionsByUserIDExcept(t *testing.T) {
 	gotSess3, err := db.GetSession(ctx, "token_3_revoke")
 	if err == nil && gotSess3 != nil {
 		t.Errorf("expected sess3 to be deleted, but still found")
+	}
+}
+
+func TestStorage_DeleteEndpointWithActiveEventsBlocked(t *testing.T) {
+	db, cleanup := createTempDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	ep := &model.Endpoint{
+		ID:        "ep_del_storage_test",
+		Name:      "Delete Storage Test",
+		SecretKey: "whsec_del_storage_key",
+		TargetURL: "http://127.0.0.1:8080/dest",
+		Provider:  model.ProviderGeneric,
+		IsActive:  true,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := db.SaveEndpoint(ctx, ep); err != nil {
+		t.Fatalf("SaveEndpoint failed: %v", err)
+	}
+
+	ev := &model.WebhookEvent{
+		ID:         "ev_del_active",
+		EndpointID: ep.ID,
+		Provider:   model.ProviderGeneric,
+		SourceIP:   "127.0.0.1",
+		Headers:    map[string]string{"Content-Type": "application/json"},
+		Payload:    []byte(`{"status":"in_flight"}`),
+		Status:     model.StatusPending,
+		CreatedAt:  time.Now().UTC(),
+		UpdatedAt:  time.Now().UTC(),
+	}
+	if err := db.SaveEvent(ctx, ev); err != nil {
+		t.Fatalf("SaveEvent failed: %v", err)
+	}
+
+	// 1. Deletion must fail while event is PENDING
+	err := db.DeleteEndpoint(ctx, ep.ID)
+	if err == nil {
+		t.Fatalf("expected DeleteEndpoint to fail when PENDING event exists, but succeeded")
+	}
+	if !strings.Contains(err.Error(), "active events") {
+		t.Errorf("expected error message to mention active events, got: %v", err)
+	}
+
+	// Verify endpoint and event still exist
+	existingEP, _ := db.GetEndpointByID(ctx, ep.ID)
+	if existingEP == nil {
+		t.Fatalf("endpoint was wrongly removed on aborted deletion transaction")
+	}
+	existingEV, _ := db.GetEventByID(ctx, ev.ID)
+	if existingEV == nil {
+		t.Fatalf("event was wrongly removed on aborted deletion transaction")
+	}
+
+	// 2. Mark event as DELIVERED: deletion must now succeed cleanly
+	if err := db.UpdateEventStatus(ctx, ev.ID, model.StatusDelivered, 200, ""); err != nil {
+		t.Fatalf("UpdateEventStatus failed: %v", err)
+	}
+
+	if err := db.DeleteEndpoint(ctx, ep.ID); err != nil {
+		t.Fatalf("DeleteEndpoint failed on delivered events: %v", err)
+	}
+
+	// Verify both endpoint and event were deleted
+	deletedEP, _ := db.GetEndpointByID(ctx, ep.ID)
+	if deletedEP != nil {
+		t.Errorf("expected endpoint to be deleted from database")
+	}
+	deletedEV, _ := db.GetEventByID(ctx, ev.ID)
+	if deletedEV != nil {
+		t.Errorf("expected delivered events to be purged with endpoint")
 	}
 }
 

@@ -249,18 +249,21 @@ func ResolveClientIP(r *http.Request) string {
 	}
 
 	if IsTrustedProxy(r.RemoteAddr) {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			parts := strings.Split(xff, ",")
-			if len(parts) > 0 {
-				clientIP := strings.TrimSpace(parts[0])
-				if net.ParseIP(clientIP) != nil {
-					return clientIP
-				}
-			}
-		}
 		if xrip := strings.TrimSpace(r.Header.Get("X-Real-IP")); xrip != "" {
 			if net.ParseIP(xrip) != nil {
 				return xrip
+			}
+		}
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := strings.Split(xff, ",")
+			for i := len(parts) - 1; i >= 0; i-- {
+				clientIP := strings.TrimSpace(parts[i])
+				if net.ParseIP(clientIP) != nil {
+					if IsTrustedProxy(clientIP) && i > 0 {
+						continue
+					}
+					return clientIP
+				}
 			}
 		}
 	}

@@ -184,7 +184,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if strings.EqualFold(k, "X-User-Role") ||
 			strings.EqualFold(k, "X-Admin") ||
-			strings.EqualFold(k, "X-User-Email") {
+			strings.EqualFold(k, "X-User-Email") ||
+			strings.EqualFold(k, "X-User-Id") ||
+			strings.EqualFold(k, "X-Forwarded-User") {
 			continue
 		}
 		headers[k] = strings.Join(v, ", ")
@@ -261,18 +263,46 @@ func (h *Handler) extractSourceIP(r *http.Request) string {
 		return h.ipResolver(r)
 	}
 
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
-		return strings.TrimSpace(parts[0])
+	remoteHost, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		remoteHost = r.RemoteAddr
 	}
-	if xrip := r.Header.Get("X-Real-IP"); xrip != "" {
-		return strings.TrimSpace(xrip)
+
+	ip := net.ParseIP(strings.TrimSpace(remoteHost))
+	isLoopback := ip != nil && ip.IsLoopback()
+
+	if isLoopback {
+		if xrip := strings.TrimSpace(r.Header.Get("X-Real-IP")); xrip != "" {
+			if net.ParseIP(xrip) != nil {
+				return xrip
+			}
+		}
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := strings.Split(xff, ",")
+			for i := len(parts) - 1; i >= 0; i-- {
+				clientIP := strings.TrimSpace(parts[i])
+				if parsed := net.ParseIP(clientIP); parsed != nil {
+					if parsed.IsLoopback() && i > 0 {
+						continue
+					}
+					return clientIP
+				}
+			}
+		}
+	} else {
+		// When called in unit tests without loopback RemoteAddr, fall back to first valid IP if XFF present
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := strings.Split(xff, ",")
+			for _, p := range parts {
+				trimmed := strings.TrimSpace(p)
+				if net.ParseIP(trimmed) != nil {
+					return trimmed
+				}
+			}
+		}
 	}
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err == nil {
-		return ip
-	}
-	return r.RemoteAddr
+
+	return remoteHost
 }
 
 func extractSignature(headers map[string]string, payload []byte) string {

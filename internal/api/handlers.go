@@ -644,6 +644,10 @@ func (a *API) BulkReplay(w http.ResponseWriter, r *http.Request) {
 		targetIDs = req.IDs
 	}
 
+	if len(targetIDs) > 1000 {
+		targetIDs = targetIDs[:1000]
+	}
+
 	eligibleCount := 0
 	skippedCount := 0
 	skippedBreakdown := make(map[string]int)
@@ -850,20 +854,31 @@ func (a *API) DeleteEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Deletion protection: Check if there are active PENDING or RETRYING events for this endpoint
-	events, _, err := a.repo.ListEvents(r.Context(), storage.ListFilter{
+	pendingEvents, totalPending, pErr := a.repo.ListEvents(r.Context(), storage.ListFilter{
 		EndpointID: id,
-		Limit:      100,
+		Status:     model.StatusPending,
+		Limit:      1,
 	})
-	if err == nil {
-		for _, ev := range events {
-			if ev.Status == model.StatusPending || ev.Status == model.StatusRetrying {
-				writeError(w, http.StatusConflict, "Endpoint tidak dapat dihapus karena masih memiliki event dalam antrean pengiriman (status Menunggu atau Mencoba ulang).", nil)
-				return
-			}
-		}
+	if pErr == nil && (totalPending > 0 || len(pendingEvents) > 0) {
+		writeError(w, http.StatusConflict, "Endpoint tidak dapat dihapus karena masih memiliki event dalam antrean pengiriman (status Menunggu atau Mencoba ulang).", nil)
+		return
+	}
+
+	retryingEvents, totalRetrying, rErr := a.repo.ListEvents(r.Context(), storage.ListFilter{
+		EndpointID: id,
+		Status:     model.StatusRetrying,
+		Limit:      1,
+	})
+	if rErr == nil && (totalRetrying > 0 || len(retryingEvents) > 0) {
+		writeError(w, http.StatusConflict, "Endpoint tidak dapat dihapus karena masih memiliki event dalam antrean pengiriman (status Menunggu atau Mencoba ulang).", nil)
+		return
 	}
 
 	if err := a.repo.DeleteEndpoint(r.Context(), id); err != nil {
+		if strings.Contains(err.Error(), "active events") {
+			writeError(w, http.StatusConflict, "Endpoint tidak dapat dihapus karena masih memiliki event dalam antrean pengiriman (status Menunggu atau Mencoba ulang).", nil)
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to delete endpoint", err)
 		return
 	}
@@ -1552,6 +1567,14 @@ func (a *API) OAuthLogin(w http.ResponseWriter, r *http.Request) {
 		req.Name = req.Name[:50]
 	}
 
+	cleanAvatarURL := strings.TrimSpace(req.AvatarURL)
+	if cleanAvatarURL != "" {
+		if len(cleanAvatarURL) > 2048 || (!strings.HasPrefix(cleanAvatarURL, "https://") && !strings.HasPrefix(cleanAvatarURL, "/api/v1/profile/avatar/")) {
+			cleanAvatarURL = ""
+		}
+	}
+	req.AvatarURL = cleanAvatarURL
+
 	action := strings.ToLower(strings.TrimSpace(req.Action))
 	if action == "" {
 		action = "login"
@@ -2010,6 +2033,7 @@ func (a *API) ServeAvatar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	http.ServeFile(w, r, cleanPath)
 }

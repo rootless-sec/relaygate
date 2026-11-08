@@ -2425,9 +2425,10 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     const landingSource = fs.readFileSync(path.join(__dirname, '../src/components/LandingPage.tsx'), 'utf8');
     const drawerSource = fs.readFileSync(path.join(__dirname, '../src/components/InspectorDrawer.tsx'), 'utf8');
 
-    // 1. Password policy: minimum 8 characters enforced on client-side registration
+    // 1. Password policy: minimum 8 characters enforced on client-side registration and UI placeholder
     assert.match(loginSource, /password\.length < 8/, 'LoginPage must validate minimum 8 characters password');
     assert.match(loginSource, /Password minimal 8 karakter/, 'LoginPage must display Indonesian error message for password < 8');
+    assert.match(loginSource, /placeholder="Minimal 8 karakter"/, 'LoginPage registration password placeholder must state Minimal 8 karakter');
 
     // 2. Landing page: external brand links have target="_blank" and rel="noopener noreferrer"
     assert.match(landingSource, /rel=\{isExternal \? 'noopener noreferrer' : undefined\}/, 'LandingPage MagneticBrand external links must declare rel="noopener noreferrer"');
@@ -2437,9 +2438,14 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(drawerSource, /k\.replace\(\/\[.*\]\/g,\s*''\)/, 'curlCommand must sanitize newline and quote characters in headers');
     assert.match(drawerSource, /String\(v\)\.replace\(/, 'curlCommand must safely escape single quotes in header values');
 
-    // 4. Invariant: ZERO unicode em dashes across LandingPage and InspectorDrawer
+    // 4. App.tsx SSE query token passing for authenticated streaming resilience
+    const appSource = fs.readFileSync(path.join(__dirname, '../src/App.tsx'), 'utf8');
+    assert.match(appSource, /\?token=\$\{encodeURIComponent\(parsed\.token\)\}/, 'App.tsx must pass query token to EventSource');
+
+    // 5. Invariant: ZERO unicode em dashes across LandingPage, InspectorDrawer and App.tsx
     assert.doesNotMatch(landingSource, /\u2014/, 'LandingPage.tsx must have ZERO unicode em dashes');
     assert.doesNotMatch(drawerSource, /\u2014/, 'InspectorDrawer.tsx must have ZERO unicode em dashes');
+    assert.doesNotMatch(appSource, /\u2014/, 'App.tsx must have ZERO unicode em dashes');
   });
 
   // Cleanup temp files

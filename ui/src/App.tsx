@@ -206,7 +206,17 @@ export const App: React.FC = () => {
     let reconnectTimer: any = null;
 
     const connectSSE = () => {
-      eventSource = new EventSource('/api/v1/stream');
+      let streamUrl = '/api/v1/stream';
+      try {
+        const stored = localStorage.getItem('relaygate_auth');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed.token) {
+            streamUrl += `?token=${encodeURIComponent(parsed.token)}`;
+          }
+        }
+      } catch {}
+      eventSource = new EventSource(streamUrl);
 
       eventSource.addEventListener('event_created', (e: MessageEvent) => {
         try {

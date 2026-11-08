@@ -431,6 +431,16 @@ func (d *DB) DeleteEndpoint(ctx context.Context, id string) error {
 	}
 	defer tx.Rollback()
 
+	// Atomic deletion protection: reject deletion if active events are queued or in-flight
+	var activeCount int
+	err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM webhook_events WHERE endpoint_id = ? AND status IN ('PENDING', 'RETRYING');", id).Scan(&activeCount)
+	if err != nil {
+		return fmt.Errorf("failed to verify active events: %w", err)
+	}
+	if activeCount > 0 {
+		return fmt.Errorf("endpoint has active events in queue (status PENDING or RETRYING)")
+	}
+
 	if _, err := tx.ExecContext(ctx, "DELETE FROM webhook_events WHERE endpoint_id = ?;", id); err != nil {
 		return fmt.Errorf("failed to delete associated webhook events: %w", err)
 	}

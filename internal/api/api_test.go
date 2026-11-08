@@ -2494,5 +2494,170 @@ func TestAPI_SSEStreamTokenValidationAndConnectionLimits(t *testing.T) {
 	hub.Unsubscribe(ch2)
 }
 
+func TestAPI_EndpointDeletionPaginationBypassDefense(t *testing.T) {
+	db, _, _, router, cleanup := setupTestAPI(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	adminUser := &model.User{
+		ID:        "usr_admin_ep_del",
+		Email:     "admin.del@relaygate.local",
+		Name:      "Admin Del",
+		Role:      "admin",
+		CreatedAt: time.Now().UTC(),
+	}
+	_ = db.SaveUser(ctx, adminUser)
+
+	adminToken := "sess_admin_ep_del"
+	adminSession := &model.Session{
+		Token:        adminToken,
+		UserID:       adminUser.ID,
+		UserEmail:    adminUser.Email,
+		Role:         "admin",
+		ExpiresAt:    time.Now().UTC().Add(1 * time.Hour),
+		LastActiveAt: time.Now().UTC(),
+		CreatedAt:    time.Now().UTC(),
+	}
+	_ = db.SaveSession(ctx, adminSession)
+
+	epID := "ep_paging_test"
+	ep := &model.Endpoint{
+		ID:        epID,
+		Name:      "Pagination Test Endpoint",
+		SecretKey: "whsec_pagetestsecret123",
+		TargetURL: "http://127.0.0.1:9999/webhook",
+		Provider:  model.ProviderGeneric,
+		IsActive:  true,
+		CreatedAt: time.Now().UTC().Add(-2 * time.Hour),
+	}
+	if err := db.SaveEndpoint(ctx, ep); err != nil {
+		t.Fatalf("failed to save endpoint: %v", err)
+	}
+
+	// Insert oldest event as PENDING (created 1 hour ago)
+	oldestPending := &model.WebhookEvent{
+		ID:         "ev_oldest_pending",
+		EndpointID: epID,
+		Provider:   model.ProviderGeneric,
+		SourceIP:   "127.0.0.1",
+		Headers:    map[string]string{"Content-Type": "application/json"},
+		Payload:    []byte(`{"msg":"pending"}`),
+		Status:     model.StatusPending,
+		CreatedAt:  time.Now().UTC().Add(-1 * time.Hour),
+		UpdatedAt:  time.Now().UTC().Add(-1 * time.Hour),
+	}
+	if err := db.SaveEvent(ctx, oldestPending); err != nil {
+		t.Fatalf("failed to save oldest pending event: %v", err)
+	}
+
+	// Insert 102 delivered events with newer timestamps
+	for i := 0; i < 102; i++ {
+		ev := &model.WebhookEvent{
+			ID:         fmt.Sprintf("ev_delivered_%03d", i),
+			EndpointID: epID,
+			Provider:   model.ProviderGeneric,
+			SourceIP:   "127.0.0.1",
+			Headers:    map[string]string{"Content-Type": "application/json"},
+			Payload:    []byte(`{"msg":"delivered"}`),
+			Status:     model.StatusDelivered,
+			CreatedAt:  time.Now().UTC().Add(-time.Duration(50-i) * time.Minute),
+			UpdatedAt:  time.Now().UTC().Add(-time.Duration(50-i) * time.Minute),
+		}
+		if err := db.SaveEvent(ctx, ev); err != nil {
+			t.Fatalf("failed to save delivered event %d: %v", i, err)
+		}
+	}
+
+	// Attempt deletion: must be blocked with 409 Conflict even though pending event is past 100 items
+	delReq := httptest.NewRequest(http.MethodDelete, "/api/v1/endpoints/"+epID, nil)
+	delReq.Header.Set("Authorization", "Bearer "+adminToken)
+	delRec := httptest.NewRecorder()
+	router.ServeHTTP(delRec, delReq)
+
+	if delRec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict when deleting endpoint with active pending event beyond 100 items, got %d: %s", delRec.Code, delRec.Body.String())
+	}
+
+	// Verify endpoint still exists in database
+	stillEP, err := db.GetEndpointByID(ctx, epID)
+	if err != nil || stillEP == nil {
+		t.Fatalf("endpoint was wrongly deleted despite pending event: %v", err)
+	}
+}
+
+func TestAPI_ResolveClientIPMultiProxySpoofingDefense(t *testing.T) {
+	_ = api.ResetTrustedProxies()
+
+	// 1. Single spoofed header from untrusted peer: RemoteAddr is direct external IP
+	untrustedReq := httptest.NewRequest(http.MethodGet, "/api/v1/events", nil)
+	untrustedReq.RemoteAddr = "203.0.113.10:4567"
+	untrustedReq.Header.Set("X-Forwarded-For", "8.8.8.8, 1.1.1.1")
+	untrustedReq.Header.Set("X-Real-IP", "9.9.9.9")
+
+	resolvedUntrusted := api.ResolveClientIP(untrustedReq)
+	if resolvedUntrusted != "203.0.113.10" {
+		t.Errorf("untrusted peer must never override IP with forwarded headers, expected 203.0.113.10, got %s", resolvedUntrusted)
+	}
+
+	// 2. Request through trusted proxy (127.0.0.1) with spoofed client prefix
+	// Client at 198.51.100.25 sent forged header "X-Forwarded-For: 1.1.1.1" to proxy
+	// Proxy appended client IP and proxy IP: "1.1.1.1, 198.51.100.25, 127.0.0.1"
+	trustedReq := httptest.NewRequest(http.MethodGet, "/api/v1/events", nil)
+	trustedReq.RemoteAddr = "127.0.0.1:8080"
+	trustedReq.Header.Set("X-Forwarded-For", "1.1.1.1, 198.51.100.25, 127.0.0.1")
+
+	resolvedTrusted := api.ResolveClientIP(trustedReq)
+	if resolvedTrusted != "198.51.100.25" {
+		t.Errorf("expected rightmost non-trusted IP 198.51.100.25, got spoofed IP %s", resolvedTrusted)
+	}
+
+	// 3. Request through trusted proxy with X-Real-IP set by trusted edge
+	realIPReq := httptest.NewRequest(http.MethodGet, "/api/v1/events", nil)
+	realIPReq.RemoteAddr = "127.0.0.1:8080"
+	realIPReq.Header.Set("X-Real-IP", "203.0.113.88")
+	realIPReq.Header.Set("X-Forwarded-For", "1.1.1.1, 127.0.0.1")
+
+	resolvedRealIP := api.ResolveClientIP(realIPReq)
+	if resolvedRealIP != "203.0.113.88" {
+		t.Errorf("expected X-Real-IP 203.0.113.88 to be prioritized, got %s", resolvedRealIP)
+	}
+}
+
+func TestAPI_OAuthAvatarSanitizationAndAvatarCSP(t *testing.T) {
+	db, _, _, router, cleanup := setupTestAPI(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// 1. OAuth registration with malicious javascript: avatar URL is sanitized to empty string
+	oauthBody := `{"provider":"github","email":"oauth.xss@relaygate.local","name":"OAuth XSS Test","avatar_url":"javascript:alert(1)","action":"register"}`
+	oauthReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(oauthBody))
+	oauthReq.Header.Set("Content-Type", "application/json")
+	oauthRec := httptest.NewRecorder()
+	router.ServeHTTP(oauthRec, oauthReq)
+
+	if oauthRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for OAuth register, got %d: %s", oauthRec.Code, oauthRec.Body.String())
+	}
+
+	registeredUser, err := db.GetUserByEmail(ctx, "oauth.xss@relaygate.local")
+	if err != nil || registeredUser == nil {
+		t.Fatalf("failed to retrieve registered user: %v", err)
+	}
+	if registeredUser.AvatarURL != "" {
+		t.Errorf("SECURITY FLAW: javascript: avatar URL was not sanitized! got: %s", registeredUser.AvatarURL)
+	}
+
+	// 2. ServeAvatar endpoint includes Content-Security-Policy sandbox header
+	avatarReq := httptest.NewRequest(http.MethodGet, "/api/v1/profile/avatar/nonexistent.png", nil)
+	avatarRec := httptest.NewRecorder()
+	router.ServeHTTP(avatarRec, avatarReq)
+
+	// Even if 404, security headers from SecurityHeaders middleware are present
+	if avatarRec.Header().Get("X-Frame-Options") != "DENY" {
+		t.Errorf("expected X-Frame-Options: DENY, got %s", avatarRec.Header().Get("X-Frame-Options"))
+	}
+}
+
+
 
 
