@@ -43,11 +43,7 @@ verify.txt
 *.log
 
 # Ad-hoc dev & screenshot scripts
-scripts/capture_*.js
-scripts/generate_*.js
-scripts/generate_*.py
-scripts/seed_*.py
-scripts/data/
+scripts/
 
 # Environment Secrets
 .env

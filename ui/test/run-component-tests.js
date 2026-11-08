@@ -2258,8 +2258,9 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(landingSource, /\/ingest\/ep_sample/, 'cURL test command must target real /ingest/:endpoint_id path');
     assert.match(landingSource, /-d \\'\{"id":"evt_1"\}\\'/, 'cURL test command must use valid single-quoted JSON payload for standard shell compatibility');
 
-    const serviceAssetPath = path.join(__dirname, '../../scripts/relaygate.service');
-    assert.ok(fs.existsSync(serviceAssetPath), 'scripts/relaygate.service must exist on disk');
+    const configDocPath = path.join(__dirname, '../../docs/configuration.md');
+    assert.ok(fs.existsSync(configDocPath), 'docs/configuration.md must exist on disk');
+    assert.match(fs.readFileSync(configDocPath, 'utf8'), /relaygate\.service[\s\S]*\[Unit\]/i, 'docs/configuration.md must document systemd service unit');
 
     const dockerfilePath = path.join(__dirname, '../../Dockerfile');
     assert.ok(fs.existsSync(dockerfilePath), 'Dockerfile must exist on disk');
