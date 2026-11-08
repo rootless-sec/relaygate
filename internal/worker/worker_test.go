@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"io"
 	"net/http"
@@ -1044,5 +1045,141 @@ func TestWorker_MaxAttemptsZeroOrNull_UsesDefaultAndDispatches(t *testing.T) {
 	}
 	if updated2.Status != model.StatusDelivered {
 		t.Errorf("expected status DELIVERED for ev2, got %s", updated2.Status)
+	}
+}
+
+func TestWorker_ShopifyVerificationAndDispatch(t *testing.T) {
+	db, v, cleanup := createTestEnv(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	var downstreamCount atomic.Int32
+	downstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		downstreamCount.Add(1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"received":true}`))
+	}))
+	defer downstream.Close()
+
+	secret := "shpss_shopify_worker_secret_999"
+	ep := &model.Endpoint{
+		ID:        "ep-shopify-worker",
+		Name:      "Shopify Order Ingest",
+		TargetURL: downstream.URL,
+		SecretKey: secret,
+		Provider:  model.ProviderShopify,
+		IsActive:  true,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := db.SaveEndpoint(ctx, ep); err != nil {
+		t.Fatalf("SaveEndpoint failed: %v", err)
+	}
+
+	cfg := worker.Config{
+		Concurrency: 2,
+		HTTPTimeout: 2 * time.Second,
+	}
+	pool := worker.NewPool(db, v, cfg)
+
+	payload := []byte(`{"id":11223344,"topic":"orders/create","currency":"IDR"}`)
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(payload)
+	validSig := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+
+	// 1. Valid signature -> verified and delivered
+	evValid := &model.WebhookEvent{
+		ID:          "evt-shopify-valid",
+		EndpointID:  ep.ID,
+		Provider:    model.ProviderShopify,
+		Status:      model.StatusPending,
+		Attempts:    0,
+		MaxAttempts: 5,
+		IsVerified:  0,
+		Headers:     map[string]string{"Content-Type": "application/json", "X-Shopify-Hmac-Sha256": validSig},
+		Payload:     payload,
+	}
+	if err := db.SaveEvent(ctx, evValid); err != nil {
+		t.Fatalf("SaveEvent failed: %v", err)
+	}
+
+	if err := pool.Dispatch(ctx, evValid.ID); err != nil {
+		t.Fatalf("expected dispatch to succeed for valid shopify event, got %v", err)
+	}
+	savedValid, err := db.GetEventByID(ctx, evValid.ID)
+	if err != nil {
+		t.Fatalf("GetEventByID failed: %v", err)
+	}
+	if savedValid.Status != model.StatusDelivered {
+		t.Errorf("expected StatusDelivered, got %s", savedValid.Status)
+	}
+	if savedValid.IsVerified != 1 {
+		t.Errorf("expected IsVerified=1, got %d", savedValid.IsVerified)
+	}
+
+	// 2. Invalid signature -> rejected (StatusFailed, IsVerified=-1, SIGNATURE_MISMATCH)
+	evBadSig := &model.WebhookEvent{
+		ID:          "evt-shopify-badsig",
+		EndpointID:  ep.ID,
+		Provider:    model.ProviderShopify,
+		Status:      model.StatusPending,
+		Attempts:    0,
+		MaxAttempts: 5,
+		IsVerified:  0,
+		Headers:     map[string]string{"Content-Type": "application/json", "X-Shopify-Hmac-Sha256": "Zm9yZ2VkX3Nob3BpZnlfc2lnbmF0dXJlX2htYWNfc2hhMjU2"},
+		Payload:     payload,
+	}
+	if err := db.SaveEvent(ctx, evBadSig); err != nil {
+		t.Fatalf("SaveEvent failed: %v", err)
+	}
+
+	err = pool.Dispatch(ctx, evBadSig.ID)
+	if err == nil {
+		t.Fatalf("expected error from dispatch on forged shopify signature")
+	}
+	savedBadSig, err := db.GetEventByID(ctx, evBadSig.ID)
+	if err != nil {
+		t.Fatalf("GetEventByID failed: %v", err)
+	}
+	if savedBadSig.Status != model.StatusFailed {
+		t.Errorf("expected StatusFailed for bad signature, got %s", savedBadSig.Status)
+	}
+	if savedBadSig.IsVerified != -1 {
+		t.Errorf("expected IsVerified=-1, got %d", savedBadSig.IsVerified)
+	}
+	if savedBadSig.FailureCode != string(model.ErrCodeSignatureMismatch) {
+		t.Errorf("expected FailureCode SIGNATURE_MISMATCH, got %s", savedBadSig.FailureCode)
+	}
+	cls, _ := model.InferFailureCode(savedBadSig.LastError, savedBadSig.HTTPStatusCode, savedBadSig.Attempts, savedBadSig.IsVerified)
+	if cls != model.ErrorClassVerificationRejected {
+		t.Errorf("expected ErrorClass VERIFICATION_REJECTED, got %s", cls)
+	}
+
+	// 3. Missing X-Shopify-Hmac-Sha256 header -> rejected (SIGNATURE_HEADER_MISSING)
+	evMissingHdr := &model.WebhookEvent{
+		ID:          "evt-shopify-missinghdr",
+		EndpointID:  ep.ID,
+		Provider:    model.ProviderShopify,
+		Status:      model.StatusPending,
+		Attempts:    0,
+		MaxAttempts: 5,
+		IsVerified:  0,
+		Headers:     map[string]string{"Content-Type": "application/json"},
+		Payload:     payload,
+	}
+	if err := db.SaveEvent(ctx, evMissingHdr); err != nil {
+		t.Fatalf("SaveEvent failed: %v", err)
+	}
+
+	err = pool.Dispatch(ctx, evMissingHdr.ID)
+	if err == nil {
+		t.Fatalf("expected error from dispatch on missing shopify header")
+	}
+	savedMissingHdr, err := db.GetEventByID(ctx, evMissingHdr.ID)
+	if err != nil {
+		t.Fatalf("GetEventByID failed: %v", err)
+	}
+	if savedMissingHdr.FailureCode != string(model.ErrCodeSignatureHeaderMissing) {
+		t.Errorf("expected FailureCode SIGNATURE_HEADER_MISSING, got %s", savedMissingHdr.FailureCode)
 	}
 }

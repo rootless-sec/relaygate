@@ -61,6 +61,7 @@ RelayGate determines verification semantics per endpoint (`hmac`, `hash`, or `st
 | `midtrans` | `X-Midtrans-Signature` or body `signature_key` | SHA-512 hex digest of `order_id + status_code + gross_amount + secret_key` | Yes (except malformed JSON payloads) |
 | `xendit` | `X-Callback-Token` | Constant-time equality comparison against endpoint secret key | Yes |
 | `github` | `X-Hub-Signature-256` | HMAC-SHA256 over raw request body (`sha256=` prefix) | Yes |
+| `shopify` | `X-Shopify-Hmac-Sha256` | HMAC-SHA256 over raw request body (standard Base64 encoding) | Yes |
 | `generic` | `X-RelayGate-Signature` | HMAC-SHA256 over raw request body (hex or `sha256=` prefix) | Yes |
 
 ## Dead-Letter Queue and Replay Semantics

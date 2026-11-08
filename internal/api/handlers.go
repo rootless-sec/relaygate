@@ -718,12 +718,13 @@ func (a *API) CreateEndpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider := req.Provider
+	rawProvider := strings.ToLower(strings.TrimSpace(string(req.Provider)))
+	provider := model.ProviderType(rawProvider)
 	if provider == "" {
 		provider = model.ProviderGeneric
 	}
 	if !provider.IsValid() {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid or unsupported provider: %s", provider), nil)
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid or unsupported provider: %s", req.Provider), nil)
 		return
 	}
 
@@ -789,12 +790,13 @@ func (a *API) UpdateEndpoint(w http.ResponseWriter, r *http.Request) {
 	if req.Name != nil && strings.TrimSpace(*req.Name) != "" {
 		existing.Name = strings.TrimSpace(*req.Name)
 	}
-	if req.Provider != nil && *req.Provider != "" {
-		if !(*req.Provider).IsValid() {
+	if req.Provider != nil && strings.TrimSpace(string(*req.Provider)) != "" {
+		p := model.ProviderType(strings.ToLower(strings.TrimSpace(string(*req.Provider))))
+		if !p.IsValid() {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid or unsupported provider: %s", *req.Provider), nil)
 			return
 		}
-		existing.Provider = *req.Provider
+		existing.Provider = p
 	}
 	if req.TargetURL != nil {
 		trimmed := strings.TrimSpace(*req.TargetURL)
@@ -2078,6 +2080,7 @@ func isSensitiveHeader(key string) bool {
 		lower == "x-callback-token" ||
 		lower == "x-api-key" ||
 		lower == "stripe-signature" ||
+		lower == "x-shopify-hmac-sha256" ||
 		strings.HasPrefix(lower, "x-hub-signature") {
 		return true
 	}

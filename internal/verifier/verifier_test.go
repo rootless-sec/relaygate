@@ -433,5 +433,14 @@ func TestVerifier_ShopifyHMAC(t *testing.T) {
 	if kind := verifier.ProviderVerificationKind(model.ProviderShopify); kind != verifier.VerificationKindHMAC {
 		t.Fatalf("expected VerificationKindHMAC for shopify, got %v", kind)
 	}
+
+	// 12. Unpadded Base64 signature (stripped trailing '=')
+	rawBase64Sig := base64.RawStdEncoding.EncodeToString(validDigest)
+	status, err = engine.Verify(ep, map[string]string{
+		"X-Shopify-Hmac-Sha256": rawBase64Sig,
+	}, payload)
+	if err != nil || status != verifier.VerificationValid {
+		t.Fatalf("expected valid shopify verification with unpadded base64, got status=%d, err=%v", status, err)
+	}
 }
 

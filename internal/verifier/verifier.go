@@ -406,7 +406,12 @@ func (e *Engine) VerifyShopify(secretKey string, headers map[string]string, payl
 	cleanSig := strings.TrimSpace(sigHeader)
 	decodedSig, err := base64.StdEncoding.DecodeString(cleanSig)
 	if err != nil {
-		return false, newVerificationError(model.ErrCodeSignatureMismatch, "%w: invalid base64 signature: %v", model.ErrSignatureInvalid, err)
+		if rawDecoded, rawErr := base64.RawStdEncoding.DecodeString(cleanSig); rawErr == nil {
+			decodedSig = rawDecoded
+			err = nil
+		} else {
+			return false, newVerificationError(model.ErrCodeSignatureMismatch, "%w: invalid base64 signature: %v", model.ErrSignatureInvalid, err)
+		}
 	}
 
 	mac := hmac.New(sha256.New, []byte(secretKey))

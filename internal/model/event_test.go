@@ -42,6 +42,12 @@ func TestInferFailureCode_VerificationErrors(t *testing.T) {
 			expectedClass: ErrorClassVerificationRejected,
 			expectedCode:  ErrCodeSignatureHeaderMissing,
 		},
+		{
+			name:          "shopify missing signature header",
+			lastError:     "cryptographic signature verification failed: missing X-Shopify-Hmac-Sha256 header",
+			expectedClass: ErrorClassVerificationRejected,
+			expectedCode:  ErrCodeSignatureHeaderMissing,
+		},
 
 		// Timestamp expired cases
 		{
@@ -96,11 +102,23 @@ func TestInferFailureCode_VerificationErrors(t *testing.T) {
 			expectedClass: ErrorClassVerificationRejected,
 			expectedCode:  ErrCodeSignaturePayloadMalformed,
 		},
+		{
+			name:          "shopify empty payload",
+			lastError:     "cryptographic signature verification failed: empty shopify payload",
+			expectedClass: ErrorClassVerificationRejected,
+			expectedCode:  ErrCodeSignaturePayloadMalformed,
+		},
 
 		// Signature mismatch cases
 		{
 			name:          "generic signature mismatch",
 			lastError:     "cryptographic signature verification failed: generic signature mismatch",
+			expectedClass: ErrorClassVerificationRejected,
+			expectedCode:  ErrCodeSignatureMismatch,
+		},
+		{
+			name:          "shopify signature mismatch",
+			lastError:     "cryptographic signature verification failed: shopify signature mismatch",
 			expectedClass: ErrorClassVerificationRejected,
 			expectedCode:  ErrCodeSignatureMismatch,
 		},

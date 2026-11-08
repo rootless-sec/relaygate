@@ -117,7 +117,7 @@ func TestAPI_EndpointsCRUD(t *testing.T) {
 }
 
 func TestAPI_EndpointProviderValidationAndShopify(t *testing.T) {
-	_, _, _, router, cleanup := setupTestAPI(t)
+	db, _, _, router, cleanup := setupTestAPI(t)
 	defer cleanup()
 
 	// 1. Valid provider: shopify
@@ -188,6 +188,57 @@ func TestAPI_EndpointProviderValidationAndShopify(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK for valid provider update, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 6. Mixed-case and whitespace-padded provider normalizes cleanly to "shopify"
+	mixedCaseBody := []byte(`{"name":"Shopify Normalization Store","provider":"  SHOPIFY  ","target_url":"https://api.example.com/shopify/normalized"}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/endpoints", bytes.NewReader(mixedCaseBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created for whitespace/uppercase shopify provider, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var normEp model.Endpoint
+	if err := json.Unmarshal(rec.Body.Bytes(), &normEp); err != nil {
+		t.Fatalf("failed to decode normalized endpoint: %v", err)
+	}
+	if normEp.Provider != model.ProviderShopify {
+		t.Errorf("expected provider 'shopify', got '%s'", normEp.Provider)
+	}
+
+	// 7. Verify X-Shopify-Hmac-Sha256 header masking at API level
+	ctx := context.Background()
+	evShopify := &model.WebhookEvent{
+		ID:             "evt-shopify-mask-test",
+		EndpointID:     normEp.ID,
+		Provider:       model.ProviderShopify,
+		SourceIP:       "127.0.0.1",
+		Headers:        map[string]string{"X-Shopify-Hmac-Sha256": "secret_shopify_signature_base64_digest_123"},
+		Payload:        []byte(`{"order":1001}`),
+		Status:         model.StatusDelivered,
+		HTTPStatusCode: 200,
+		Attempts:       1,
+		IsVerified:     1,
+		CreatedAt:      time.Now().UTC(),
+		UpdatedAt:      time.Now().UTC(),
+	}
+	if err := db.SaveEvent(ctx, evShopify); err != nil {
+		t.Fatalf("SaveEvent failed: %v", err)
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/events/"+evShopify.ID, nil)
+	getRec := httptest.NewRecorder()
+	router.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from GET /events/:id, got %d", getRec.Code)
+	}
+	getBody := getRec.Body.String()
+	if strings.Contains(getBody, "secret_shopify_signature_base64_digest_123") {
+		t.Fatalf("SECURITY VIOLATION: X-Shopify-Hmac-Sha256 raw signature leaked in GET /api/v1/events/:id: %s", getBody)
+	}
+	if !strings.Contains(getBody, "••••••••") {
+		t.Fatalf("expected masked header '••••••••' in GET /api/v1/events/:id: %s", getBody)
 	}
 }
 

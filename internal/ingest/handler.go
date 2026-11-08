@@ -308,6 +308,7 @@ func (h *Handler) extractSourceIP(r *http.Request) string {
 func extractSignature(headers map[string]string, payload []byte) string {
 	keys := []string{
 		"Stripe-Signature",
+		"X-Shopify-Hmac-Sha256",
 		"X-Signature-SHA256",
 		"X-Hub-Signature-256",
 		"X-Signature-Key",

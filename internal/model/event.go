@@ -23,7 +23,7 @@ var ErrSignatureInvalid = errors.New("invalid signature")
 
 // IsValid reports whether the provider type is supported
 func (p ProviderType) IsValid() bool {
-	switch p {
+	switch ProviderType(strings.ToLower(strings.TrimSpace(string(p)))) {
 	case ProviderGeneric, ProviderMidtrans, ProviderStripe, ProviderXendit, ProviderGithub, ProviderShopify:
 		return true
 	default:
@@ -210,7 +210,9 @@ func InferFailureCode(lastError string, httpStatusCode int, attempts int, isVeri
 			strings.Contains(errLower, "missing v1 signature"):
 			return ErrorClassVerificationRejected, ErrCodeSignatureTimestampInvalid
 
-		case strings.Contains(errLower, "empty midtrans payload") ||
+		case strings.Contains(errLower, "empty shopify payload") ||
+			strings.Contains(errLower, "empty payload") ||
+			strings.Contains(errLower, "empty midtrans payload") ||
 			strings.Contains(errLower, "failed to parse midtrans") ||
 			strings.Contains(errLower, "midtrans missing required fields") ||
 			strings.Contains(errLower, "json parse") ||

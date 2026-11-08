@@ -508,6 +508,8 @@ func TestCriteria_A8_MaskingTableDriven(t *testing.T) {
 		{"exact x-callback-token", "x-callback-token", true},
 		{"exact x-api-key", "x-api-key", true},
 		{"exact stripe-signature", "stripe-signature", true},
+		{"exact x-shopify-hmac-sha256", "x-shopify-hmac-sha256", true},
+		{"mixed case x-shopify-hmac-sha256", "X-Shopify-Hmac-Sha256", true},
 		{"prefix x-hub-signature", "x-hub-signature", true},
 		{"prefix x-hub-signature-256", "x-hub-signature-256", true},
 		{"keyword token", "my-app-token", true},
@@ -875,6 +877,9 @@ func TestCriteria_B5_VerificationKind(t *testing.T) {
 	}
 	if verifier.ProviderVerificationKind(model.ProviderGithub) != verifier.VerificationKindHMAC {
 		t.Errorf("GitHub must have verification_kind = hmac")
+	}
+	if verifier.ProviderVerificationKind(model.ProviderShopify) != verifier.VerificationKindHMAC {
+		t.Errorf("Shopify must have verification_kind = hmac")
 	}
 
 	// Verify API response returns verification_kind

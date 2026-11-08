@@ -341,3 +341,58 @@ func TestIngest_RateLimitingAndHeaderTamperingPrevention(t *testing.T) {
 		t.Errorf("expected source_ip '10.0.0.100' from resolver, got %q", ipEvent.SourceIP)
 	}
 }
+
+func TestIngest_ShopifyPayload(t *testing.T) {
+	db, _, handler, cleanup := setupIngestEnv(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	ep := &model.Endpoint{
+		ID:        "ep-shopify-ingest",
+		Name:      "Shopify Production Store",
+		TargetURL: "https://api.example.com/shopify/orders",
+		SecretKey: "shpss_test_shopify_secret_123",
+		Provider:  model.ProviderShopify,
+		IsActive:  true,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := db.SaveEndpoint(ctx, ep); err != nil {
+		t.Fatalf("failed to save shopify endpoint: %v", err)
+	}
+
+	payload := []byte(`{"id":987654321,"topic":"orders/paid","currency":"USD","amount":"250.00"}`)
+	expectedSig := "b2ZmaWNpYWxfc2hvcGlmeV9zaWduYXR1cmVfaG1hY19zaGEyNTY="
+
+	req := httptest.NewRequest(http.MethodPost, "/ingest/"+ep.ID, bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Shopify-Hmac-Sha256", expectedSig)
+	req.RemoteAddr = "192.0.2.88:45678"
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for shopify ingest, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp ingest.Response
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response json: %v", err)
+	}
+
+	saved, err := db.GetEventByID(ctx, resp.ID)
+	if err != nil {
+		t.Fatalf("failed to get saved event: %v", err)
+	}
+
+	if saved.Provider != model.ProviderShopify {
+		t.Errorf("expected saved event provider %s, got %s", model.ProviderShopify, saved.Provider)
+	}
+	if saved.Signature != expectedSig {
+		t.Errorf("expected saved event signature %s, got %s", expectedSig, saved.Signature)
+	}
+	if string(saved.Payload) != string(payload) {
+		t.Errorf("expected saved payload %s, got %s", string(payload), string(saved.Payload))
+	}
+}
