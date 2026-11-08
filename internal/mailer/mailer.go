@@ -55,8 +55,22 @@ func NewMailerFromEnv() *Mailer {
 	return NewMailer(host, port, user, pass, from)
 }
 
-// IsDev returns true if SMTP is not configured
+// IsProduction returns true if the environment is configured as production
+func IsProduction() bool {
+	for _, envVar := range []string{"RELAYGATE_ENV", "ENV", "ENVIRONMENT", "APP_ENV"} {
+		val := strings.ToLower(strings.TrimSpace(os.Getenv(envVar)))
+		if val == "production" || val == "prod" {
+			return true
+		}
+	}
+	return false
+}
+
+// IsDev returns true if SMTP is not configured and environment is not production
 func (m *Mailer) IsDev() bool {
+	if IsProduction() {
+		return false
+	}
 	return m == nil || m.Host == ""
 }
 
@@ -80,6 +94,10 @@ func (m *Mailer) SendVerificationCode(toEmail, toName, code string) error {
 	if m.IsDev() {
 		log.Printf("[RelayGate] [EMAIL-DEV] Verification code for %s <%s>: %s (valid for 15 minutes)", toName, toEmail, code)
 		return nil
+	}
+
+	if m == nil || m.Host == "" {
+		return fmt.Errorf("smtp host is not configured")
 	}
 
 	rawFrom := m.From

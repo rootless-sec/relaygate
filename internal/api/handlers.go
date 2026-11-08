@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -255,19 +256,40 @@ type authAttemptTracker struct {
 }
 
 var (
-	loginAttempts = &authAttemptTracker{attempts: make(map[string][]time.Time)}
-	passAttempts  = &authAttemptTracker{attempts: make(map[string][]time.Time)}
+	loginAttempts       = &authAttemptTracker{attempts: make(map[string][]time.Time)}
+	ipLoginAttempts     = &authAttemptTracker{attempts: make(map[string][]time.Time)}
+	ipRegisterAttempts  = &authAttemptTracker{attempts: make(map[string][]time.Time)}
+	ipResendAttempts    = &authAttemptTracker{attempts: make(map[string][]time.Time)}
+	passAttempts        = &authAttemptTracker{attempts: make(map[string][]time.Time)}
+	dummyBcryptHash     string
+	dummyBcryptHashOnce sync.Once
 )
+
+func getDummyBcryptHash() string {
+	dummyBcryptHashOnce.Do(func() {
+		h, err := bcrypt.GenerateFromPassword([]byte("dummy-timing-defense-relaygate"), bcrypt.DefaultCost)
+		if err == nil {
+			dummyBcryptHash = string(h)
+		} else {
+			dummyBcryptHash = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
+		}
+	})
+	return dummyBcryptHash
+}
 
 // ResetRateLimits resets internal auth rate limit trackers (used for testing and maintenance)
 func ResetRateLimits() {
-	loginAttempts.mu.Lock()
-	loginAttempts.attempts = make(map[string][]time.Time)
-	loginAttempts.mu.Unlock()
-
-	passAttempts.mu.Lock()
-	passAttempts.attempts = make(map[string][]time.Time)
-	passAttempts.mu.Unlock()
+	for _, tracker := range []*authAttemptTracker{
+		loginAttempts,
+		ipLoginAttempts,
+		ipRegisterAttempts,
+		ipResendAttempts,
+		passAttempts,
+	} {
+		tracker.mu.Lock()
+		tracker.attempts = make(map[string][]time.Time)
+		tracker.mu.Unlock()
+	}
 }
 
 func (t *authAttemptTracker) checkLimit(key string, maxAttempts int, window time.Duration) bool {
@@ -300,6 +322,35 @@ func (t *authAttemptTracker) clear(key string) {
 	delete(t.attempts, key)
 }
 
+// NormalizeAndValidateEmail sanitizes, normalizes, and validates an email address against RFC standards.
+// It trims whitespace, converts to lowercase, rejects internal spaces, checks length,
+// validates via net/mail.ParseAddress, and ensures a valid domain component.
+func NormalizeAndValidateEmail(raw string) (string, error) {
+	norm := strings.ToLower(strings.TrimSpace(raw))
+	if norm == "" {
+		return "", fmt.Errorf("alamat email wajib diisi")
+	}
+	if strings.Contains(norm, " ") {
+		return "", fmt.Errorf("alamat email tidak boleh mengandung spasi")
+	}
+	if len(norm) > 254 {
+		return "", fmt.Errorf("alamat email terlalu panjang (maksimal 254 karakter)")
+	}
+	parsed, err := mail.ParseAddress(norm)
+	if err != nil || parsed.Address != norm {
+		return "", fmt.Errorf("format alamat email tidak valid")
+	}
+	parts := strings.Split(norm, "@")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", fmt.Errorf("format alamat email tidak valid")
+	}
+	domain := parts[1]
+	if !strings.Contains(domain, ".") || strings.HasPrefix(domain, ".") || strings.HasSuffix(domain, ".") {
+		return "", fmt.Errorf("format domain email tidak valid")
+	}
+	return norm, nil
+}
+
 // API handles control plane REST requests
 type API struct {
 	repo       storage.Repository
@@ -307,6 +358,7 @@ type API struct {
 	hub        *Hub
 	mailer     *mailer.Mailer
 	eventLocks *KeyedMutex
+	authLocks  *KeyedMutex
 }
 
 // NewAPI initializes control plane API handlers
@@ -323,6 +375,7 @@ func NewAPI(repo storage.Repository, pool *worker.Pool, hub *Hub, mailerOpt ...*
 		hub:        hub,
 		mailer:     m,
 		eventLocks: NewKeyedMutex(),
+		authLocks:  NewKeyedMutex(),
 	}
 }
 
@@ -890,8 +943,13 @@ func (a *API) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ip := ResolveClientIP(r)
+	if !ipRegisterAttempts.checkLimit(ip, 20, 10*time.Minute) {
+		writeError(w, http.StatusTooManyRequests, "Terlalu banyak permintaan pendaftaran dari alamat IP ini. Silakan coba beberapa saat lagi.", nil)
+		return
+	}
+
 	req.Name = strings.TrimSpace(req.Name)
-	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 	req.Password = strings.TrimSpace(req.Password)
 
 	if req.Name == "" {
@@ -908,10 +966,14 @@ func (a *API) Register(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if req.Email == "" || !strings.Contains(req.Email, "@") || !strings.Contains(req.Email, ".") {
+
+	cleanEmail, err := NormalizeAndValidateEmail(req.Email)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "Format alamat email tidak valid", nil)
 		return
 	}
+	req.Email = cleanEmail
+
 	if len(req.Password) < 6 {
 		writeError(w, http.StatusBadRequest, "Password minimal 6 karakter", nil)
 		return
@@ -920,6 +982,9 @@ func (a *API) Register(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Password maksimal 72 karakter", nil)
 		return
 	}
+
+	unlock := a.authLocks.Lock("email:" + req.Email)
+	defer unlock()
 
 	// Check if email is already registered and active
 	existing, err := a.repo.GetUserByEmail(r.Context(), req.Email)
@@ -1000,10 +1065,15 @@ func (a *API) VerifyCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+	cleanEmail, err := NormalizeAndValidateEmail(req.Email)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Format alamat email tidak valid", nil)
+		return
+	}
+	req.Email = cleanEmail
 	req.Code = strings.TrimSpace(req.Code)
 
-	if req.Email == "" || req.Code == "" {
+	if req.Code == "" {
 		writeError(w, http.StatusBadRequest, "Email dan kode verifikasi wajib diisi", nil)
 		return
 	}
@@ -1011,6 +1081,9 @@ func (a *API) VerifyCode(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Kode verifikasi harus berupa 6 digit angka", nil)
 		return
 	}
+
+	unlock := a.authLocks.Lock("email:" + req.Email)
+	defer unlock()
 
 	verif, err := a.repo.GetEmailVerification(r.Context(), req.Email)
 	if err != nil || verif == nil {
@@ -1067,15 +1140,21 @@ func (a *API) VerifyCode(w http.ResponseWriter, r *http.Request) {
 	_ = a.repo.DeleteEmailVerification(r.Context(), verif.Email)
 
 	tokenBytes := make([]byte, 32)
-	_, _ = rand.Read(tokenBytes)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		writeError(w, http.StatusInternalServerError, "Gagal membuat sesi token", err)
+		return
+	}
 	sessionToken := "sess_" + hex.EncodeToString(tokenBytes)
+	now := Now()
+	absTimeout, _ := GetSessionTimeouts()
 	session := &model.Session{
-		Token:     sessionToken,
-		UserID:    user.ID,
-		UserEmail: user.Email,
-		Role:      user.Role,
-		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
-		CreatedAt: time.Now().UTC(),
+		Token:        sessionToken,
+		UserID:       user.ID,
+		UserEmail:    user.Email,
+		Role:         user.Role,
+		ExpiresAt:    now.Add(absTimeout),
+		LastActiveAt: now,
+		CreatedAt:    now,
 	}
 	_ = a.repo.SaveSession(r.Context(), session)
 
@@ -1104,11 +1183,21 @@ func (a *API) ResendCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
-	if req.Email == "" {
-		writeError(w, http.StatusBadRequest, "Alamat email wajib diisi", nil)
+	ip := ResolveClientIP(r)
+	if !ipResendAttempts.checkLimit(ip, 20, 10*time.Minute) {
+		writeError(w, http.StatusTooManyRequests, "Terlalu banyak permintaan kirim ulang kode dari alamat IP ini. Silakan coba beberapa saat lagi.", nil)
 		return
 	}
+
+	cleanEmail, err := NormalizeAndValidateEmail(req.Email)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Format alamat email tidak valid", nil)
+		return
+	}
+	req.Email = cleanEmail
+
+	unlock := a.authLocks.Lock("email:" + req.Email)
+	defer unlock()
 
 	verif, err := a.repo.GetEmailVerification(r.Context(), req.Email)
 	if err != nil || verif == nil {
@@ -1169,7 +1258,6 @@ func (a *API) ResendCode(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-
 // Login handles POST /api/v1/auth/login
 func (a *API) Login(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
@@ -1192,28 +1280,49 @@ func (a *API) Login(w http.ResponseWriter, r *http.Request) {
 
 	ip := ResolveClientIP(r)
 	rateKey := ip + ":" + req.Email
+
+	// Per-email+IP brute force protection (5 attempts in 15 minutes)
 	if !loginAttempts.checkLimit(rateKey, 5, 15*time.Minute) {
 		writeError(w, http.StatusTooManyRequests, "Terlalu banyak percobaan login yang gagal. Silakan coba lagi setelah beberapa menit.", nil)
 		return
 	}
 
+	// Overall IP brute force protection (30 attempts in 15 minutes)
+	if !ipLoginAttempts.checkLimit(ip, 30, 15*time.Minute) {
+		writeError(w, http.StatusTooManyRequests, "Terlalu banyak percobaan login dari alamat IP ini. Silakan coba lagi setelah beberapa menit.", nil)
+		return
+	}
+
 	user, err := a.repo.GetUserByEmail(r.Context(), req.Email)
 	if err != nil || user == nil {
+		// Timing attack defense: execute dummy bcrypt compare to equalize response time
+		_ = bcrypt.CompareHashAndPassword([]byte(getDummyBcryptHash()), []byte(req.Password))
 		loginAttempts.recordFailure(rateKey)
+		ipLoginAttempts.recordFailure(ip)
 		writeError(w, http.StatusUnauthorized, "Email atau password tidak sesuai.", nil)
 		return
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+	hashToVerify := user.PasswordHash
+	if hashToVerify == "" {
+		hashToVerify = getDummyBcryptHash()
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(hashToVerify), []byte(req.Password)); err != nil || user.PasswordHash == "" {
 		loginAttempts.recordFailure(rateKey)
+		ipLoginAttempts.recordFailure(ip)
 		writeError(w, http.StatusUnauthorized, "Email atau password tidak sesuai.", nil)
 		return
 	}
 
 	loginAttempts.clear(rateKey)
+	ipLoginAttempts.clear(ip)
 
 	tokenBytes := make([]byte, 32)
-	_, _ = rand.Read(tokenBytes)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		writeError(w, http.StatusInternalServerError, "Gagal membuat sesi token", err)
+		return
+	}
 	sessionToken := "sess_" + hex.EncodeToString(tokenBytes)
 	role := user.Role
 	if role == "" {
@@ -1272,22 +1381,40 @@ func (a *API) OAuthLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+	cleanEmail, err := NormalizeAndValidateEmail(req.Email)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Format alamat email tidak valid", nil)
+		return
+	}
+	req.Email = cleanEmail
+
 	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		parts := strings.Split(req.Email, "@")
+		req.Name = parts[0]
+	}
+	// Sanitize control characters from OAuth display name
+	var cleanName strings.Builder
+	for _, r := range req.Name {
+		if r >= 32 && r != 127 {
+			cleanName.WriteRune(r)
+		}
+	}
+	req.Name = strings.TrimSpace(cleanName.String())
+	if req.Name == "" {
+		req.Name = "User"
+	}
+	if len(req.Name) > 50 {
+		req.Name = req.Name[:50]
+	}
+
 	action := strings.ToLower(strings.TrimSpace(req.Action))
 	if action == "" {
 		action = "login"
 	}
 
-	if req.Email == "" || !strings.Contains(req.Email, "@") || !strings.Contains(req.Email, ".") || strings.Contains(req.Email, " ") {
-		writeError(w, http.StatusBadRequest, "Format alamat email tidak valid", nil)
-		return
-	}
-
-	if req.Name == "" {
-		parts := strings.Split(req.Email, "@")
-		req.Name = parts[0]
-	}
+	unlock := a.authLocks.Lock("email:" + req.Email)
+	defer unlock()
 
 	user, err := a.repo.GetUserByEmail(r.Context(), req.Email)
 	if action == "login" {
@@ -1330,7 +1457,10 @@ func (a *API) OAuthLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tokenBytes := make([]byte, 32)
-	_, _ = rand.Read(tokenBytes)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		writeError(w, http.StatusInternalServerError, "Gagal membuat sesi token", err)
+		return
+	}
 	sessionToken := "sess_" + hex.EncodeToString(tokenBytes)
 
 	role := user.Role

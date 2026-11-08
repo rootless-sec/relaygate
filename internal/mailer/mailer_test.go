@@ -39,6 +39,16 @@ func TestMailer_DevMode(t *testing.T) {
 	}
 }
 
+func TestMailer_ProductionDevCodeSuppressed(t *testing.T) {
+	os.Setenv("RELAYGATE_ENV", "production")
+	defer os.Unsetenv("RELAYGATE_ENV")
+
+	m := mailer.NewMailer("", 587, "", "", "")
+	if m.IsDev() {
+		t.Errorf("expected IsDev to return false in production even if host is empty")
+	}
+}
+
 func TestMailer_NewFromEnv(t *testing.T) {
 	os.Setenv("SMTP_HOST", "smtp.test.local")
 	os.Setenv("SMTP_PORT", "2525")

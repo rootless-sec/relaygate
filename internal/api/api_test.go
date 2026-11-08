@@ -1,10 +1,12 @@
 package api_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,7 +16,10 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/rootless-sec/relaygate/internal/api"
+	"github.com/rootless-sec/relaygate/internal/mailer"
 	"github.com/rootless-sec/relaygate/internal/model"
 	"github.com/rootless-sec/relaygate/internal/storage"
 	"github.com/rootless-sec/relaygate/internal/verifier"
@@ -1689,6 +1694,312 @@ func TestOAuthLogin(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &oauthLinkedRes)
 	if oauthLinkedRes.User.Email != "dev2@company.com" {
 		t.Fatalf("expected linked email dev2@company.com, got %s", oauthLinkedRes.User.Email)
+	}
+}
+
+func TestAPI_LoginTimingAttackResistanceAndBruteForce(t *testing.T) {
+	api.ResetRateLimits()
+	defer api.ResetRateLimits()
+
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("failed to open in-memory storage: %v", err)
+	}
+	defer db.Close()
+
+	router := api.NewRouter(db, nil, api.NewHub())
+
+	// 1. Seed a user
+	passHash, _ := bcrypt.GenerateFromPassword([]byte("CorrectPassword123"), bcrypt.DefaultCost)
+	user := &model.User{
+		ID:           "usr_timing_test",
+		Name:         "Timing User",
+		Email:        "timing@example.com",
+		Role:         "viewer",
+		PasswordHash: string(passHash),
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := db.SaveUser(context.Background(), user); err != nil {
+		t.Fatalf("failed to save user: %v", err)
+	}
+
+	// 2. Measure login time for non-existent user
+	reqNonExistent := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"nonexistent@example.com","password":"WrongPassword123"}`))
+	reqNonExistent.Header.Set("Content-Type", "application/json")
+	reqNonExistent.RemoteAddr = "192.0.2.10:12345"
+	recNonExistent := httptest.NewRecorder()
+
+	startNonExistent := time.Now()
+	router.ServeHTTP(recNonExistent, reqNonExistent)
+	elapsedNonExistent := time.Since(startNonExistent)
+
+	if recNonExistent.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 on non-existent user login, got %d", recNonExistent.Code)
+	}
+	// Verify that dummy bcrypt ran: bcrypt at cost 10 takes at least 10ms
+	if elapsedNonExistent < 10*time.Millisecond {
+		t.Errorf("expected dummy bcrypt delay >= 10ms to prevent timing attack, got %v", elapsedNonExistent)
+	}
+
+	// 3. Measure login time for existing user with wrong password
+	reqExisting := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"timing@example.com","password":"WrongPassword123"}`))
+	reqExisting.Header.Set("Content-Type", "application/json")
+	reqExisting.RemoteAddr = "192.0.2.11:12345"
+	recExisting := httptest.NewRecorder()
+
+	startExisting := time.Now()
+	router.ServeHTTP(recExisting, reqExisting)
+	elapsedExisting := time.Since(startExisting)
+
+	if recExisting.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 on existing user bad password, got %d", recExisting.Code)
+	}
+	if elapsedExisting < 10*time.Millisecond {
+		t.Errorf("expected bcrypt delay >= 10ms for wrong password, got %v", elapsedExisting)
+	}
+
+	// 4. Test brute force rate limiting per IP+Email
+	api.ResetRateLimits()
+	for i := 1; i <= 5; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"timing@example.com","password":"BadPassword"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = "198.51.100.1:54321"
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: expected 401, got %d", i, rec.Code)
+		}
+	}
+	// 6th attempt should be blocked with 429 Too Many Requests
+	reqBlocked := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"timing@example.com","password":"BadPassword"}`))
+	reqBlocked.Header.Set("Content-Type", "application/json")
+	reqBlocked.RemoteAddr = "198.51.100.1:54321"
+	recBlocked := httptest.NewRecorder()
+	router.ServeHTTP(recBlocked, reqBlocked)
+	if recBlocked.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 Too Many Requests on 6th failed login, got %d: %s", recBlocked.Code, recBlocked.Body.String())
+	}
+}
+
+func TestAPI_RegistrationEmailNormalizationAndRFCValidation(t *testing.T) {
+	api.ResetRateLimits()
+	defer api.ResetRateLimits()
+
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+	defer db.Close()
+
+	router := api.NewRouter(db, nil, api.NewHub())
+
+	// Test invalid email variants
+	invalidEmails := []string{
+		"not-an-email",
+		"missingdomain@",
+		"@missinglocal.com",
+		"space in@email.com",
+		"user@ domain.com",
+		"user@domain .com",
+		"missingdot@domain",
+	}
+
+	for _, badEmail := range invalidEmails {
+		body := fmt.Sprintf(`{"name":"Test User","email":%q,"password":"ValidPassword123"}`, badEmail)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("expected 400 for invalid email %q, got %d: %s", badEmail, rec.Code, rec.Body.String())
+		}
+	}
+
+	// Test valid case normalization: User@Example.COM should normalize to user@example.com
+	goodBody := `{"name":"Normal User","email":"User@Example.COM","password":"ValidPassword123"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(goodBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for normal email, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var res api.RegisterResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &res)
+	if res.Email != "user@example.com" {
+		t.Errorf("expected email normalized to lowercase 'user@example.com', got %q", res.Email)
+	}
+}
+
+func TestAPI_OTPVerificationConcurrencyAndRaceConditions(t *testing.T) {
+	api.ResetRateLimits()
+	defer api.ResetRateLimits()
+
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+	defer db.Close()
+
+	router := api.NewRouter(db, nil, api.NewHub())
+
+	// Register pending user
+	regBody := `{"name":"Concurrent Tester","email":"concurrent.otp@example.com","password":"SafePassword123"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(regBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on register: %s", rec.Body.String())
+	}
+
+	// Send 10 concurrent bad verification attempts
+	const attempts = 10
+	var wg sync.WaitGroup
+	statusCodes := make([]int, attempts)
+
+	for i := 0; i < attempts; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			vReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/verify", strings.NewReader(`{"email":"concurrent.otp@example.com","code":"000000"}`))
+			vReq.Header.Set("Content-Type", "application/json")
+			vRec := httptest.NewRecorder()
+			router.ServeHTTP(vRec, vReq)
+			statusCodes[idx] = vRec.Code
+		}(i)
+	}
+	wg.Wait()
+
+	// Verify that at least some returned 429 Too Many Requests after 5 failed attempts
+	count400 := 0
+	count429 := 0
+	for _, code := range statusCodes {
+		if code == http.StatusBadRequest {
+			count400++
+		} else if code == http.StatusTooManyRequests {
+			count429++
+		}
+	}
+	if count400 > 5 {
+		t.Errorf("expected at most 5 attempts to return 400 Bad Request, got %d", count400)
+	}
+	if count429 == 0 {
+		t.Errorf("expected at least one concurrent request to be rejected with 429 Too Many Requests")
+	}
+}
+
+func TestAPI_DevPreviewCodeGatingInProduction(t *testing.T) {
+	os.Setenv("RELAYGATE_ENV", "production")
+	defer os.Unsetenv("RELAYGATE_ENV")
+
+	api.ResetRateLimits()
+	defer api.ResetRateLimits()
+
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+	defer db.Close()
+
+	// Spin up a mock SMTP server on loopback
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen on loopback: %v", err)
+	}
+	defer ln.Close()
+
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				r := bufio.NewReader(c)
+				w := bufio.NewWriter(c)
+				w.WriteString("220 mock.smtp.local Service ready\r\n")
+				w.Flush()
+
+				inData := false
+				for {
+					line, err := r.ReadString('\n')
+					if err != nil {
+						break
+					}
+					clean := strings.TrimRight(line, "\r\n")
+					if inData {
+						if clean == "." {
+							inData = false
+							w.WriteString("250 OK: queued\r\n")
+							w.Flush()
+						}
+						continue
+					}
+					if strings.HasPrefix(clean, "EHLO") || strings.HasPrefix(clean, "HELO") {
+						w.WriteString("250-mock.smtp.local\r\n250 HELP\r\n")
+						w.Flush()
+					} else if strings.HasPrefix(clean, "MAIL FROM:") {
+						w.WriteString("250 2.1.0 Sender OK\r\n")
+						w.Flush()
+					} else if strings.HasPrefix(clean, "RCPT TO:") {
+						w.WriteString("250 2.1.5 Recipient OK\r\n")
+						w.Flush()
+					} else if clean == "DATA" {
+						inData = true
+						w.WriteString("354 Start mail input; end with <CRLF>.<CRLF>\r\n")
+						w.Flush()
+					} else if clean == "QUIT" {
+						w.WriteString("221 2.0.0 Bye\r\n")
+						w.Flush()
+						break
+					} else {
+						w.WriteString("250 OK\r\n")
+						w.Flush()
+					}
+				}
+			}(conn)
+		}
+	}()
+
+	prodMailer := mailer.NewMailer("127.0.0.1", port, "", "", "noreply@relaygate.local")
+	router := api.NewRouter(db, nil, api.NewHub(), prodMailer)
+
+	// Register in production: DevCode MUST be empty
+	regBody := `{"name":"Prod User","email":"prod@example.com","password":"ProductionPass123"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(regBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on register in production, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var regRes api.RegisterResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &regRes)
+	if regRes.DevCode != "" {
+		t.Fatalf("SECURITY VIOLATION: DevCode was leaked in production response: %q", regRes.DevCode)
+	}
+
+	// Resend in production: DevCode MUST be empty
+	// Fast-forward LastSentAt to bypass cooldown
+	verif, _ := db.GetEmailVerification(context.Background(), "prod@example.com")
+	verif.LastSentAt = time.Now().UTC().Add(-40 * time.Second)
+	_ = db.SaveEmailVerification(context.Background(), verif)
+
+	resendReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/resend-code", strings.NewReader(`{"email":"prod@example.com"}`))
+	resendReq.Header.Set("Content-Type", "application/json")
+	resendRec := httptest.NewRecorder()
+	router.ServeHTTP(resendRec, resendReq)
+	if resendRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on resend in production, got %d: %s", resendRec.Code, resendRec.Body.String())
+	}
+	var resendRes api.ResendCodeResponse
+	_ = json.Unmarshal(resendRec.Body.Bytes(), &resendRes)
+	if resendRes.DevCode != "" {
+		t.Fatalf("SECURITY VIOLATION: DevCode was leaked in production resend response: %q", resendRes.DevCode)
 	}
 }
 

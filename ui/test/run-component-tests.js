@@ -2359,6 +2359,56 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(apiSource, /action\?: 'login' \| 'register'/, 'api.ts oauthLogin signature must accept action parameter');
   });
 
+  await suite.test('LoginPage Logic & Security Audit Verification Invariants', async () => {
+    const loginSource = fs.readFileSync(path.join(__dirname, '../src/components/LoginPage.tsx'), 'utf8');
+
+    // 1. Profile caching in localStorage (id, token, email, name, role) across all authentication channels
+    assert.match(loginSource, /handleLogin[\s\S]*?id:\s*res\.user\.id/, 'handleLogin must persist user id in localStorage');
+    assert.match(loginSource, /handleLogin[\s\S]*?token:\s*res\.token/, 'handleLogin must persist session token in localStorage');
+    assert.match(loginSource, /handleLogin[\s\S]*?email:\s*res\.user\.email/, 'handleLogin must persist email in localStorage');
+    assert.match(loginSource, /handleLogin[\s\S]*?role:\s*res\.user\.role/, 'handleLogin must persist role in localStorage');
+
+    assert.match(loginSource, /handleVerify[\s\S]*?id:\s*res\.user\.id/, 'handleVerify must persist user id in localStorage');
+    assert.match(loginSource, /handleVerify[\s\S]*?token:\s*res\.token/, 'handleVerify must persist session token in localStorage');
+    assert.match(loginSource, /handleVerify[\s\S]*?email:\s*res\.user\.email/, 'handleVerify must persist email in localStorage');
+    assert.match(loginSource, /handleVerify[\s\S]*?role:\s*res\.user\.role/, 'handleVerify must persist role in localStorage');
+
+    assert.match(loginSource, /handleSelectOAuthAccount[\s\S]*?id:\s*res\.user\.id/, 'OAuth flow must persist user id in localStorage');
+    assert.match(loginSource, /handleSelectOAuthAccount[\s\S]*?token:\s*res\.token/, 'OAuth flow must persist session token in localStorage');
+
+    // 2. Whitespace rejection across email inputs
+    assert.match(loginSource, /handleLogin[\s\S]*?email\.trim\(\)\.includes\(' '\)/, 'handleLogin must check and reject spaces in email');
+    assert.match(loginSource, /handleRegister[\s\S]*?email\.trim\(\)\.includes\(' '\)/, 'handleRegister must check and reject spaces in email');
+    assert.match(loginSource, /Alamat email tidak boleh mengandung spasi/, 'Must render clear feedback "Alamat email tidak boleh mengandung spasi"');
+
+    // 3. Complete state cleanup on tab switch
+    assert.match(loginSource, /switchMode[\s\S]*?setError\(null\)/, 'switchMode must clear errors');
+    assert.match(loginSource, /switchMode[\s\S]*?setOauthError\(null\)/, 'switchMode must clear oauth errors');
+    assert.match(loginSource, /switchMode[\s\S]*?setPassword\(''\)/, 'switchMode must clear password');
+    assert.match(loginSource, /switchMode[\s\S]*?setConfirmPassword\(''\)/, 'switchMode must clear confirmPassword');
+    assert.match(loginSource, /switchMode[\s\S]*?setOtp\(\['', '', '', '', '', ''\]\)/, 'switchMode must clear OTP');
+    assert.match(loginSource, /switchMode[\s\S]*?setDevCode\(null\)/, 'switchMode must clear dev preview code');
+    assert.match(loginSource, /switchMode[\s\S]*?setShowPassword\(false\)/, 'switchMode must reset password visibility toggle');
+    assert.match(loginSource, /switchMode[\s\S]*?setShowConfirmPassword\(false\)/, 'switchMode must reset confirm password visibility toggle');
+
+    // 4. URL state synchronization
+    assert.match(loginSource, /auth',\s*'register'/, 'switchMode must set auth=register parameter on registration');
+    assert.match(loginSource, /auth',\s*'login'/, 'switchMode must set auth=login parameter on login');
+    assert.match(loginSource, /handleChangeEmail[\s\S]*?auth',\s*'register'/, 'handleChangeEmail must sync URL to register');
+
+    // 5. Accessibility invariants
+    assert.match(loginSource, /htmlFor="login-email"/, 'Login email label must be linked to input via htmlFor');
+    assert.match(loginSource, /htmlFor="login-password"/, 'Login password label must be linked to input via htmlFor');
+    assert.match(loginSource, /htmlFor="reg-name"/, 'Register name label must be linked to input via htmlFor');
+    assert.match(loginSource, /htmlFor="reg-email"/, 'Register email label must be linked to input via htmlFor');
+    assert.match(loginSource, /htmlFor="reg-password"/, 'Register password label must be linked to input via htmlFor');
+    assert.match(loginSource, /htmlFor="reg-confirm"/, 'Register confirm label must be linked to input via htmlFor');
+    assert.match(loginSource, /inputMode="numeric"/, 'OTP inputs must declare inputMode="numeric" for mobile numeric keyboard');
+
+    // 6. Zero unicode em dashes invariant
+    assert.doesNotMatch(loginSource, /\u2014/, 'LoginPage.tsx must have ZERO unicode em dashes');
+  });
+
   // Cleanup temp files
   try {
     fs.rmSync(outDir, { recursive: true, force: true, maxRetries: 0 });

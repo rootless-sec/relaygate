@@ -345,12 +345,32 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const switchMode = (newMode: AuthMode) => {
     setMode(newMode);
     setError(null);
+    setOauthError(null);
+    setPassword('');
+    setConfirmPassword('');
+    setOtp(['', '', '', '', '', '']);
+    setDevCode(null);
+    setShowPassword(false);
+    setShowConfirmPassword(false);
+    try {
+      const url = new URL(window.location.href);
+      if (newMode === 'register') {
+        url.searchParams.set('auth', 'register');
+      } else if (newMode === 'login') {
+        url.searchParams.set('auth', 'login');
+      }
+      window.history.replaceState({}, '', url.toString());
+    } catch {}
   };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim() || !password) {
       setError('Email dan password wajib diisi.');
+      return;
+    }
+    if (email.trim().includes(' ')) {
+      setError('Alamat email tidak boleh mengandung spasi.');
       return;
     }
 
@@ -363,6 +383,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         'relaygate_auth',
         JSON.stringify({
           token: res.token,
+          id: res.user.id,
+          user: res.user,
           email: res.user.email,
           name: res.user.name,
           role: res.user.role,
@@ -385,6 +407,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     }
     if (!email.trim() || !email.includes('@') || !email.includes('.')) {
       setError('Alamat email tidak valid.');
+      return;
+    }
+    if (email.trim().includes(' ')) {
+      setError('Alamat email tidak boleh mengandung spasi.');
       return;
     }
     if (password.length < 6) {
@@ -490,6 +516,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         'relaygate_auth',
         JSON.stringify({
           token: res.token,
+          id: res.user.id,
+          user: res.user,
           email: res.user.email,
           name: res.user.name,
           role: res.user.role,
@@ -527,8 +555,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const handleChangeEmail = () => {
     setMode('register');
     setError(null);
+    setOauthError(null);
     setDevCode(null);
     setOtp(['', '', '', '', '', '']);
+    setPassword('');
+    setConfirmPassword('');
+    setShowPassword(false);
+    setShowConfirmPassword(false);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('auth', 'register');
+      window.history.replaceState({}, '', url.toString());
+    } catch {}
   };
 
   return (
