@@ -26,6 +26,7 @@ ui/.env.local
 .DS_Store
 Thumbs.db
 .vscode/
+
 # Test & verification artifacts
 *.mjs
 *.png
@@ -33,7 +34,8 @@ Thumbs.db
 !ui/public/**/*.png
 !ui/dist/*.png
 !ui/dist/**/*.png
-!screenshots/*.png
+!docs/assets/*.png
+screenshots/
 .edge_*
 .temp_chrome_profile/
 e2e-output/
