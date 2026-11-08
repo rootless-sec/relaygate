@@ -260,6 +260,7 @@ var (
 	ipLoginAttempts     = &authAttemptTracker{attempts: make(map[string][]time.Time)}
 	ipRegisterAttempts  = &authAttemptTracker{attempts: make(map[string][]time.Time)}
 	ipResendAttempts    = &authAttemptTracker{attempts: make(map[string][]time.Time)}
+	ipVerifyAttempts    = &authAttemptTracker{attempts: make(map[string][]time.Time)}
 	passAttempts        = &authAttemptTracker{attempts: make(map[string][]time.Time)}
 	dummyBcryptHash     string
 	dummyBcryptHashOnce sync.Once
@@ -284,6 +285,7 @@ func ResetRateLimits() {
 		ipLoginAttempts,
 		ipRegisterAttempts,
 		ipResendAttempts,
+		ipVerifyAttempts,
 		passAttempts,
 	} {
 		tracker.mu.Lock()
@@ -308,6 +310,30 @@ func (t *authAttemptTracker) checkLimit(key string, maxAttempts int, window time
 	t.attempts[key] = valid
 
 	return len(valid) < maxAttempts
+}
+
+func (t *authAttemptTracker) checkAndRecord(key string, maxAttempts int, window time.Duration) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	now := time.Now().UTC()
+	cutoff := now.Add(-window)
+
+	var valid []time.Time
+	for _, ts := range t.attempts[key] {
+		if ts.After(cutoff) {
+			valid = append(valid, ts)
+		}
+	}
+
+	if len(valid) >= maxAttempts {
+		t.attempts[key] = valid
+		return false
+	}
+
+	valid = append(valid, now)
+	t.attempts[key] = valid
+	return true
 }
 
 func (t *authAttemptTracker) recordFailure(key string) {
@@ -944,7 +970,7 @@ func (a *API) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip := ResolveClientIP(r)
-	if !ipRegisterAttempts.checkLimit(ip, 20, 10*time.Minute) {
+	if !ipRegisterAttempts.checkAndRecord(ip, 20, 10*time.Minute) {
 		writeError(w, http.StatusTooManyRequests, "Terlalu banyak permintaan pendaftaran dari alamat IP ini. Silakan coba beberapa saat lagi.", nil)
 		return
 	}
@@ -1065,6 +1091,12 @@ func (a *API) VerifyCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ip := ResolveClientIP(r)
+	if !ipVerifyAttempts.checkAndRecord(ip, 30, 10*time.Minute) {
+		writeError(w, http.StatusTooManyRequests, "Terlalu banyak percobaan verifikasi dari alamat IP ini. Silakan coba beberapa saat lagi.", nil)
+		return
+	}
+
 	cleanEmail, err := NormalizeAndValidateEmail(req.Email)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "Format alamat email tidak valid", nil)
@@ -1080,6 +1112,12 @@ func (a *API) VerifyCode(w http.ResponseWriter, r *http.Request) {
 	if len(req.Code) != 6 {
 		writeError(w, http.StatusBadRequest, "Kode verifikasi harus berupa 6 digit angka", nil)
 		return
+	}
+	for _, c := range req.Code {
+		if c < '0' || c > '9' {
+			writeError(w, http.StatusBadRequest, "Kode verifikasi harus berupa 6 digit angka", nil)
+			return
+		}
 	}
 
 	unlock := a.authLocks.Lock("email:" + req.Email)
@@ -1123,13 +1161,14 @@ func (a *API) VerifyCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	now := Now()
 	user := &model.User{
 		ID:           "usr_" + strings.ToLower(uuid.NewString()[:8]),
 		Name:         verif.Name,
 		Email:        verif.Email,
 		Role:         "viewer",
 		PasswordHash: verif.PasswordHash,
-		CreatedAt:    time.Now().UTC(),
+		CreatedAt:    now,
 	}
 
 	if err := a.repo.SaveUser(r.Context(), user); err != nil {
@@ -1145,7 +1184,6 @@ func (a *API) VerifyCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sessionToken := "sess_" + hex.EncodeToString(tokenBytes)
-	now := Now()
 	absTimeout, _ := GetSessionTimeouts()
 	session := &model.Session{
 		Token:        sessionToken,
@@ -1184,7 +1222,7 @@ func (a *API) ResendCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip := ResolveClientIP(r)
-	if !ipResendAttempts.checkLimit(ip, 20, 10*time.Minute) {
+	if !ipResendAttempts.checkAndRecord(ip, 20, 10*time.Minute) {
 		writeError(w, http.StatusTooManyRequests, "Terlalu banyak permintaan kirim ulang kode dari alamat IP ini. Silakan coba beberapa saat lagi.", nil)
 		return
 	}
@@ -1199,14 +1237,23 @@ func (a *API) ResendCode(w http.ResponseWriter, r *http.Request) {
 	unlock := a.authLocks.Lock("email:" + req.Email)
 	defer unlock()
 
+	// Check if already registered
+	existing, err := a.repo.GetUserByEmail(r.Context(), req.Email)
+	if err == nil && existing != nil {
+		_ = a.repo.DeleteEmailVerification(r.Context(), req.Email)
+		writeError(w, http.StatusConflict, "Email sudah terdaftar. Silakan masuk.", nil)
+		return
+	}
+
 	verif, err := a.repo.GetEmailVerification(r.Context(), req.Email)
 	if err != nil || verif == nil {
 		writeError(w, http.StatusNotFound, "Sesi pendaftaran tidak ditemukan. Silakan lakukan pendaftaran baru.", nil)
 		return
 	}
 
+	now := Now()
 	// Reject if initial registration session was created more than 24 hours ago
-	if time.Since(verif.CreatedAt) > 24*time.Hour {
+	if now.Sub(verif.CreatedAt) > 24*time.Hour {
 		_ = a.repo.DeleteEmailVerification(r.Context(), verif.Email)
 		writeError(w, http.StatusNotFound, "Sesi pendaftaran telah kedaluwarsa. Silakan lakukan pendaftaran baru.", nil)
 		return
@@ -1214,7 +1261,7 @@ func (a *API) ResendCode(w http.ResponseWriter, r *http.Request) {
 
 	// 30 seconds rate-limit cooldown
 	cooldownDuration := 30 * time.Second
-	elapsed := time.Since(verif.LastSentAt)
+	elapsed := now.Sub(verif.LastSentAt)
 	if elapsed < cooldownDuration {
 		remaining := int((cooldownDuration - elapsed).Seconds())
 		if remaining <= 0 {
@@ -1230,7 +1277,6 @@ func (a *API) ResendCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	now := time.Now().UTC()
 	verif.Code = newCode
 	verif.Attempts = 0
 	verif.LastSentAt = now
@@ -1266,13 +1312,20 @@ func (a *API) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 	req.Password = strings.TrimSpace(req.Password)
 
 	if req.Email == "" || req.Password == "" {
 		writeError(w, http.StatusBadRequest, "Email dan password wajib diisi", nil)
 		return
 	}
+
+	cleanEmail, err := NormalizeAndValidateEmail(req.Email)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Format alamat email tidak valid", nil)
+		return
+	}
+	req.Email = cleanEmail
+
 	if len(req.Password) > 72 {
 		writeError(w, http.StatusUnauthorized, "Email atau password tidak sesuai.", nil)
 		return

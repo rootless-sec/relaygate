@@ -2404,8 +2404,19 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(loginSource, /htmlFor="reg-password"/, 'Register password label must be linked to input via htmlFor');
     assert.match(loginSource, /htmlFor="reg-confirm"/, 'Register confirm label must be linked to input via htmlFor');
     assert.match(loginSource, /inputMode="numeric"/, 'OTP inputs must declare inputMode="numeric" for mobile numeric keyboard');
+    assert.match(loginSource, /role="tablist"/, 'Auth tab container must declare role="tablist"');
+    assert.match(loginSource, /role="tab"[\s\S]*?aria-selected={mode === 'login'}/, 'Login tab must declare role="tab" and dynamic aria-selected');
+    assert.match(loginSource, /role="tab"[\s\S]*?aria-selected={mode === 'register'}/, 'Register tab must declare role="tab" and dynamic aria-selected');
+    assert.match(loginSource, /aria-label={showPassword \? 'Sembunyikan password' : 'Lihat password'}/, 'Password toggle must declare dynamic aria-label');
+    assert.match(loginSource, /aria-pressed={showPassword}/, 'Password toggle must declare aria-pressed state');
+    assert.match(loginSource, /role="group"[\s\S]*?aria-label="6-digit kode verifikasi"/, 'OTP container must declare role="group" with accessible label');
+    assert.match(loginSource, /aria-label=\{`Digit \$\{idx \+ 1\} dari 6`\}/, 'Each OTP input must declare accessible digit position label');
 
-    // 6. Zero unicode em dashes invariant
+    // 6. Form input validation hardening
+    assert.match(loginSource, /handleLogin[\s\S]*?!email\.includes\('@'\) \|\| !email\.includes\('\.'\)/, 'handleLogin must validate email syntax before submission');
+    assert.match(loginSource, /handleRegister[\s\S]*?name\.trim\(\)\.length > 50/, 'handleRegister must validate max name length (50 chars)');
+
+    // 7. Zero unicode em dashes invariant
     assert.doesNotMatch(loginSource, /\u2014/, 'LoginPage.tsx must have ZERO unicode em dashes');
   });
 

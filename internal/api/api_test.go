@@ -2003,4 +2003,165 @@ func TestAPI_DevPreviewCodeGatingInProduction(t *testing.T) {
 	}
 }
 
+func TestAPI_LoginEmailRFCValidationAndNormalization(t *testing.T) {
+	api.ResetRateLimits()
+	defer api.ResetRateLimits()
+
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+	defer db.Close()
+
+	router := api.NewRouter(db, nil, api.NewHub())
+
+	// 1. Seed a user
+	passHash, _ := bcrypt.GenerateFromPassword([]byte("ValidPassword123"), bcrypt.DefaultCost)
+	user := &model.User{
+		ID:           "usr_login_norm_test",
+		Name:         "Norm User",
+		Email:        "norm.user@example.com",
+		Role:         "viewer",
+		PasswordHash: string(passHash),
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := db.SaveUser(context.Background(), user); err != nil {
+		t.Fatalf("failed to save user: %v", err)
+	}
+
+	// 2. Test invalid email variants on login -> must return 400 Bad Request
+	invalidEmails := []string{
+		"not-an-email",
+		"space in@email.com",
+		"user@ domain.com",
+		"missingdot@domain",
+		"@missinglocal.com",
+	}
+
+	for _, badEmail := range invalidEmails {
+		body := fmt.Sprintf(`{"email":%q,"password":"ValidPassword123"}`, badEmail)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("expected 400 for invalid email in login %q, got %d: %s", badEmail, rec.Code, rec.Body.String())
+		}
+	}
+
+	// 3. Test case and whitespace normalization: "  NORM.USER@EXAMPLE.COM  "
+	reqNorm := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"  NORM.USER@EXAMPLE.COM  ","password":"ValidPassword123"}`))
+	reqNorm.Header.Set("Content-Type", "application/json")
+	recNorm := httptest.NewRecorder()
+	router.ServeHTTP(recNorm, reqNorm)
+	if recNorm.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for normalized email login, got %d: %s", recNorm.Code, recNorm.Body.String())
+	}
+}
+
+func TestAPI_VerifyCodeStrictValidationAndIPRateLimiting(t *testing.T) {
+	api.ResetRateLimits()
+	defer api.ResetRateLimits()
+
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+	defer db.Close()
+
+	router := api.NewRouter(db, nil, api.NewHub())
+
+	// 1. Non-digit 6-character code -> must return 400 Bad Request
+	reqNonDigit := httptest.NewRequest(http.MethodPost, "/api/v1/auth/verify", strings.NewReader(`{"email":"user@example.com","code":"abcdef"}`))
+	reqNonDigit.Header.Set("Content-Type", "application/json")
+	recNonDigit := httptest.NewRecorder()
+	router.ServeHTTP(recNonDigit, reqNonDigit)
+	if recNonDigit.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for non-digit code, got %d: %s", recNonDigit.Code, recNonDigit.Body.String())
+	}
+	if !strings.Contains(recNonDigit.Body.String(), "Kode verifikasi harus berupa 6 digit angka") {
+		t.Errorf("expected 6 digit error message, got: %s", recNonDigit.Body.String())
+	}
+
+	// 2. IP-level rate limiting on /api/v1/auth/verify (30 attempts allowed per IP)
+	clientIP := "203.0.113.88:43210"
+	for i := 1; i <= 30; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/verify", strings.NewReader(fmt.Sprintf(`{"email":"user%d@example.com","code":"000000"}`, i)))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = clientIP
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		// Should return 400 (not found/invalid), NOT 429
+		if rec.Code == http.StatusTooManyRequests {
+			t.Fatalf("attempt %d prematurely blocked by rate limiter", i)
+		}
+	}
+
+	// 31st attempt from same IP should be blocked with 429 Too Many Requests
+	reqBlocked := httptest.NewRequest(http.MethodPost, "/api/v1/auth/verify", strings.NewReader(`{"email":"user31@example.com","code":"000000"}`))
+	reqBlocked.Header.Set("Content-Type", "application/json")
+	reqBlocked.RemoteAddr = clientIP
+	recBlocked := httptest.NewRecorder()
+	router.ServeHTTP(recBlocked, reqBlocked)
+	if recBlocked.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 Too Many Requests on 31st verify request, got %d: %s", recBlocked.Code, recBlocked.Body.String())
+	}
+}
+
+func TestAPI_ResendCodeExistingUserConflict(t *testing.T) {
+	api.ResetRateLimits()
+	defer api.ResetRateLimits()
+
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+	defer db.Close()
+
+	router := api.NewRouter(db, nil, api.NewHub())
+
+	// 1. Seed existing registered user
+	user := &model.User{
+		ID:        "usr_already_registered",
+		Name:      "Already Registered",
+		Email:     "registered@example.com",
+		Role:      "viewer",
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := db.SaveUser(context.Background(), user); err != nil {
+		t.Fatalf("failed to save user: %v", err)
+	}
+
+	// 2. Also seed a stale pending verification record
+	verif := &model.EmailVerification{
+		Email:        "registered@example.com",
+		Name:         "Already Registered",
+		PasswordHash: "somehash",
+		Code:         "123456",
+		ExpiresAt:    time.Now().UTC().Add(15 * time.Minute),
+		LastSentAt:   time.Now().UTC().Add(-45 * time.Second),
+		CreatedAt:    time.Now().UTC().Add(-45 * time.Second),
+	}
+	if err := db.SaveEmailVerification(context.Background(), verif); err != nil {
+		t.Fatalf("failed to save verification: %v", err)
+	}
+
+	// 3. Resend code -> should return 409 Conflict and delete stale verification
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/resend-code", strings.NewReader(`{"email":"registered@example.com"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict for already registered user on resend, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Stale verification should be purged
+	stale, _ := db.GetEmailVerification(context.Background(), "registered@example.com")
+	if stale != nil {
+		t.Errorf("expected stale verification to be deleted after 409 Conflict")
+	}
+}
+
+
 

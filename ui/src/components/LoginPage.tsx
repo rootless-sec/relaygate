@@ -373,6 +373,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       setError('Alamat email tidak boleh mengandung spasi.');
       return;
     }
+    if (!email.includes('@') || !email.includes('.')) {
+      setError('Alamat email tidak valid.');
+      return;
+    }
 
     setError(null);
     setLoading(true);
@@ -403,6 +407,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     e.preventDefault();
     if (!name.trim()) {
       setError('Nama lengkap atau username wajib diisi.');
+      return;
+    }
+    if (name.trim().length > 50) {
+      setError('Nama lengkap atau username maksimal 50 karakter.');
       return;
     }
     if (!email.trim() || !email.includes('@') || !email.includes('.')) {
@@ -642,9 +650,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
         {/* Tab Toggle (only visible in login or register mode) */}
         {mode !== 'verify' && (
-          <div className="flex p-1 bg-zinc-100 rounded-lg mb-5 border border-zinc-200">
+          <div
+            role="tablist"
+            aria-label="Mode Autentikasi"
+            className="flex p-1 bg-zinc-100 rounded-lg mb-5 border border-zinc-200"
+          >
             <button
               type="button"
+              role="tab"
+              aria-selected={mode === 'login'}
               onClick={() => switchMode('login')}
               className={`flex-1 min-h-[44px] sm:min-h-[38px] py-2 px-3 text-xs font-semibold rounded-md transition-all cursor-pointer ${
                 mode === 'login'
@@ -656,6 +670,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             </button>
             <button
               type="button"
+              role="tab"
+              aria-selected={mode === 'register'}
               onClick={() => switchMode('register')}
               className={`flex-1 min-h-[44px] sm:min-h-[38px] py-2 px-3 text-xs font-semibold rounded-md transition-all cursor-pointer ${
                 mode === 'register'
@@ -763,6 +779,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 </label>
                 <button
                   type="button"
+                  aria-label={showPassword ? 'Sembunyikan password' : 'Lihat password'}
+                  aria-pressed={showPassword}
                   onClick={() => setShowPassword(!showPassword)}
                   className="min-h-[44px] px-2.5 py-1.5 -mr-2 text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center gap-1 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-900 rounded"
                 >
@@ -871,6 +889,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 </label>
                 <button
                   type="button"
+                  aria-label={showPassword ? 'Sembunyikan password' : 'Lihat password'}
+                  aria-pressed={showPassword}
                   onClick={() => setShowPassword(!showPassword)}
                   className="min-h-[44px] px-2.5 py-1.5 -mr-2 text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center gap-1 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-900 rounded"
                 >
@@ -908,6 +928,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 </label>
                 <button
                   type="button"
+                  aria-label={showConfirmPassword ? 'Sembunyikan password' : 'Lihat password'}
+                  aria-pressed={showConfirmPassword}
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                   className="min-h-[44px] px-2.5 py-1.5 -mr-2 text-xs text-zinc-500 hover:text-zinc-900 transition-colors flex items-center gap-1 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-900 rounded"
                 >
@@ -999,6 +1021,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 Masukkan 6-Digit Kode Verifikasi
               </label>
               <div
+                role="group"
+                aria-label="6-digit kode verifikasi"
                 className="flex items-center justify-center gap-2 sm:gap-2.5"
                 onPaste={handleOtpPaste}
               >
@@ -1009,6 +1033,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     type="text"
                     inputMode="numeric"
                     maxLength={1}
+                    aria-label={`Digit ${idx + 1} dari 6`}
                     value={digit}
                     onChange={(e) => handleOtpChange(idx, e.target.value)}
                     onKeyDown={(e) => handleOtpKeyDown(idx, e)}
