@@ -252,10 +252,37 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     accountEmail: string,
     accountName?: string
   ) => {
-    const cleanEmail = accountEmail.trim().toLowerCase();
-    if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
-      setOauthError('Alamat email tidak valid.');
+    const rawInput = accountEmail.trim();
+    if (!rawInput) {
+      setOauthError(
+        activeOAuthModal === 'google'
+          ? 'Alamat email wajib diisi.'
+          : 'Alamat email atau username wajib diisi.'
+      );
       return;
+    }
+
+    let cleanEmail = rawInput.toLowerCase();
+    let cleanName = (accountName || '').trim();
+
+    // If username provided without '@' delimiter, normalize to valid provider domain
+    if (!cleanEmail.includes('@')) {
+      cleanName = cleanName || rawInput;
+      if (provider === 'github') {
+        cleanEmail = `${cleanEmail}@users.noreply.github.com`;
+      } else if (provider === 'gitlab') {
+        cleanEmail = `${cleanEmail}@users.noreply.gitlab.com`;
+      } else {
+        cleanEmail = `${cleanEmail}@gmail.com`;
+      }
+    } else {
+      if (!cleanEmail.includes('.')) {
+        setOauthError('Alamat email tidak valid.');
+        return;
+      }
+      if (!cleanName) {
+        cleanName = rawInput.split('@')[0];
+      }
     }
 
     setOauthLoading(true);
@@ -265,13 +292,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       const res = await oauthLogin({
         provider,
         email: cleanEmail,
-        name: (accountName || cleanEmail.split('@')[0]).trim(),
+        name: cleanName,
       });
 
       localStorage.setItem(
         'relaygate_auth',
         JSON.stringify({
           token: res.token,
+          id: res.user.id,
+          user: res.user,
           email: res.user.email,
           name: res.user.name,
           role: res.user.role,
@@ -1011,9 +1040,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               ? 'Pilih akun GitHub'
               : 'Pilih akun GitLab'
           }
+          onClick={handleCloseOAuthModal}
           className="fixed inset-0 z-50 bg-zinc-950/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
         >
-          <div className="w-full max-w-[420px] bg-white border border-zinc-200 rounded-2xl p-5 sm:p-6 shadow-xl relative animate-in zoom-in-95 duration-150 text-left">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-[420px] bg-white border border-zinc-200 rounded-2xl p-5 sm:p-6 shadow-xl relative animate-in zoom-in-95 duration-150 text-left"
+          >
             {/* Modal Header */}
             <div className="flex items-start justify-between mb-4">
               <div className="flex items-center gap-2.5">
@@ -1193,14 +1226,22 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               >
                 <div>
                   <label className="block text-xs font-semibold text-zinc-900 mb-1">
-                    Alamat Email
+                    {activeOAuthModal === 'google'
+                      ? 'Alamat Email'
+                      : 'Alamat Email atau Username'}
                   </label>
                   <input
-                    type="email"
+                    type={activeOAuthModal === 'google' ? 'email' : 'text'}
                     required
                     value={customOauthEmail}
                     onChange={(e) => setCustomOauthEmail(e.target.value)}
-                    placeholder="nama@email.com"
+                    placeholder={
+                      activeOAuthModal === 'google'
+                        ? 'nama@gmail.com'
+                        : activeOAuthModal === 'github'
+                        ? 'Username GitHub atau email'
+                        : 'Username GitLab atau email'
+                    }
                     autoFocus
                     className="w-full px-3 py-2 min-h-[44px] text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900"
                   />

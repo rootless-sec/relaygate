@@ -2341,6 +2341,10 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(loginSource, /Gunakan akun lain/, 'Must include "Gunakan akun lain" custom option');
     assert.match(loginSource, /oauthLogin\(\{/, 'Must trigger in-app oauthLogin directly upon account selection');
     assert.match(loginSource, /onLoginSuccess\(res\.user\.email\)/, 'Must call onLoginSuccess to log user directly into RelayGate dashboard console');
+    assert.match(loginSource, /onClick=\{handleCloseOAuthModal\}/, 'OAuth modal backdrop must allow dismissal upon outer click');
+    assert.match(loginSource, /e\.stopPropagation\(\)/, 'OAuth modal dialog box must isolate event bubbling');
+    assert.match(loginSource, /users\.noreply\.github\.com/, 'OAuth modal must normalize custom GitHub username to valid domain');
+    assert.match(loginSource, /id:\s*res\.user\.id/, 'OAuth session storage must persist complete user profile including id');
   });
 
   // Cleanup temp files
