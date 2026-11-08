@@ -2354,6 +2354,8 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(loginSource, /Daftarkan akun operator RelayGate baru/, 'LoginPage must display registration subtitle for GitHub/GitLab in register mode');
     assert.match(loginSource, /action,\s*\}/, 'handleSelectOAuthAccount must pass action to oauthLogin');
     assert.match(loginSource, /Buka Tab Daftar untuk Registrasi/, 'LoginPage must provide shortcut to Daftar tab upon unregistered account error');
+    assert.match(loginSource, /Lanjutkan ke RelayGate/, 'LoginPage must display "Lanjutkan ke RelayGate" subtitle in login mode');
+    assert.match(loginSource, /Alamat email tidak boleh mengandung spasi/, 'handleSelectOAuthAccount must reject whitespace in email address');
     assert.match(apiSource, /action\?: 'login' \| 'register'/, 'api.ts oauthLogin signature must accept action parameter');
   });
 

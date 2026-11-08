@@ -1592,6 +1592,104 @@ func TestOAuthLogin(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 for initial password set on oauth user, got %d: %s", rec.Code, rec.Body.String())
 	}
+
+	// 11. Omitting action defaults safely to login
+	// 11a. Unregistered user with omitted action is rejected
+	noActionUnregBody := `{"provider":"google","email":"noaction.unreg@example.com","name":"No Action User"}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(noActionUnregBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 on omitted action for unregistered user, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Akun belum terdaftar") {
+		t.Fatalf("expected error message to mention 'Akun belum terdaftar', got %s", rec.Body.String())
+	}
+
+	// 11b. Registered user with omitted action succeeds (defaults to login)
+	noActionRegBody := `{"provider":"google","email":"alex.dev@gmail.com","name":"Alex Prasetyo"}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(noActionRegBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on omitted action for registered user, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 12. Invalid action is rejected with 400
+	invalidActionBody := `{"provider":"google","email":"alex.dev@gmail.com","name":"Alex Prasetyo","action":"exploit"}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(invalidActionBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 on invalid action, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Aksi OAuth tidak valid") {
+		t.Fatalf("expected error message to mention 'Aksi OAuth tidak valid', got %s", rec.Body.String())
+	}
+
+	// 13. Email with internal whitespace is rejected
+	spaceEmailBody := `{"provider":"google","email":"alex dev@gmail.com","name":"Alex Prasetyo","action":"register"}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(spaceEmailBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 on email with space, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 14. Password user attempting OAuth register is rejected; OAuth login succeeds
+	// 14a. Register password user dev2@company.com
+	regDevBody := `{"name":"Password Dev","email":"dev2@company.com","password":"securepassword123"}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(regDevBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on password registration, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var regDevRes api.RegisterResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &regDevRes)
+
+	// Verify code
+	verifyBody := fmt.Sprintf(`{"email":"dev2@company.com","code":%q}`, regDevRes.DevCode)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/verify", strings.NewReader(verifyBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
+		t.Fatalf("expected 201 on verify, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 14b. Attempt OAuth registration with dev2@company.com
+	oauthDupRegBody := `{"provider":"google","email":"dev2@company.com","name":"Password Dev","action":"register"}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(oauthDupRegBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 on OAuth register for existing password user, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Akun sudah terdaftar") {
+		t.Fatalf("expected error to mention 'Akun sudah terdaftar', got %s", rec.Body.String())
+	}
+
+	// 14c. OAuth login with dev2@company.com succeeds
+	oauthLoginBody := `{"provider":"google","email":"dev2@company.com","name":"Password Dev","action":"login"}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(oauthLoginBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on OAuth login for existing password user, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var oauthLinkedRes api.AuthResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &oauthLinkedRes)
+	if oauthLinkedRes.User.Email != "dev2@company.com" {
+		t.Fatalf("expected linked email dev2@company.com, got %s", oauthLinkedRes.User.Email)
+	}
 }
 
 

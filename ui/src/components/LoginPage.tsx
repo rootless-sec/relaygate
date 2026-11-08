@@ -265,6 +265,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     let cleanEmail = rawInput.toLowerCase();
     let cleanName = (accountName || '').trim();
 
+    if (cleanEmail.includes(' ')) {
+      setOauthError(
+        activeOAuthModal === 'google'
+          ? 'Alamat email tidak boleh mengandung spasi.'
+          : 'Alamat email atau username tidak boleh mengandung spasi.'
+      );
+      return;
+    }
+
     // If username provided without '@' delimiter, normalize to valid provider domain
     if (!cleanEmail.includes('@')) {
       cleanName = cleanName || rawInput;
@@ -1081,9 +1090,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                       ? activeOAuthModal === 'google'
                         ? 'Pilih akun untuk mendaftar ke RelayGate'
                         : 'Daftarkan akun operator RelayGate baru'
-                      : activeOAuthModal === 'google'
-                      ? 'Lanjutkan ke RelayGate'
-                      : 'Lanjutkan ke RelayGate Control Panel'}
+                      : 'Lanjutkan ke RelayGate'}
                   </p>
                 </div>
               </div>

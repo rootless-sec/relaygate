@@ -1279,7 +1279,7 @@ func (a *API) OAuthLogin(w http.ResponseWriter, r *http.Request) {
 		action = "login"
 	}
 
-	if req.Email == "" || !strings.Contains(req.Email, "@") || !strings.Contains(req.Email, ".") {
+	if req.Email == "" || !strings.Contains(req.Email, "@") || !strings.Contains(req.Email, ".") || strings.Contains(req.Email, " ") {
 		writeError(w, http.StatusBadRequest, "Format alamat email tidak valid", nil)
 		return
 	}
