@@ -722,6 +722,10 @@ func (a *API) CreateEndpoint(w http.ResponseWriter, r *http.Request) {
 	if provider == "" {
 		provider = model.ProviderGeneric
 	}
+	if !provider.IsValid() {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid or unsupported provider: %s", provider), nil)
+		return
+	}
 
 	secretKey := strings.TrimSpace(req.SecretKey)
 	if secretKey == "" {
@@ -786,6 +790,10 @@ func (a *API) UpdateEndpoint(w http.ResponseWriter, r *http.Request) {
 		existing.Name = strings.TrimSpace(*req.Name)
 	}
 	if req.Provider != nil && *req.Provider != "" {
+		if !(*req.Provider).IsValid() {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid or unsupported provider: %s", *req.Provider), nil)
+			return
+		}
 		existing.Provider = *req.Provider
 	}
 	if req.TargetURL != nil {

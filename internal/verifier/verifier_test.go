@@ -4,7 +4,9 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/sha512"
+	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -309,6 +311,127 @@ func TestVerifier_TypedErrors(t *testing.T) {
 	}, []byte(`{}`))
 	if vErr, ok := err.(*verifier.VerificationError); !ok || vErr.Code != model.ErrCodeSignatureMismatch {
 		t.Fatalf("expected ErrCodeSignatureMismatch, got %v", err)
+	}
+}
+
+func TestVerifier_ShopifyHMAC(t *testing.T) {
+	engine := verifier.NewEngine()
+	secret := "shpss_test_secret_key_shopify_99"
+	payload := []byte(`{"id":123456789,"topic":"orders/create","total_price":"199.99"}`)
+
+	// Shopify HMAC-SHA256 digest encoded as standard Base64
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(payload)
+	validDigest := mac.Sum(nil)
+	validBase64Sig := base64.StdEncoding.EncodeToString(validDigest)
+
+	ep := &model.Endpoint{
+		ID:        "ep-shopify-1",
+		Provider:  model.ProviderShopify,
+		SecretKey: secret,
+	}
+
+	// 1. Valid signature with exact header name
+	status, err := engine.Verify(ep, map[string]string{
+		"X-Shopify-Hmac-Sha256": validBase64Sig,
+	}, payload)
+	if err != nil || status != verifier.VerificationValid {
+		t.Fatalf("expected valid shopify verification, got status=%d, err=%v", status, err)
+	}
+
+	// 2. Direct VerifyShopify call
+	valid, err := engine.VerifyShopify(secret, map[string]string{
+		"X-Shopify-Hmac-Sha256": validBase64Sig,
+	}, payload)
+	if err != nil || !valid {
+		t.Fatalf("expected direct VerifyShopify to succeed, got valid=%v, err=%v", valid, err)
+	}
+
+	// 3. Case-insensitive header match
+	status, err = engine.Verify(ep, map[string]string{
+		"x-shopify-hmac-sha256": validBase64Sig,
+	}, payload)
+	if err != nil || status != verifier.VerificationValid {
+		t.Fatalf("expected valid shopify verification with lowercase header, got status=%d, err=%v", status, err)
+	}
+
+	// 4. Invalid signature (mismatched base64 content)
+	wrongDigest := sha256.Sum256([]byte("wrong-signature-bytes"))
+	badSig := base64.StdEncoding.EncodeToString(wrongDigest[:])
+	status, err = engine.Verify(ep, map[string]string{
+		"X-Shopify-Hmac-Sha256": badSig,
+	}, payload)
+	if status != verifier.VerificationInvalid || err == nil {
+		t.Fatalf("expected invalid status for mismatched signature, got status=%d, err=%v", status, err)
+	}
+	var vErr *verifier.VerificationError
+	if !errors.As(err, &vErr) || vErr.Code != model.ErrCodeSignatureMismatch {
+		t.Fatalf("expected ErrCodeSignatureMismatch, got %v", err)
+	}
+
+	// 5. Altered payload with valid signature
+	status, err = engine.Verify(ep, map[string]string{
+		"X-Shopify-Hmac-Sha256": validBase64Sig,
+	}, []byte(`{"id":123456789,"topic":"orders/create","total_price":"999.99"}`))
+	if status != verifier.VerificationInvalid || err == nil {
+		t.Fatalf("expected invalid status for altered payload, got status=%d, err=%v", status, err)
+	}
+
+	// 6. Missing X-Shopify-Hmac-Sha256 header
+	status, err = engine.Verify(ep, map[string]string{}, payload)
+	if status != verifier.VerificationInvalid || err == nil {
+		t.Fatalf("expected invalid status for missing header, got status=%d, err=%v", status, err)
+	}
+	if !errors.As(err, &vErr) || vErr.Code != model.ErrCodeSignatureHeaderMissing {
+		t.Fatalf("expected ErrCodeSignatureHeaderMissing, got %v", err)
+	}
+
+	// 7. Corrupted / invalid base64 encoding
+	status, err = engine.Verify(ep, map[string]string{
+		"X-Shopify-Hmac-Sha256": "!!!not-valid-base64@@@",
+	}, payload)
+	if status != verifier.VerificationInvalid || err == nil {
+		t.Fatalf("expected invalid status for corrupted base64, got status=%d, err=%v", status, err)
+	}
+	if !errors.Is(err, model.ErrSignatureInvalid) {
+		t.Fatalf("expected err to wrap model.ErrSignatureInvalid, got %v", err)
+	}
+
+	// 8. Empty payload handling
+	status, err = engine.Verify(ep, map[string]string{
+		"X-Shopify-Hmac-Sha256": validBase64Sig,
+	}, []byte{})
+	if status != verifier.VerificationInvalid || err == nil {
+		t.Fatalf("expected invalid status for empty payload, got status=%d, err=%v", status, err)
+	}
+	if !errors.As(err, &vErr) || vErr.Code != model.ErrCodeSignaturePayloadMalformed {
+		t.Fatalf("expected ErrCodeSignaturePayloadMalformed for empty payload, got %v", err)
+	}
+
+	// 9. Empty secret key on endpoint -> skipped
+	epNoSecret := &model.Endpoint{
+		ID:        "ep-shopify-nosecret",
+		Provider:  model.ProviderShopify,
+		SecretKey: "",
+	}
+	status, err = engine.Verify(epNoSecret, map[string]string{
+		"X-Shopify-Hmac-Sha256": validBase64Sig,
+	}, payload)
+	if status != verifier.VerificationSkipped || err != nil {
+		t.Fatalf("expected skipped verification for empty secret key, got status=%d, err=%v", status, err)
+	}
+
+	// 10. Direct VerifyShopify with empty secret key -> error
+	valid, err = engine.VerifyShopify("", map[string]string{
+		"X-Shopify-Hmac-Sha256": validBase64Sig,
+	}, payload)
+	if valid || err == nil {
+		t.Fatalf("expected error from direct VerifyShopify with empty secret key, got valid=%v, err=%v", valid, err)
+	}
+
+	// 11. Provider verification kind
+	if kind := verifier.ProviderVerificationKind(model.ProviderShopify); kind != verifier.VerificationKindHMAC {
+		t.Fatalf("expected VerificationKindHMAC for shopify, got %v", kind)
 	}
 }
 

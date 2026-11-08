@@ -1,4 +1,4 @@
-export type ProviderType = 'generic' | 'midtrans' | 'stripe' | 'xendit' | 'github';
+export type ProviderType = 'generic' | 'midtrans' | 'stripe' | 'xendit' | 'github' | 'shopify';
 
 export type EventStatus = 'PENDING' | 'DELIVERED' | 'FAILED' | 'RETRYING';
 

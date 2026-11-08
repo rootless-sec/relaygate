@@ -66,6 +66,8 @@ export function formatSourceIP(ip?: string): string {
 
 export function getExpectedHeaderForProvider(provider?: string): string {
   switch (provider?.toLowerCase()) {
+    case 'shopify':
+      return 'X-Shopify-Hmac-Sha256';
     case 'stripe':
       return 'Stripe-Signature';
     case 'github':
@@ -103,6 +105,7 @@ export function isSensitiveHeader(key: string): boolean {
     lower === 'set-cookie' ||
     lower === 'x-callback-token' ||
     lower === 'stripe-signature' ||
+    lower === 'x-shopify-hmac-sha256' ||
     lower === 'x-api-key' ||
     lower.startsWith('x-hub-signature') ||
     lower === 'x-signature-sha256' ||
@@ -360,6 +363,25 @@ export function analyzeEventError(event: WebhookEvent): ErrorAnalysis {
           advice: [
             'Samakan Webhook Secret di menu Endpoints RelayGate dengan secret di dashboard GitHub.',
             'Pastikan reverse proxy atau WAF di antara GitHub dan RelayGate tidak memodifikasi raw payload.',
+            'Klik Verifikasi ulang & kirim setelah secret diperbaiki.',
+          ],
+          expectedHeader,
+          isEligibleForReplay: true,
+          isEligibleForBulkReplay: true,
+        };
+      }
+      if (prov === 'shopify') {
+        return {
+          type: 'signature',
+          code,
+          class: cls,
+          badgeLabel: 'Signature tidak cocok',
+          badgeStyle: 'bg-rose-50 text-rose-800 border-rose-200',
+          title: 'Signature HMAC Shopify tidak cocok',
+          summary: 'HMAC-SHA256 (Base64) dari payload tidak cocok dengan signature pada header X-Shopify-Hmac-Sha256.',
+          advice: [
+            'Samakan Webhook Secret / API Secret di menu Endpoints RelayGate dengan Secret Key di Shopify Admin App.',
+            'Pastikan reverse proxy atau WAF di antara Shopify dan RelayGate tidak memodifikasi raw payload UTF-8.',
             'Klik Verifikasi ulang & kirim setelah secret diperbaiki.',
           ],
           expectedHeader,

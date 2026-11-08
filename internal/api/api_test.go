@@ -116,6 +116,81 @@ func TestAPI_EndpointsCRUD(t *testing.T) {
 	}
 }
 
+func TestAPI_EndpointProviderValidationAndShopify(t *testing.T) {
+	_, _, _, router, cleanup := setupTestAPI(t)
+	defer cleanup()
+
+	// 1. Valid provider: shopify
+	shopifyBody := []byte(`{"name":"Shopify Store","provider":"shopify","target_url":"https://api.example.com/shopify"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/endpoints", bytes.NewReader(shopifyBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created for shopify endpoint, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var createdShopify model.Endpoint
+	if err := json.Unmarshal(rec.Body.Bytes(), &createdShopify); err != nil {
+		t.Fatalf("failed to decode created endpoint: %v", err)
+	}
+	if createdShopify.Provider != model.ProviderShopify {
+		t.Errorf("expected provider 'shopify', got '%s'", createdShopify.Provider)
+	}
+
+	// 2. Invalid provider on CreateEndpoint -> 400 Bad Request
+	invalidBody := []byte(`{"name":"Bad Provider","provider":"unsupported_provider","target_url":"https://api.example.com/hooks"}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/endpoints", bytes.NewReader(invalidBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for unsupported provider on create, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 3. Supported providers all succeed on create
+	for _, prov := range []model.ProviderType{
+		model.ProviderGeneric,
+		model.ProviderStripe,
+		model.ProviderXendit,
+		model.ProviderMidtrans,
+		model.ProviderGithub,
+		model.ProviderShopify,
+	} {
+		pBody := []byte(fmt.Sprintf(`{"name":"Endpoint %s","provider":"%s","target_url":"https://api.example.com/%s"}`, prov, prov, prov))
+		pReq := httptest.NewRequest(http.MethodPost, "/api/v1/endpoints", bytes.NewReader(pBody))
+		pReq.Header.Set("Content-Type", "application/json")
+		pRec := httptest.NewRecorder()
+		router.ServeHTTP(pRec, pReq)
+		if pRec.Code != http.StatusCreated {
+			t.Fatalf("expected 201 Created for supported provider %s, got %d: %s", prov, pRec.Code, pRec.Body.String())
+		}
+	}
+
+	// 4. Update endpoint with invalid provider -> 400 Bad Request
+	badPatchBody := []byte(`{"provider":"bogus_crypto"}`)
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/endpoints/"+createdShopify.ID, bytes.NewReader(badPatchBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for unsupported provider on update, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 5. Update endpoint with valid provider -> 200 OK
+	goodPatchBody := []byte(`{"provider":"stripe"}`)
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/endpoints/"+createdShopify.ID, bytes.NewReader(goodPatchBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for valid provider update, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestAPI_EventsAndReplay(t *testing.T) {
 	db, pool, _, router, cleanup := setupTestAPI(t)
 	defer cleanup()

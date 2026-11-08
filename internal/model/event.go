@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"strings"
 	"time"
 )
@@ -14,7 +15,21 @@ const (
 	ProviderStripe   ProviderType = "stripe"
 	ProviderXendit   ProviderType = "xendit"
 	ProviderGithub   ProviderType = "github"
+	ProviderShopify  ProviderType = "shopify"
 )
+
+// ErrSignatureInvalid signals an invalid cryptographic signature or corrupted encoding
+var ErrSignatureInvalid = errors.New("invalid signature")
+
+// IsValid reports whether the provider type is supported
+func (p ProviderType) IsValid() bool {
+	switch p {
+	case ProviderGeneric, ProviderMidtrans, ProviderStripe, ProviderXendit, ProviderGithub, ProviderShopify:
+		return true
+	default:
+		return false
+	}
+}
 
 // EventStatus defines delivery and processing lifecycle state
 type EventStatus string
@@ -177,12 +192,13 @@ func InferFailureCode(lastError string, httpStatusCode int, attempts int, isVeri
 	}
 
 	// 1. Verification rejected: explicit verification invalid (-1) or (0 attempts and not explicitly verified)
-	if isVerified == -1 || (attempts == 0 && isVerified != 1 && (strings.Contains(errLower, "signature") || strings.Contains(errLower, "payload") || strings.Contains(errLower, "header") || strings.Contains(errLower, "token") || strings.Contains(errLower, "midtrans") || strings.Contains(errLower, "stripe") || strings.Contains(errLower, "github") || strings.Contains(errLower, "xendit"))) {
+	if isVerified == -1 || (attempts == 0 && isVerified != 1 && (strings.Contains(errLower, "signature") || strings.Contains(errLower, "payload") || strings.Contains(errLower, "header") || strings.Contains(errLower, "token") || strings.Contains(errLower, "midtrans") || strings.Contains(errLower, "stripe") || strings.Contains(errLower, "github") || strings.Contains(errLower, "xendit") || strings.Contains(errLower, "shopify"))) {
 		switch {
 		case strings.Contains(errLower, "missing signature header") ||
 			strings.Contains(errLower, "missing stripe-signature") ||
 			strings.Contains(errLower, "missing x-hub-signature") ||
 			strings.Contains(errLower, "missing x-callback-token") ||
+			strings.Contains(errLower, "missing x-shopify-hmac-sha256") ||
 			strings.Contains(errLower, "signature_key not found"):
 			return ErrorClassVerificationRejected, ErrCodeSignatureHeaderMissing
 

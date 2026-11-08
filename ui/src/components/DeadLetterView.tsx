@@ -903,6 +903,7 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
             >
               <option value="">Semua Provider</option>
               <option value="stripe">Stripe</option>
+              <option value="shopify">Shopify</option>
               <option value="xendit">Xendit</option>
               <option value="midtrans">Midtrans</option>
               <option value="github">GitHub</option>

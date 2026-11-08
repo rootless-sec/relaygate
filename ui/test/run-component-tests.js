@@ -97,6 +97,7 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
   const { 
     isSensitiveHeader, 
     analyzeEventError, 
+    getExpectedHeaderForProvider,
     FAILURE_FAMILY_KEYS, 
     FAILURE_CODE_LABELS, 
     formatFailureCodeLabel, 
@@ -2095,6 +2096,42 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
       /aria-labelledby="add-endpoint-modal-title"/,
       'Modal container must declare aria-labelledby="add-endpoint-modal-title"'
     );
+  });
+
+  await suite.test('Shopify Webhook Provider Protocol & UI Formatters Parity', () => {
+    // 1. Expected header resolution
+    assert.equal(getExpectedHeaderForProvider('shopify'), 'X-Shopify-Hmac-Sha256');
+    assert.equal(getExpectedHeaderForProvider('SHOPIFY'), 'X-Shopify-Hmac-Sha256');
+
+    // 2. Sensitive header protection
+    assert.equal(isSensitiveHeader('X-Shopify-Hmac-Sha256'), true);
+    assert.equal(isSensitiveHeader('x-shopify-hmac-sha256'), true);
+
+    // 3. Error analysis and troubleshooting advice for Shopify signature mismatch
+    const shopifyDiag = analyzeEventError({
+      id: 'evt-shopify-test',
+      provider: 'shopify',
+      status: 'FAILED',
+      failure_code: 'SIGNATURE_MISMATCH',
+      is_verified: -1,
+      attempts: 0,
+      headers: { 'X-Shopify-Hmac-Sha256': 'bad-base64-digest' },
+    });
+    assert.equal(shopifyDiag.title, 'Signature HMAC Shopify tidak cocok');
+    assert.equal(shopifyDiag.expectedHeader, 'X-Shopify-Hmac-Sha256');
+    assert.equal(shopifyDiag.isEligibleForReplay, true);
+    assert.ok(
+      shopifyDiag.advice.some((adv) => adv.includes('Shopify Admin App')),
+      'Must guide user to check Secret Key in Shopify Admin App'
+    );
+
+    // 4. EndpointsView contains Shopify provider option
+    const endpointsSource = fs.readFileSync(path.join(__dirname, '../src/components/EndpointsView.tsx'), 'utf8');
+    assert.match(endpointsSource, /<option value="shopify">Shopify<\/option>/);
+
+    // 5. DeadLetterView contains Shopify provider filter option
+    const dlqSource = fs.readFileSync(path.join(__dirname, '../src/components/DeadLetterView.tsx'), 'utf8');
+    assert.match(dlqSource, /<option value="shopify">Shopify<\/option>/);
   });
 
   await suite.test('LandingPage Hero (dtnuyvc-casino-hero-section) + Body (kybern.treshnanda.tech) Adapted to RelayGate & Zero Rainbow Slop', async () => {

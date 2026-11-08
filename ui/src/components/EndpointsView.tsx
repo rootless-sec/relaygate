@@ -400,6 +400,7 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                     >
                       <option value="generic">Generic (HMAC-SHA256)</option>
                       <option value="stripe">Stripe</option>
+                      <option value="shopify">Shopify</option>
                       <option value="xendit">Xendit</option>
                       <option value="midtrans">Midtrans</option>
                       <option value="github">GitHub</option>

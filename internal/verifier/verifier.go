@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -40,6 +42,13 @@ func (ve *VerificationError) Error() string {
 
 func (ve *VerificationError) Unwrap() error {
 	return ve.Err
+}
+
+func (ve *VerificationError) Is(target error) bool {
+	if ve.Err != nil && errors.Is(ve.Err, target) {
+		return true
+	}
+	return false
 }
 
 func newVerificationError(code model.ErrorCode, format string, a ...any) *VerificationError {
@@ -111,6 +120,13 @@ func (e *Engine) Verify(ep *model.Endpoint, headers map[string]string, payload [
 
 	case model.ProviderXendit:
 		valid, err := e.VerifyXendit(secretKey, headers)
+		if err != nil || !valid {
+			return VerificationInvalid, err
+		}
+		return VerificationValid, nil
+
+	case model.ProviderShopify:
+		valid, err := e.VerifyShopify(secretKey, headers, payload)
 		if err != nil || !valid {
 			return VerificationInvalid, err
 		}
@@ -371,6 +387,39 @@ const (
 	VerificationKindHash        VerificationKind = "hash"
 )
 
+// VerifyShopify performs HMAC-SHA256 signature verification for Shopify webhooks.
+// Shopify computes an HMAC-SHA256 digest over the raw UTF-8 request payload using the shared client secret key,
+// and encodes it as standard Base64 in the X-Shopify-Hmac-Sha256 header.
+func (e *Engine) VerifyShopify(secretKey string, headers map[string]string, payload []byte) (bool, error) {
+	if strings.TrimSpace(secretKey) == "" {
+		return false, fmt.Errorf("secret key cannot be empty")
+	}
+	if len(payload) == 0 {
+		return false, newVerificationError(model.ErrCodeSignaturePayloadMalformed, "empty shopify payload")
+	}
+
+	sigHeader := getHeader(headers, "X-Shopify-Hmac-Sha256")
+	if sigHeader == "" {
+		return false, newVerificationError(model.ErrCodeSignatureHeaderMissing, "missing X-Shopify-Hmac-Sha256 header")
+	}
+
+	cleanSig := strings.TrimSpace(sigHeader)
+	decodedSig, err := base64.StdEncoding.DecodeString(cleanSig)
+	if err != nil {
+		return false, newVerificationError(model.ErrCodeSignatureMismatch, "%w: invalid base64 signature: %v", model.ErrSignatureInvalid, err)
+	}
+
+	mac := hmac.New(sha256.New, []byte(secretKey))
+	mac.Write(payload)
+	expectedDigest := mac.Sum(nil)
+
+	if subtle.ConstantTimeCompare(decodedSig, expectedDigest) == 1 {
+		return true, nil
+	}
+
+	return false, newVerificationError(model.ErrCodeSignatureMismatch, "shopify signature mismatch")
+}
+
 // ProviderVerificationKind returns the verification kind for a given provider.
 // This is the single source of truth for verification kinds.
 func ProviderVerificationKind(provider model.ProviderType) VerificationKind {
@@ -379,7 +428,7 @@ func ProviderVerificationKind(provider model.ProviderType) VerificationKind {
 		return VerificationKindStaticToken
 	case model.ProviderMidtrans:
 		return VerificationKindHash
-	case model.ProviderStripe, model.ProviderGithub, model.ProviderGeneric:
+	case model.ProviderStripe, model.ProviderGithub, model.ProviderShopify, model.ProviderGeneric:
 		return VerificationKindHMAC
 	default:
 		return VerificationKindHMAC
