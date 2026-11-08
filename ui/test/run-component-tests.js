@@ -2345,6 +2345,16 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(loginSource, /e\.stopPropagation\(\)/, 'OAuth modal dialog box must isolate event bubbling');
     assert.match(loginSource, /users\.noreply\.github\.com/, 'OAuth modal must normalize custom GitHub username to valid domain');
     assert.match(loginSource, /id:\s*res\.user\.id/, 'OAuth session storage must persist complete user profile including id');
+
+    // 8. Register vs Login Differentiation & MVP Security Invariants
+    assert.match(loginSource, /Daftar dengan Google/, 'LoginPage must display "Daftar dengan Google" title/action in register mode');
+    assert.match(loginSource, /Daftar dengan GitHub/, 'LoginPage must display "Daftar dengan GitHub" title/action in register mode');
+    assert.match(loginSource, /Daftar dengan GitLab/, 'LoginPage must display "Daftar dengan GitLab" title/action in register mode');
+    assert.match(loginSource, /Pilih akun untuk mendaftar ke RelayGate/, 'LoginPage must display registration subtitle for Google in register mode');
+    assert.match(loginSource, /Daftarkan akun operator RelayGate baru/, 'LoginPage must display registration subtitle for GitHub/GitLab in register mode');
+    assert.match(loginSource, /action,\s*\}/, 'handleSelectOAuthAccount must pass action to oauthLogin');
+    assert.match(loginSource, /Buka Tab Daftar untuk Registrasi/, 'LoginPage must provide shortcut to Daftar tab upon unregistered account error');
+    assert.match(apiSource, /action\?: 'login' \| 'register'/, 'api.ts oauthLogin signature must accept action parameter');
   });
 
   // Cleanup temp files

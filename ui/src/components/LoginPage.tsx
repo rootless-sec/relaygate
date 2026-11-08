@@ -288,11 +288,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     setOauthLoading(true);
     setOauthError(null);
 
+    const action = mode === 'register' ? 'register' : 'login';
+
     try {
       const res = await oauthLogin({
         provider,
         email: cleanEmail,
         name: cleanName,
+        action,
       });
 
       localStorage.setItem(
@@ -1034,11 +1037,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           role="dialog"
           aria-modal="true"
           aria-label={
-            activeOAuthModal === 'google'
+            mode === 'register'
+              ? activeOAuthModal === 'google'
+                ? 'Daftar dengan Google'
+                : activeOAuthModal === 'github'
+                ? 'Daftar dengan GitHub'
+                : 'Daftar dengan GitLab'
+              : activeOAuthModal === 'google'
               ? 'Pilih akun Google'
               : activeOAuthModal === 'github'
-              ? 'Pilih akun GitHub'
-              : 'Pilih akun GitLab'
+              ? 'Masuk dengan GitHub'
+              : 'Masuk dengan GitLab'
           }
           onClick={handleCloseOAuthModal}
           className="fixed inset-0 z-50 bg-zinc-950/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
@@ -1055,14 +1064,24 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 {activeOAuthModal === 'gitlab' && <GitLabIcon className="w-6 h-6 shrink-0" />}
                 <div>
                   <h3 className="text-base font-bold text-zinc-900 leading-snug">
-                    {activeOAuthModal === 'google'
+                    {mode === 'register'
+                      ? activeOAuthModal === 'google'
+                        ? 'Daftar dengan Google'
+                        : activeOAuthModal === 'github'
+                        ? 'Daftar dengan GitHub'
+                        : 'Daftar dengan GitLab'
+                      : activeOAuthModal === 'google'
                       ? 'Pilih akun'
                       : activeOAuthModal === 'github'
                       ? 'Masuk dengan GitHub'
                       : 'Masuk dengan GitLab'}
                   </h3>
                   <p className="text-xs text-zinc-500 mt-0.5">
-                    {activeOAuthModal === 'google'
+                    {mode === 'register'
+                      ? activeOAuthModal === 'google'
+                        ? 'Pilih akun untuk mendaftar ke RelayGate'
+                        : 'Daftarkan akun operator RelayGate baru'
+                      : activeOAuthModal === 'google'
                       ? 'Lanjutkan ke RelayGate'
                       : 'Lanjutkan ke RelayGate Control Panel'}
                   </p>
@@ -1079,14 +1098,40 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </button>
             </div>
 
-            {/* Error banner inside modal */}
+            {/* Error banner inside modal with quick mode-switch helper */}
             {oauthError && (
               <div
                 role="alert"
-                className="mb-4 p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium flex items-center gap-2 animate-in"
+                className="mb-4 p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium flex flex-col gap-1.5 animate-in"
               >
-                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-                <span>{oauthError}</span>
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
+                  <span className="flex-1 leading-relaxed">{oauthError}</span>
+                </div>
+                {oauthError.includes('tab Daftar') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      switchMode('register');
+                      setOauthError(null);
+                    }}
+                    className="self-start pl-6 text-[11px] font-semibold text-rose-800 hover:text-rose-950 underline cursor-pointer"
+                  >
+                    Buka Tab Daftar untuk Registrasi &rarr;
+                  </button>
+                )}
+                {oauthError.includes('tab Masuk') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      switchMode('login');
+                      setOauthError(null);
+                    }}
+                    className="self-start pl-6 text-[11px] font-semibold text-rose-800 hover:text-rose-950 underline cursor-pointer"
+                  >
+                    Buka Tab Masuk untuk Login &rarr;
+                  </button>
+                )}
               </div>
             )}
 
@@ -1199,14 +1244,22 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-xs font-semibold text-zinc-800 group-hover:text-zinc-950">
-                        {activeOAuthModal === 'google'
+                        {mode === 'register'
+                          ? activeOAuthModal === 'google'
+                            ? 'Daftar dengan akun lain'
+                            : activeOAuthModal === 'github'
+                            ? 'Daftar dengan akun GitHub lain'
+                            : 'Daftar dengan akun GitLab lain'
+                          : activeOAuthModal === 'google'
                           ? 'Gunakan akun lain'
                           : activeOAuthModal === 'github'
                           ? 'Gunakan akun GitHub lain'
                           : 'Gunakan akun GitLab lain'}
                       </div>
                       <div className="text-[11px] text-zinc-400 mt-0.5">
-                        Masukkan email atau username kustom
+                        {mode === 'register'
+                          ? 'Daftarkan email atau username baru'
+                          : 'Masukkan email atau username kustom'}
                       </div>
                     </div>
                     <ChevronRight className="w-4 h-4 text-zinc-400 group-hover:text-zinc-700 shrink-0" />
@@ -1275,7 +1328,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     disabled={oauthLoading || !customOauthEmail.trim()}
                     className="flex-1 min-h-[44px] px-3 py-2 text-xs font-semibold text-white bg-zinc-900 hover:bg-zinc-800 active:scale-[0.98] rounded-lg transition-colors cursor-pointer disabled:opacity-50"
                   >
-                    {oauthLoading ? 'Memproses...' : 'Lanjutkan'}
+                    {oauthLoading
+                      ? mode === 'register'
+                        ? 'Mendaftarkan...'
+                        : 'Memproses...'
+                      : mode === 'register'
+                      ? 'Daftar'
+                      : 'Lanjutkan'}
                   </button>
                 </div>
               </form>
@@ -1283,7 +1342,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
             {/* Privacy notice / footer matching authentic OAuth prompt */}
             <div className="mt-4 pt-3 border-t border-zinc-100 text-[11px] text-zinc-400 leading-relaxed">
-              {activeOAuthModal === 'google'
+              {mode === 'register'
+                ? activeOAuthModal === 'google'
+                  ? 'Untuk mendaftar, Google akan membagikan nama, alamat email, dan preferensi bahasa Anda dengan RelayGate.'
+                  : activeOAuthModal === 'github'
+                  ? 'Pendaftaran ini menghubungkan profil GitHub Anda ke sesi operator RelayGate secara aman.'
+                  : 'Pendaftaran ini menghubungkan profil GitLab Anda ke sesi operator RelayGate secara aman.'
+                : activeOAuthModal === 'google'
                 ? 'Untuk melanjutkan, Google akan membagikan nama, alamat email, dan preferensi bahasa Anda dengan RelayGate.'
                 : activeOAuthModal === 'github'
                 ? 'Autentikasi ini menghubungkan profil GitHub Anda ke sesi operator RelayGate secara aman.'

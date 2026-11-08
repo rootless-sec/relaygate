@@ -1405,15 +1405,29 @@ func TestOAuthLogin(t *testing.T) {
 
 	router := api.NewRouter(db, nil, api.NewHub())
 
-	// 1. Google login (new user creation, bypasses OTP)
-	googleBody := `{"provider":"google","email":"alex.dev@gmail.com","name":"Alex Prasetyo","avatar_url":"https://lh3.googleusercontent.com/a/sample"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(googleBody))
+	// 1. Unregistered OAuth login attempt is rejected
+	unregGoogleBody := `{"provider":"google","email":"alex.dev@gmail.com","name":"Alex Prasetyo","action":"login"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(unregGoogleBody))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 on unregistered oauth login, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Akun belum terdaftar") {
+		t.Fatalf("expected error message to mention 'Akun belum terdaftar', got %s", rec.Body.String())
+	}
+
+	// 2. Google registration (new user creation, bypasses OTP)
+	googleBody := `{"provider":"google","email":"alex.dev@gmail.com","name":"Alex Prasetyo","avatar_url":"https://lh3.googleusercontent.com/a/sample","action":"register"}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(googleBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 on google oauth login, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected 200 on google oauth register, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	var res api.AuthResponse
@@ -1440,30 +1454,55 @@ func TestOAuthLogin(t *testing.T) {
 		t.Fatalf("expected session cookie matching token %q, got %+v", res.Token, sessCookie)
 	}
 
-	// 2. GitHub login (another user)
-	githubBody := `{"provider":"github","email":"hazama3321@gmail.com","name":"Mafifrizi"}`
+	// 3. Registering again with existing account returns 400 "Akun sudah terdaftar"
+	dupRegBody := `{"provider":"google","email":"alex.dev@gmail.com","name":"Alex Prasetyo","action":"register"}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(dupRegBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 on duplicate oauth register, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Akun sudah terdaftar") {
+		t.Fatalf("expected error message to mention 'Akun sudah terdaftar', got %s", rec.Body.String())
+	}
+
+	// 4. OAuth login with registered account succeeds
+	loginBody := `{"provider":"google","email":"alex.dev@gmail.com","name":"Alex Prasetyo","action":"login"}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(loginBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on google oauth login, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 5. GitHub register (another user)
+	githubBody := `{"provider":"github","email":"hazama3321@gmail.com","name":"Mafifrizi","action":"register"}`
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(githubBody))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 on github oauth login, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected 200 on github oauth register, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// 3. GitLab login
-	gitlabBody := `{"provider":"gitlab","email":"devops@gitlab.com","name":"DevOps Lead"}`
+	// 6. GitLab register
+	gitlabBody := `{"provider":"gitlab","email":"devops@gitlab.com","name":"DevOps Lead","action":"register"}`
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(gitlabBody))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 on gitlab oauth login, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected 200 on gitlab oauth register, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// 4. Unsupported provider returns 400
-	badProviderBody := `{"provider":"twitter","email":"test@twitter.com","name":"Twitter User"}`
+	// 7. Unsupported provider returns 400
+	badProviderBody := `{"provider":"twitter","email":"test@twitter.com","name":"Twitter User","action":"register"}`
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(badProviderBody))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
@@ -1473,8 +1512,8 @@ func TestOAuthLogin(t *testing.T) {
 		t.Fatalf("expected 400 on unsupported provider, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// 5. Invalid email returns 400
-	badEmailBody := `{"provider":"google","email":"not-an-email","name":"Bad User"}`
+	// 8. Invalid email returns 400
+	badEmailBody := `{"provider":"google","email":"not-an-email","name":"Bad User","action":"register"}`
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(badEmailBody))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
@@ -1484,7 +1523,16 @@ func TestOAuthLogin(t *testing.T) {
 		t.Fatalf("expected 400 on invalid email, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// 6. Concurrent OAuth login for same email (atomicity & race resilience)
+	// 9. Pre-register concurrent user then test concurrent OAuth login
+	concurrentPreReg := `{"provider":"google","email":"concurrent.oauth@example.com","name":"Concurrent User","action":"register"}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(concurrentPreReg))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on concurrent pre-register, got %d: %s", rec.Code, rec.Body.String())
+	}
+
 	const concurrentCount = 10
 	var wg sync.WaitGroup
 	errCh := make(chan error, concurrentCount)
@@ -1493,7 +1541,7 @@ func TestOAuthLogin(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			payload := fmt.Sprintf(`{"provider":"google","email":"concurrent.oauth@example.com","name":"Concurrent User %d"}`, idx)
+			payload := fmt.Sprintf(`{"provider":"google","email":"concurrent.oauth@example.com","name":"Concurrent User %d","action":"login"}`, idx)
 			cReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(payload))
 			cReq.Header.Set("Content-Type", "application/json")
 			cRec := httptest.NewRecorder()
@@ -1510,14 +1558,14 @@ func TestOAuthLogin(t *testing.T) {
 		t.Fatalf("concurrent oauth error: %v", err)
 	}
 
-	// 7. Verify OAuth user can set password in ProfileModal
-	oauthUserBody := `{"provider":"gitlab","email":"oauth.password.test@gitlab.com","name":"Password Tester"}`
+	// 10. Verify OAuth registered user can set password in ProfileModal
+	oauthUserBody := `{"provider":"gitlab","email":"oauth.password.test@gitlab.com","name":"Password Tester","action":"register"}`
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth", strings.NewReader(oauthUserBody))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 on gitlab login: %s", rec.Body.String())
+		t.Fatalf("expected 200 on gitlab register: %s", rec.Body.String())
 	}
 
 	var oauthAuthRes api.AuthResponse

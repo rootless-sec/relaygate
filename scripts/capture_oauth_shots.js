@@ -11,6 +11,7 @@ const BRAIN_DIRS = [
   'C:\\Users\\ASUS\\.gemini\\antigravity\\brain\\0f626320-fda7-4886-b746-3f6e3d439983',
   'C:\\Users\\ASUS\\.gemini\\antigravity\\brain\\d14c3bc4-d7e1-41c6-b24a-909a4da0bd58',
   'C:\\Users\\ASUS\\.gemini\\antigravity\\brain\\a3a65308-dfc0-4a49-803a-16058f65b316',
+  'C:\\Users\\ASUS\\.gemini\\antigravity\\brain\\9f9d25c1-7b1e-407d-bba7-b58f590b77f5',
 ];
 const PUBLIC_SHOTS_DIR = path.join(__dirname, '..', 'ui', 'public', 'shots');
 const DIST_SHOTS_DIR = path.join(__dirname, '..', 'ui', 'dist', 'shots');
@@ -75,6 +76,10 @@ async function run() {
   }
   if (fs.existsSync(prodDb)) {
     fs.copyFileSync(prodDb, testDb);
+    try {
+      const { execSync } = require('child_process');
+      execSync(`python -c "import sqlite3; c=sqlite3.connect(r'${testDb}'); c.execute(\\\"DELETE FROM users WHERE email != 'admin@relaygate.local'\\\"); c.execute(\\\"DELETE FROM sessions WHERE user_email != 'admin@relaygate.local'\\\"); c.commit(); c.close()"`);
+    } catch {}
   }
 
   const serverProc = spawn(
@@ -161,6 +166,17 @@ async function run() {
 
     await send('Page.enable');
     await send('Runtime.enable');
+    ws.addEventListener('message', (evt) => {
+      try {
+        const msg = JSON.parse(evt.data);
+        if (msg.method === 'Runtime.consoleAPICalled') {
+          console.log('[Browser Console]', msg.params.type, msg.params.args.map((a) => a.value || a.description));
+        }
+        if (msg.method === 'Runtime.exceptionThrown') {
+          console.error('[Browser Exception]', msg.params.exceptionDetails);
+        }
+      } catch {}
+    });
     await send('Emulation.setDeviceMetricsOverride', {
       width: 1440,
       height: 900,
@@ -208,8 +224,8 @@ async function run() {
     const snapSession = await send('Page.captureScreenshot', { format: 'png' });
     saveScreenshot('desktop_session_notice.png', snapSession.data);
 
-    // 4. Capture authentic Google Accounts OAuth selector in RelayGate
-    console.log('[Script] Opening authentic Google account selector modal in RelayGate...');
+    // 4. Capture authentic Google Accounts OAuth selector in RelayGate (Login mode)
+    console.log('[Script] Opening authentic Google account selector modal in RelayGate (Login)...');
     await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?auth=login` });
     await wait(1200);
     await send('Runtime.evaluate', {
@@ -223,8 +239,8 @@ async function run() {
     const snapGoogle = await send('Page.captureScreenshot', { format: 'png' });
     saveScreenshot('desktop_oauth_google.png', snapGoogle.data);
 
-    // 5. Capture authentic GitHub OAuth modal in RelayGate
-    console.log('[Script] Opening authentic GitHub authorize modal in RelayGate...');
+    // 5. Capture authentic GitHub OAuth modal in RelayGate (Login mode)
+    console.log('[Script] Opening authentic GitHub authorize modal in RelayGate (Login)...');
     await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?auth=login` });
     await wait(1200);
     await send('Runtime.evaluate', {
@@ -238,8 +254,8 @@ async function run() {
     const snapGitHub = await send('Page.captureScreenshot', { format: 'png' });
     saveScreenshot('desktop_oauth_github.png', snapGitHub.data);
 
-    // 6. Capture authentic GitLab OAuth modal in RelayGate
-    console.log('[Script] Opening authentic GitLab authorize modal in RelayGate...');
+    // 6. Capture authentic GitLab OAuth modal in RelayGate (Login mode)
+    console.log('[Script] Opening authentic GitLab authorize modal in RelayGate (Login)...');
     await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?auth=login` });
     await wait(1200);
     await send('Runtime.evaluate', {
@@ -253,8 +269,51 @@ async function run() {
     const snapGitLab = await send('Page.captureScreenshot', { format: 'png' });
     saveScreenshot('desktop_oauth_gitlab.png', snapGitLab.data);
 
-    // 7. Test authentic login execution (click account -> authenticate -> direct dashboard transition)
-    console.log('[Script] Testing authentic OAuth login with user account...');
+    // 7. Capture Register OAuth modals (Google, GitHub, GitLab)
+    console.log('[Script] Opening authentic Google register modal in RelayGate (Register)...');
+    await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?auth=register` });
+    await wait(1200);
+    await send('Runtime.evaluate', {
+      expression: `
+        const el = document.querySelector('a[aria-label*="Google"]') || Array.from(document.querySelectorAll('a, button')).find(b => b.textContent.includes('Google'));
+        if (el) el.click();
+      `,
+    });
+    await wait(800);
+    console.log('[Script] Capturing desktop_oauth_register_google.png');
+    const snapRegGoogle = await send('Page.captureScreenshot', { format: 'png' });
+    saveScreenshot('desktop_oauth_register_google.png', snapRegGoogle.data);
+
+    console.log('[Script] Opening authentic GitHub register modal in RelayGate (Register)...');
+    await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?auth=register` });
+    await wait(1200);
+    await send('Runtime.evaluate', {
+      expression: `
+        const el = document.querySelector('a[aria-label*="GitHub"]') || Array.from(document.querySelectorAll('a, button')).find(b => b.textContent.includes('GitHub'));
+        if (el) el.click();
+      `,
+    });
+    await wait(800);
+    console.log('[Script] Capturing desktop_oauth_register_github.png');
+    const snapRegGitHub = await send('Page.captureScreenshot', { format: 'png' });
+    saveScreenshot('desktop_oauth_register_github.png', snapRegGitHub.data);
+
+    console.log('[Script] Opening authentic GitLab register modal in RelayGate (Register)...');
+    await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?auth=register` });
+    await wait(1200);
+    await send('Runtime.evaluate', {
+      expression: `
+        const el = document.querySelector('a[aria-label*="GitLab"]') || Array.from(document.querySelectorAll('a, button')).find(b => b.textContent.includes('GitLab'));
+        if (el) el.click();
+      `,
+    });
+    await wait(800);
+    console.log('[Script] Capturing desktop_oauth_register_gitlab.png');
+    const snapRegGitLab = await send('Page.captureScreenshot', { format: 'png' });
+    saveScreenshot('desktop_oauth_register_gitlab.png', snapRegGitLab.data);
+
+    // 8. Test Security Invariant: Unregistered account login rejection
+    console.log('[Script] Testing unregistered account rejection in Login mode...');
     await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?auth=login` });
     await wait(1200);
     await send('Runtime.evaluate', {
@@ -266,13 +325,43 @@ async function run() {
     await wait(800);
     await send('Runtime.evaluate', {
       expression: `
-        // Click first account (MUHAMMAD AFIF RIZI)
+        // Click unregistered account (MUHAMMAD AFIF RIZI)
         const accountBtns = Array.from(document.querySelectorAll('button'));
         const targetAcc = accountBtns.find(b => b.textContent.includes('MUHAMMAD AFIF RIZI') || b.textContent.includes('suhendisuhendi224'));
         if (targetAcc) targetAcc.click();
       `,
     });
-    await wait(2500);
+    await wait(1500);
+    console.log('[Script] Capturing desktop_oauth_unregistered_error.png');
+    const snapUnregistered = await send('Page.captureScreenshot', { format: 'png' });
+    saveScreenshot('desktop_oauth_unregistered_error.png', snapUnregistered.data);
+
+    // 9. Click "Buka Tab Daftar untuk Registrasi" shortcut inside error banner and complete registration
+    console.log('[Script] Clicking switch to Daftar shortcut and registering user...');
+    await send('Runtime.evaluate', {
+      expression: `
+        const btns = Array.from(document.querySelectorAll('button'));
+        const switchBtn = btns.find(b => b.textContent.includes('Buka Tab Daftar'));
+        if (switchBtn) switchBtn.click();
+      `,
+    });
+    await wait(800);
+    const clickRes = await send('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const accountBtns = Array.from(document.querySelectorAll('button'));
+          const targetAcc = accountBtns.find(b => b.textContent.includes('MUHAMMAD AFIF RIZI') || b.textContent.includes('suhendisuhendi224'));
+          if (targetAcc) {
+            targetAcc.click();
+            return 'clicked: ' + targetAcc.textContent.trim().replace(/\\s+/g, ' ');
+          }
+          return 'targetAcc NOT FOUND in ' + accountBtns.map(b => b.textContent.trim()).join(' | ');
+        })()
+      `,
+      returnByValue: true,
+    });
+    console.log('[Script] Register click evaluation:', clickRes);
+    await wait(3500);
     console.log('[Script] Capturing desktop_oauth_loggedin.png (authenticated dashboard console)');
     const snapLoggedIn = await send('Page.captureScreenshot', { format: 'png' });
     saveScreenshot('desktop_oauth_loggedin.png', snapLoggedIn.data);

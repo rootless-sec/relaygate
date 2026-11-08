@@ -335,6 +335,7 @@ export async function oauthLogin(params: {
   email: string;
   name: string;
   avatar_url?: string;
+  action?: 'login' | 'register';
 }): Promise<{ user: UserProfile; token?: string; message?: string }> {
   const res = await fetch(`${BASE_URL}/auth/oauth`, {
     method: 'POST',

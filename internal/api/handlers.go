@@ -158,6 +158,7 @@ type OAuthLoginRequest struct {
 	Email     string `json:"email"`
 	Name      string `json:"name"`
 	AvatarURL string `json:"avatar_url,omitempty"`
+	Action    string `json:"action,omitempty"`
 }
 
 // AuthResponse represents the authentication response payload
@@ -1273,6 +1274,10 @@ func (a *API) OAuthLogin(w http.ResponseWriter, r *http.Request) {
 
 	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 	req.Name = strings.TrimSpace(req.Name)
+	action := strings.ToLower(strings.TrimSpace(req.Action))
+	if action == "" {
+		action = "login"
+	}
 
 	if req.Email == "" || !strings.Contains(req.Email, "@") || !strings.Contains(req.Email, ".") {
 		writeError(w, http.StatusBadRequest, "Format alamat email tidak valid", nil)
@@ -1284,9 +1289,21 @@ func (a *API) OAuthLogin(w http.ResponseWriter, r *http.Request) {
 		req.Name = parts[0]
 	}
 
-	// Direct user resolution: fetch existing or create new account immediately (bypassing OTP code)
 	user, err := a.repo.GetUserByEmail(r.Context(), req.Email)
-	if err != nil || user == nil {
+	if action == "login" {
+		if err != nil || user == nil {
+			writeError(w, http.StatusBadRequest, "Akun belum terdaftar. Silakan daftar terlebih dahulu melalui tab Daftar.", nil)
+			return
+		}
+		if req.AvatarURL != "" && user.AvatarURL == "" {
+			user.AvatarURL = strings.TrimSpace(req.AvatarURL)
+			_ = a.repo.SaveUser(r.Context(), user)
+		}
+	} else if action == "register" {
+		if err == nil && user != nil {
+			writeError(w, http.StatusBadRequest, "Akun sudah terdaftar. Silakan masuk melalui tab Masuk.", nil)
+			return
+		}
 		role := "viewer"
 		if strings.HasPrefix(req.Email, "admin@") {
 			role = "admin"
@@ -1307,9 +1324,9 @@ func (a *API) OAuthLogin(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-	} else if req.AvatarURL != "" && user.AvatarURL == "" {
-		user.AvatarURL = strings.TrimSpace(req.AvatarURL)
-		_ = a.repo.SaveUser(r.Context(), user)
+	} else {
+		writeError(w, http.StatusBadRequest, "Aksi OAuth tidak valid. Gunakan login atau register.", nil)
+		return
 	}
 
 	tokenBytes := make([]byte, 32)
@@ -1347,10 +1364,15 @@ func (a *API) OAuthLogin(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteStrictMode,
 	})
 
+	message := fmt.Sprintf("Autentikasi dengan %s berhasil", providerName)
+	if action == "register" {
+		message = fmt.Sprintf("Pendaftaran dengan %s berhasil", providerName)
+	}
+
 	writeJSON(w, http.StatusOK, AuthResponse{
 		Token:   sessionToken,
 		User:    user,
-		Message: fmt.Sprintf("Autentikasi dengan %s berhasil", providerName),
+		Message: message,
 	})
 }
 
