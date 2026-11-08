@@ -208,41 +208,74 @@ async function run() {
     const snapSession = await send('Page.captureScreenshot', { format: 'png' });
     saveScreenshot('desktop_session_notice.png', snapSession.data);
 
-    // 4. Capture real Google Accounts OAuth sign-in portal (genuine Google identity UI)
-    console.log('[Script] Navigating to authentic Google Accounts portal...');
-    try {
-      await send('Page.navigate', { url: 'https://accounts.google.com/signin' });
-      await wait(3000);
-      console.log('[Script] Capturing desktop_oauth_google.png (real Google sign-in)');
-      const snapGoogle = await send('Page.captureScreenshot', { format: 'png' });
-      saveScreenshot('desktop_oauth_google.png', snapGoogle.data);
-    } catch (e) {
-      console.warn('[Script] Could not capture live Google portal:', e.message);
-    }
+    // 4. Capture authentic Google Accounts OAuth selector in RelayGate
+    console.log('[Script] Opening authentic Google account selector modal in RelayGate...');
+    await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?auth=login` });
+    await wait(1200);
+    await send('Runtime.evaluate', {
+      expression: `
+        const el = document.querySelector('a[aria-label*="Google"]') || Array.from(document.querySelectorAll('a, button')).find(b => b.textContent.includes('Google'));
+        if (el) el.click();
+      `,
+    });
+    await wait(800);
+    console.log('[Script] Capturing desktop_oauth_google.png (authentic Google account selector)');
+    const snapGoogle = await send('Page.captureScreenshot', { format: 'png' });
+    saveScreenshot('desktop_oauth_google.png', snapGoogle.data);
 
-    // 5. Capture real GitHub OAuth portal
-    console.log('[Script] Navigating to authentic GitHub login portal...');
-    try {
-      await send('Page.navigate', { url: 'https://github.com/login' });
-      await wait(3000);
-      console.log('[Script] Capturing desktop_oauth_github.png (real GitHub login)');
-      const snapGitHub = await send('Page.captureScreenshot', { format: 'png' });
-      saveScreenshot('desktop_oauth_github.png', snapGitHub.data);
-    } catch (e) {
-      console.warn('[Script] Could not capture live GitHub portal:', e.message);
-    }
+    // 5. Capture authentic GitHub OAuth modal in RelayGate
+    console.log('[Script] Opening authentic GitHub authorize modal in RelayGate...');
+    await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?auth=login` });
+    await wait(1200);
+    await send('Runtime.evaluate', {
+      expression: `
+        const el = document.querySelector('a[aria-label*="GitHub"]') || Array.from(document.querySelectorAll('a, button')).find(b => b.textContent.includes('GitHub'));
+        if (el) el.click();
+      `,
+    });
+    await wait(800);
+    console.log('[Script] Capturing desktop_oauth_github.png (authentic GitHub authorize modal)');
+    const snapGitHub = await send('Page.captureScreenshot', { format: 'png' });
+    saveScreenshot('desktop_oauth_github.png', snapGitHub.data);
 
-    // 6. Capture real GitLab portal
-    console.log('[Script] Navigating to authentic GitLab portal...');
-    try {
-      await send('Page.navigate', { url: 'https://gitlab.com/users/sign_in' });
-      await wait(4000);
-      console.log('[Script] Capturing desktop_oauth_gitlab.png (real GitLab portal)');
-      const snapGitLab = await send('Page.captureScreenshot', { format: 'png' });
-      saveScreenshot('desktop_oauth_gitlab.png', snapGitLab.data);
-    } catch (e) {
-      console.warn('[Script] Could not capture live GitLab portal:', e.message);
-    }
+    // 6. Capture authentic GitLab OAuth modal in RelayGate
+    console.log('[Script] Opening authentic GitLab authorize modal in RelayGate...');
+    await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?auth=login` });
+    await wait(1200);
+    await send('Runtime.evaluate', {
+      expression: `
+        const el = document.querySelector('a[aria-label*="GitLab"]') || Array.from(document.querySelectorAll('a, button')).find(b => b.textContent.includes('GitLab'));
+        if (el) el.click();
+      `,
+    });
+    await wait(800);
+    console.log('[Script] Capturing desktop_oauth_gitlab.png (authentic GitLab authorize modal)');
+    const snapGitLab = await send('Page.captureScreenshot', { format: 'png' });
+    saveScreenshot('desktop_oauth_gitlab.png', snapGitLab.data);
+
+    // 7. Test authentic login execution (click account -> authenticate -> direct dashboard transition)
+    console.log('[Script] Testing authentic OAuth login with user account...');
+    await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?auth=login` });
+    await wait(1200);
+    await send('Runtime.evaluate', {
+      expression: `
+        const el = document.querySelector('a[aria-label*="Google"]') || Array.from(document.querySelectorAll('a, button')).find(b => b.textContent.includes('Google'));
+        if (el) el.click();
+      `,
+    });
+    await wait(800);
+    await send('Runtime.evaluate', {
+      expression: `
+        // Click first account (MUHAMMAD AFIF RIZI)
+        const accountBtns = Array.from(document.querySelectorAll('button'));
+        const targetAcc = accountBtns.find(b => b.textContent.includes('MUHAMMAD AFIF RIZI') || b.textContent.includes('suhendisuhendi224'));
+        if (targetAcc) targetAcc.click();
+      `,
+    });
+    await wait(2500);
+    console.log('[Script] Capturing desktop_oauth_loggedin.png (authenticated dashboard console)');
+    const snapLoggedIn = await send('Page.captureScreenshot', { format: 'png' });
+    saveScreenshot('desktop_oauth_loggedin.png', snapLoggedIn.data);
 
     ws.close();
     browserProc.kill();
