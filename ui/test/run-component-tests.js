@@ -2332,6 +2332,15 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.doesNotMatch(loginSource, /\u2014/, 'LoginPage.tsx must not contain unicode em dashes');
     assert.doesNotMatch(appSource, /\u2014/, 'App.tsx must not contain unicode em dashes');
     assert.doesNotMatch(apiSource, /\u2014/, 'api.ts must not contain unicode em dashes');
+
+    // 7. Authentic User Accounts & In-App OAuth Resolution Invariants (Foto 5 Parity)
+    assert.match(loginSource, /suhendisuhendi224@gmail\.com/, 'Must include MUHAMMAD AFIF RIZI authentic email');
+    assert.match(loginSource, /MUHAMMAD AFIF RIZI/, 'Must include MUHAMMAD AFIF RIZI authentic name');
+    assert.match(loginSource, /hazama3321@gmail\.com/, 'Must include Mafifrizi authentic email');
+    assert.match(loginSource, /ares\.dragon016@gmail\.com/, 'Must include Ares authentic email');
+    assert.match(loginSource, /Gunakan akun lain/, 'Must include "Gunakan akun lain" custom option');
+    assert.match(loginSource, /oauthLogin\(\{/, 'Must trigger in-app oauthLogin directly upon account selection');
+    assert.match(loginSource, /onLoginSuccess\(res\.user\.email\)/, 'Must call onLoginSuccess to log user directly into RelayGate dashboard console');
   });
 
   // Cleanup temp files

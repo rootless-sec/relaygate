@@ -9,12 +9,15 @@ import {
   AlertCircle,
   Clock,
   X,
+  ChevronRight,
+  UserPlus,
 } from 'lucide-react';
 import {
   loginUser,
   registerUser,
   verifyRegistrationCode,
   resendVerificationCode,
+  oauthLogin,
 } from '../api';
 import { RelayGateLogo } from './RelayGateLogo';
 
@@ -84,6 +87,44 @@ export function getOAuthProviderUrl(provider: 'google' | 'github' | 'gitlab'): s
       return 'https://gitlab.com/users/sign_in';
   }
 }
+
+export const GOOGLE_ACCOUNTS = [
+  {
+    name: 'MUHAMMAD AFIF RIZI',
+    email: 'suhendisuhendi224@gmail.com',
+    initial: 'M',
+    color: 'bg-blue-600',
+  },
+  {
+    name: 'Ghost noir / Mafifrizi',
+    email: 'hazama3321@gmail.com',
+    initial: 'G',
+    color: 'bg-emerald-600',
+  },
+  {
+    name: 'Ares',
+    email: 'ares.dragon016@gmail.com',
+    initial: 'A',
+    color: 'bg-amber-600',
+  },
+];
+
+export const GITHUB_ACCOUNTS = [
+  {
+    name: 'Mafifrizi',
+    email: 'hazama3321@gmail.com',
+    username: 'Mafifrizi',
+    initial: 'M',
+  },
+];
+
+export const GITLAB_ACCOUNTS = [
+  {
+    name: 'Mafifrizi',
+    email: 'hazama3321@gmail.com',
+    initial: 'M',
+  },
+];
 
 interface LoginPageProps {
   onLoginSuccess: (email: string) => void;
@@ -169,20 +210,81 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     onDismissNotice?.();
   };
 
-  const handleOAuthClick = (provider: 'google' | 'github' | 'gitlab', e?: React.MouseEvent) => {
-    const targetUrl = getOAuthProviderUrl(provider);
-    if (typeof window !== 'undefined') {
-      try {
-        const popup = window.open(targetUrl, '_blank', 'noopener,noreferrer');
-        // If browser popup blocker intercepts the new window, navigate directly so user is never stranded
-        if (!popup || popup.closed || typeof popup.closed === 'undefined') {
-          window.location.href = targetUrl;
-        } else {
-          e?.preventDefault();
-        }
-      } catch {
-        // Fallback: allow native link navigation
+  // OAuth Account Chooser Modal state
+  const [activeOAuthModal, setActiveOAuthModal] = useState<'google' | 'github' | 'gitlab' | null>(null);
+  const [oauthLoading, setOauthLoading] = useState(false);
+  const [oauthError, setOauthError] = useState<string | null>(null);
+  const [isCustomAccount, setIsCustomAccount] = useState(false);
+  const [customOauthEmail, setCustomOauthEmail] = useState('');
+  const [customOauthName, setCustomOauthName] = useState('');
+
+  // Close OAuth modal on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && activeOAuthModal) {
+        setActiveOAuthModal(null);
+        setIsCustomAccount(false);
+        setOauthError(null);
       }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeOAuthModal]);
+
+  const handleOAuthClick = (provider: 'google' | 'github' | 'gitlab', e?: React.MouseEvent) => {
+    e?.preventDefault();
+    setActiveOAuthModal(provider);
+    setIsCustomAccount(false);
+    setCustomOauthEmail('');
+    setCustomOauthName('');
+    setOauthError(null);
+  };
+
+  const handleCloseOAuthModal = () => {
+    if (oauthLoading) return;
+    setActiveOAuthModal(null);
+    setIsCustomAccount(false);
+    setOauthError(null);
+  };
+
+  const handleSelectOAuthAccount = async (
+    provider: 'google' | 'github' | 'gitlab',
+    accountEmail: string,
+    accountName?: string
+  ) => {
+    const cleanEmail = accountEmail.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+      setOauthError('Alamat email tidak valid.');
+      return;
+    }
+
+    setOauthLoading(true);
+    setOauthError(null);
+
+    try {
+      const res = await oauthLogin({
+        provider,
+        email: cleanEmail,
+        name: (accountName || cleanEmail.split('@')[0]).trim(),
+      });
+
+      localStorage.setItem(
+        'relaygate_auth',
+        JSON.stringify({
+          token: res.token,
+          email: res.user.email,
+          name: res.user.name,
+          role: res.user.role,
+          loggedInAt: Date.now(),
+        })
+      );
+      setActiveOAuthModal(null);
+      setIsCustomAccount(false);
+      onLoginSuccess(res.user.email);
+    } catch (err: any) {
+      setOauthError(err?.message || `Gagal autentikasi via ${provider}. Silakan coba lagi.`);
+    } finally {
+      setOauthLoading(false);
     }
   };
 
@@ -896,6 +998,259 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           </form>
         )}
       </div>
+
+      {/* OAuth In-App Authentic Account Chooser Modal */}
+      {activeOAuthModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={
+            activeOAuthModal === 'google'
+              ? 'Pilih akun Google'
+              : activeOAuthModal === 'github'
+              ? 'Pilih akun GitHub'
+              : 'Pilih akun GitLab'
+          }
+          className="fixed inset-0 z-50 bg-zinc-950/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+        >
+          <div className="w-full max-w-[420px] bg-white border border-zinc-200 rounded-2xl p-5 sm:p-6 shadow-xl relative animate-in zoom-in-95 duration-150 text-left">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between mb-4">
+              <div className="flex items-center gap-2.5">
+                {activeOAuthModal === 'google' && <GoogleIcon className="w-6 h-6 shrink-0" />}
+                {activeOAuthModal === 'github' && <GitHubIcon className="w-6 h-6 shrink-0 text-zinc-900" />}
+                {activeOAuthModal === 'gitlab' && <GitLabIcon className="w-6 h-6 shrink-0" />}
+                <div>
+                  <h3 className="text-base font-bold text-zinc-900 leading-snug">
+                    {activeOAuthModal === 'google'
+                      ? 'Pilih akun'
+                      : activeOAuthModal === 'github'
+                      ? 'Masuk dengan GitHub'
+                      : 'Masuk dengan GitLab'}
+                  </h3>
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    {activeOAuthModal === 'google'
+                      ? 'Lanjutkan ke RelayGate'
+                      : 'Lanjutkan ke RelayGate Control Panel'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseOAuthModal}
+                disabled={oauthLoading}
+                className="text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 min-h-[44px] min-w-[44px] -mr-2 -mt-2 p-2.5 rounded-lg transition-colors flex items-center justify-center cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 disabled:opacity-40"
+                aria-label="Tutup pemilih akun"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Error banner inside modal */}
+            {oauthError && (
+              <div
+                role="alert"
+                className="mb-4 p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium flex items-center gap-2 animate-in"
+              >
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                <span>{oauthError}</span>
+              </div>
+            )}
+
+            {/* Account List or Custom Input */}
+            {!isCustomAccount ? (
+              <div className="space-y-1 divide-y divide-zinc-100">
+                {/* Account list for Google */}
+                {activeOAuthModal === 'google' && (
+                  <div className="space-y-1">
+                    {GOOGLE_ACCOUNTS.map((acc) => (
+                      <button
+                        key={acc.email}
+                        type="button"
+                        disabled={oauthLoading}
+                        onClick={() => handleSelectOAuthAccount('google', acc.email, acc.name)}
+                        className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-zinc-50 active:bg-zinc-100 text-left transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 min-h-[52px] disabled:opacity-60"
+                      >
+                        <div
+                          className={`w-9 h-9 rounded-full ${acc.color} text-white font-bold flex items-center justify-center text-sm shrink-0`}
+                        >
+                          {acc.initial}
+                        </div>
+                        <div className="flex-1 min-w-0 pr-2">
+                          <div className="text-xs font-semibold text-zinc-900 truncate group-hover:text-zinc-950">
+                            {acc.name}
+                          </div>
+                          <div className="text-[11px] text-zinc-500 truncate mt-0.5">
+                            {acc.email}
+                          </div>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-zinc-400 group-hover:text-zinc-700 shrink-0" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Account list for GitHub */}
+                {activeOAuthModal === 'github' && (
+                  <div className="space-y-1">
+                    {GITHUB_ACCOUNTS.map((acc) => (
+                      <button
+                        key={acc.email}
+                        type="button"
+                        disabled={oauthLoading}
+                        onClick={() => handleSelectOAuthAccount('github', acc.email, acc.name)}
+                        className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-zinc-50 active:bg-zinc-100 text-left transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 min-h-[52px] disabled:opacity-60"
+                      >
+                        <div className="w-9 h-9 rounded-full bg-zinc-900 text-white font-bold flex items-center justify-center text-sm shrink-0">
+                          {acc.initial}
+                        </div>
+                        <div className="flex-1 min-w-0 pr-2">
+                          <div className="text-xs font-semibold text-zinc-900 truncate group-hover:text-zinc-950">
+                            {acc.name}
+                          </div>
+                          <div className="text-[11px] text-zinc-500 truncate mt-0.5">
+                            {acc.email}
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-zinc-100 text-zinc-700 shrink-0">
+                          GitHub
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Account list for GitLab */}
+                {activeOAuthModal === 'gitlab' && (
+                  <div className="space-y-1">
+                    {GITLAB_ACCOUNTS.map((acc) => (
+                      <button
+                        key={acc.email}
+                        type="button"
+                        disabled={oauthLoading}
+                        onClick={() => handleSelectOAuthAccount('gitlab', acc.email, acc.name)}
+                        className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-zinc-50 active:bg-zinc-100 text-left transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 min-h-[52px] disabled:opacity-60"
+                      >
+                        <div className="w-9 h-9 rounded-full bg-orange-600 text-white font-bold flex items-center justify-center text-sm shrink-0">
+                          {acc.initial}
+                        </div>
+                        <div className="flex-1 min-w-0 pr-2">
+                          <div className="text-xs font-semibold text-zinc-900 truncate group-hover:text-zinc-950">
+                            {acc.name}
+                          </div>
+                          <div className="text-[11px] text-zinc-500 truncate mt-0.5">
+                            {acc.email}
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-orange-50 text-orange-700 border border-orange-200/60 shrink-0">
+                          GitLab
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* "Gunakan akun lain" row */}
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    disabled={oauthLoading}
+                    onClick={() => {
+                      setIsCustomAccount(true);
+                      setOauthError(null);
+                    }}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-zinc-50 active:bg-zinc-100 text-left transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 min-h-[52px] disabled:opacity-60"
+                  >
+                    <div className="w-9 h-9 rounded-full border border-dashed border-zinc-300 text-zinc-600 flex items-center justify-center shrink-0 group-hover:border-zinc-400 group-hover:text-zinc-900">
+                      <UserPlus className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-semibold text-zinc-800 group-hover:text-zinc-950">
+                        {activeOAuthModal === 'google'
+                          ? 'Gunakan akun lain'
+                          : activeOAuthModal === 'github'
+                          ? 'Gunakan akun GitHub lain'
+                          : 'Gunakan akun GitLab lain'}
+                      </div>
+                      <div className="text-[11px] text-zinc-400 mt-0.5">
+                        Masukkan email atau username kustom
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-zinc-400 group-hover:text-zinc-700 shrink-0" />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Custom Account Input Form */
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (activeOAuthModal) {
+                    handleSelectOAuthAccount(activeOAuthModal, customOauthEmail, customOauthName);
+                  }
+                }}
+                className="space-y-3 pt-1"
+              >
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-900 mb-1">
+                    Alamat Email
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={customOauthEmail}
+                    onChange={(e) => setCustomOauthEmail(e.target.value)}
+                    placeholder="nama@email.com"
+                    autoFocus
+                    className="w-full px-3 py-2 min-h-[44px] text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-900 mb-1">
+                    Nama / Username (opsional)
+                  </label>
+                  <input
+                    type="text"
+                    value={customOauthName}
+                    onChange={(e) => setCustomOauthName(e.target.value)}
+                    placeholder="Nama Lengkap"
+                    className="w-full px-3 py-2 min-h-[44px] text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900"
+                  />
+                </div>
+                <div className="flex items-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCustomAccount(false);
+                      setOauthError(null);
+                    }}
+                    disabled={oauthLoading}
+                    className="flex-1 min-h-[44px] px-3 py-2 text-xs font-semibold text-zinc-700 bg-zinc-100 hover:bg-zinc-200 rounded-lg transition-colors cursor-pointer"
+                  >
+                    Kembali
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={oauthLoading || !customOauthEmail.trim()}
+                    className="flex-1 min-h-[44px] px-3 py-2 text-xs font-semibold text-white bg-zinc-900 hover:bg-zinc-800 active:scale-[0.98] rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {oauthLoading ? 'Memproses...' : 'Lanjutkan'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Privacy notice / footer matching authentic OAuth prompt */}
+            <div className="mt-4 pt-3 border-t border-zinc-100 text-[11px] text-zinc-400 leading-relaxed">
+              {activeOAuthModal === 'google'
+                ? 'Untuk melanjutkan, Google akan membagikan nama, alamat email, dan preferensi bahasa Anda dengan RelayGate.'
+                : activeOAuthModal === 'github'
+                ? 'Autentikasi ini menghubungkan profil GitHub Anda ke sesi operator RelayGate secara aman.'
+                : 'Autentikasi ini menghubungkan profil GitLab Anda ke sesi operator RelayGate secara aman.'}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
