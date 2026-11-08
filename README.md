@@ -10,7 +10,7 @@
 
 ---
 
-When payment gateways or SaaS providers (Stripe, Midtrans, Xendit, GitHub) send webhooks while your downstream service is deploying, overloaded, or unreachable, events are dropped once the provider exhausts its retry window.
+When payment gateways or SaaS providers (Stripe, Midtrans, Xendit, GitHub, Shopify) send webhooks while your downstream service is deploying, overloaded, or unreachable, events are dropped once the provider exhausts its retry window.
 
 RelayGate sits in front of your application as a persistent ingestion queue and control plane. When a webhook arrives at `/ingest/{endpoint_id}`, RelayGate writes the raw payload and headers synchronously to a local SQLite Write-Ahead Log (WAL), returns `202 Accepted` to the provider, and hands the event off to a background worker pool.
 
@@ -19,7 +19,7 @@ If signature verification fails or a downstream target returns `4xx`/`5xx`/timeo
 ## Architecture
 
 ```text
-Provider (Stripe / Midtrans / Xendit / GitHub / Generic)
+Provider (Stripe / Midtrans / Xendit / GitHub / Shopify / Generic)
    │
    ▼  POST /ingest/{endpoint_id}
 RelayGate Ingest Handler
