@@ -15,6 +15,20 @@ RelayGate compiles into a single static binary containing the Go engine, an embe
 | `-addr` | `:8080` | `RELAYGATE_ADDR` / `PORT` | TCP listen host and port |
 | `-db` | `./data/relaygate.db` | `RELAYGATE_DB_PATH` | Path to the SQLite database file |
 | `-workers` | `10` | `RELAYGATE_WORKERS` | Number of concurrent HTTP dispatch worker goroutines |
+| `-agent` | `false` | - | Run in embedded `relaygate-agent` tunnel mode instead of starting the HTTP server (uses `-server`, `-token`, `-forward`, `-timeout`) |
+
+### `relaygate-agent` CLI Flags (Local Outbound Forwarder)
+
+```bash
+./relaygate-agent -server http://127.0.0.1:8080 -token agt_your_endpoint_token -forward http://127.0.0.1:3000/webhooks
+```
+
+| Flag | Default | Description |
+| :--- | :--- | :--- |
+| `-server` | `http://127.0.0.1:8080` | RelayGate server base URL (`http://`, `https://`, `ws://`, or `wss://`) |
+| `-token` | (required) | Endpoint agent token (`agt_...`) shown in the Endpoints view |
+| `-forward` | `""` (endpoint `target_url`) | Optional local private HTTP service URL override for forwarded webhook POST requests |
+| `-timeout` | `15s` | Local HTTP forward timeout |
 
 `cmd/relaygate/main.go` automatically loads key-value pairs from a local `.env` file on startup when the corresponding environment variable is unset.
 
@@ -92,6 +106,18 @@ server {
         proxy_set_header Connection '';
         proxy_buffering off;
         proxy_cache off;
+        proxy_read_timeout 86400s;
+    }
+
+    location /api/v1/agent/connect {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 86400s;
     }
 }

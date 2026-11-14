@@ -166,6 +166,8 @@ type Endpoint struct {
 	NotificationEmail string                `json:"notification_email,omitempty"`
 	Provider          ProviderType          `json:"provider"`
 	IsActive          bool                  `json:"is_active"`
+	AgentToken        string                `json:"agent_token,omitempty"`
+	AgentConnected    bool                  `json:"agent_connected"`
 	CreatedAt         time.Time             `json:"created_at"`
 }
 

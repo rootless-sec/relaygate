@@ -40,11 +40,14 @@ RelayGate exposes a REST API and an SSE stream for webhook ingestion, session ma
 | `GET` | `/api/v1/events/{id}?reveal=1` | Session / Bearer (`admin`) | Returns unmasked headers/tokens and records an `audit_reveals` entry |
 | `POST` | `/api/v1/events/{id}/replay` | Session / Bearer | Resets circuit breaker, sets attempts to 0, queues immediate replay (including failed fan-out children) |
 | `POST` | `/api/v1/events/bulk-replay` | Session / Bearer | Replays eligible `FAILED` events and returns skipped reasons for ineligible rows |
-| `GET` | `/api/v1/stream` | Session / Bearer | Real-time Server-Sent Events (SSE) stream (`event_created`, `event_updated`) |
+| `GET` | `/api/v1/stream` | Session / Bearer | Real-time Server-Sent Events (SSE) stream (`event_created`, `event_updated`, `agent_status`) |
 | `GET` | `/api/v1/endpoints` | Session / Bearer | Lists configured endpoints |
 | `POST` | `/api/v1/endpoints` | Session / Bearer | Registers a new endpoint with optional fan-out destinations, canonical envelope, and alert channels |
 | `PATCH` | `/api/v1/endpoints/{id}` | Session / Bearer | Updates endpoint settings, secret key, destinations, or notification channels |
 | `DELETE` | `/api/v1/endpoints/{id}` | Session / Bearer (`admin`) | Deletes an endpoint (returns `409 Conflict` if `PENDING` or `RETRYING` events exist) |
+| `POST` | `/api/v1/endpoints/{id}/agent-token` | Session / Bearer | Rotates the endpoint `agent_token` (`agt_...`) and disconnects any active `relaygate-agent` session |
+| `GET` | `/api/v1/agents` | Session / Bearer | Lists active outbound `relaygate-agent` session counts per endpoint |
+| `GET` | `/api/v1/agent/connect` | Agent Token (`X-RelayGate-Agent-Token` / Bearer / `?agent_token=`) | RFC 6455 WebSocket tunnel endpoint for `relaygate-agent` outbound dispatch & ACKs |
 | `POST` | `/api/v1/system/backup` | Session / Bearer (`admin`) | Executes online SQLite `VACUUM INTO` snapshot after `PRAGMA foreign_key_check` |
 | `POST` | `/api/v1/system/retention/prune` | Session / Bearer (`admin`) | Prunes `DELIVERED` events older than `cutoff` (defaults to 30 days) while preserving `FAILED` rows |
 
@@ -246,3 +249,10 @@ Requires an `admin` session. Deletes `DELIVERED` events older than `cutoff` (RFC
   "pruned": 42
 }
 ```
+
+### RelayGate CLI Agent Tunnel & Token Endpoints
+
+* **`GET /api/v1/agent/connect`**: Upgrades an outbound HTTP request to an RFC 6455 WebSocket session bound to the matching endpoint. Authenticate with `X-RelayGate-Agent-Token: agt_...`, `Authorization: Bearer agt_...`, or `?agent_token=agt_...`. Server dispatches raw payload bytes (`payload_base64`) plus canonicalized headers (`dispatch`), and awaits an `ack` frame carrying HTTP status code, latency, and error metadata.
+* **`GET /api/v1/agents`**: Returns active connected agent counts keyed by `endpoint_id`.
+* **`POST /api/v1/endpoints/{id}/agent-token`**: Rotates `agent_token` for the endpoint and immediately closes any existing WebSocket sessions authenticated with the previous token.
+* **SSE `agent_status` event**: Emitted on `/api/v1/stream` whenever an endpoint agent transitions between connected (`agent_connected: true`) and offline (`agent_connected: false`).

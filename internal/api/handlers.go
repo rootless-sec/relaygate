@@ -23,6 +23,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/rootless-sec/relaygate/internal/agent"
 	"github.com/rootless-sec/relaygate/internal/mailer"
 	"github.com/rootless-sec/relaygate/internal/model"
 	"github.com/rootless-sec/relaygate/internal/storage"
@@ -389,9 +390,15 @@ type API struct {
 	repo       storage.Repository
 	pool       *worker.Pool
 	hub        *Hub
+	agentHub   *agent.Hub
 	mailer     *mailer.Mailer
 	eventLocks *KeyedMutex
 	authLocks  *KeyedMutex
+}
+
+// SetAgentHub attaches an outbound agent tunnel hub to control-plane handlers.
+func (a *API) SetAgentHub(h *agent.Hub) {
+	a.agentHub = h
 }
 
 // NewAPI initializes control plane API handlers
@@ -781,6 +788,11 @@ func (a *API) ListEndpoints(w http.ResponseWriter, r *http.Request) {
 	if endpoints == nil {
 		endpoints = make([]*model.Endpoint, 0)
 	}
+	for _, ep := range endpoints {
+		if ep != nil {
+			ep.AgentConnected = a.agentHub != nil && a.agentHub.HasAgent(ep.ID)
+		}
+	}
 
 	writeJSON(w, http.StatusOK, EndpointsListResponse{
 		Endpoints: endpoints,
@@ -904,6 +916,7 @@ func (a *API) CreateEndpoint(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to save endpoint", err)
 		return
 	}
+	endpoint.AgentConnected = a.agentHub != nil && a.agentHub.HasAgent(endpoint.ID)
 
 	writeJSON(w, http.StatusCreated, endpoint)
 }
@@ -1031,6 +1044,7 @@ func (a *API) UpdateEndpoint(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to update endpoint", err)
 		return
 	}
+	existing.AgentConnected = a.agentHub != nil && a.agentHub.HasAgent(existing.ID)
 
 	writeJSON(w, http.StatusOK, existing)
 }
@@ -1088,10 +1102,62 @@ func (a *API) DeleteEndpoint(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to delete endpoint", err)
 		return
 	}
+	if a.agentHub != nil {
+		a.agentHub.DisconnectEndpoint(id)
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"message": "Endpoint berhasil dihapus",
 		"id":      id,
+	})
+}
+
+// AgentConnect handles GET /api/v1/agent/connect WebSocket tunnel upgrades from relaygate-agent.
+func (a *API) AgentConnect(w http.ResponseWriter, r *http.Request) {
+	if a.agentHub == nil {
+		writeError(w, http.StatusServiceUnavailable, "agent tunnel hub is not configured", nil)
+		return
+	}
+	a.agentHub.ServeConnect(w, r)
+}
+
+// ListAgentStatus handles GET /api/v1/agents reporting active tunnel session counts per endpoint.
+func (a *API) ListAgentStatus(w http.ResponseWriter, r *http.Request) {
+	counts := make(map[string]int)
+	if a.agentHub != nil {
+		counts = a.agentHub.ConnectedCounts()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"connected": counts,
+	})
+}
+
+// RotateEndpointAgentToken handles POST /api/v1/endpoints/{id}/agent-token to issue a fresh agt_ secret.
+func (a *API) RotateEndpointAgentToken(w http.ResponseWriter, r *http.Request) {
+	id := extractPathID(r, "id", "endpoints")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "endpoint id is required", nil)
+		return
+	}
+
+	newToken, err := a.repo.RotateEndpointAgentToken(r.Context(), id)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "not found") {
+			writeError(w, http.StatusNotFound, "endpoint not found", err)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to rotate agent token", err)
+		return
+	}
+
+	if a.agentHub != nil {
+		a.agentHub.DisconnectEndpoint(id)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":              id,
+		"agent_token":     newToken,
+		"agent_connected": false,
 	})
 }
 

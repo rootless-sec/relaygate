@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS endpoints (
     notification_email TEXT NOT NULL DEFAULT '',
     provider TEXT NOT NULL DEFAULT 'generic', -- generic, midtrans, stripe, xendit, github, shopify, doku, flip
     is_active INTEGER NOT NULL DEFAULT 1,
+    agent_token TEXT NOT NULL DEFAULT '',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

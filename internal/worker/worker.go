@@ -3,6 +3,7 @@ package worker
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/rootless-sec/relaygate/internal/agent"
 	"github.com/rootless-sec/relaygate/internal/model"
 	"github.com/rootless-sec/relaygate/internal/notifier"
 	"github.com/rootless-sec/relaygate/internal/storage"
@@ -142,6 +144,7 @@ type Pool struct {
 	wg          sync.WaitGroup
 	running     atomic.Bool
 	broadcaster model.Broadcaster
+	agentHub    *agent.Hub
 }
 
 // NewPool initializes a new worker pool
@@ -301,6 +304,11 @@ func (p *Pool) Stop() {
 // SetBroadcaster configures a real-time event broadcaster for dispatch updates
 func (p *Pool) SetBroadcaster(b model.Broadcaster) {
 	p.broadcaster = b
+}
+
+// SetAgentHub configures an outbound agent tunnel hub for NAT-traversal dispatch.
+func (p *Pool) SetAgentHub(h *agent.Hub) {
+	p.agentHub = h
 }
 
 func (p *Pool) notifyUpdate(event *model.WebhookEvent) {
@@ -567,7 +575,7 @@ func (p *Pool) processEventWithContext(ctx context.Context, eventID string) erro
 		return nil
 	}
 
-	// Prepare downstream HTTP request body and headers
+	// Prepare downstream HTTP request body and canonicalized outbound headers
 	bodyToSend := event.Payload
 	var canonicalEnv *model.CanonicalEnvelope
 	if endpoint.WrapEnvelope {
@@ -578,45 +586,92 @@ func (p *Pool) processEventWithContext(ctx context.Context, eventID string) erro
 		}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(bodyToSend))
-	if err != nil {
-		errMsg := fmt.Sprintf("failed to construct request: %v", err)
-		return p.handleFailure(ctx, endpoint, event, 0, errMsg)
-	}
-
-	// Forward original headers (filtering hop-by-hop headers)
+	outboundHeaders := make(map[string]string, len(event.Headers)+8)
 	for k, v := range event.Headers {
 		lowerK := strings.ToLower(k)
 		if !hopByHopHeaders[lowerK] && lowerK != "x-relaygate-request-target" {
-			req.Header.Set(k, v)
+			outboundHeaders[http.CanonicalHeaderKey(k)] = v
 		}
 	}
 
 	// Add RelayGate observability headers
-	req.Header.Set("X-RelayGate-Delivery", event.ID)
-	req.Header.Set("X-RelayGate-Attempt", strconv.Itoa(event.Attempts+1))
-	req.Header.Set("X-RelayGate-Provider", string(event.Provider))
-	req.Header.Set("X-RelayGate-Verified", strconv.Itoa(event.IsVerified))
+	outboundHeaders["X-Relaygate-Delivery"] = event.ID
+	outboundHeaders["X-Relaygate-Attempt"] = strconv.Itoa(event.Attempts + 1)
+	outboundHeaders["X-Relaygate-Provider"] = string(event.Provider)
+	outboundHeaders["X-Relaygate-Verified"] = strconv.Itoa(event.IsVerified)
 
 	if canonicalEnv != nil {
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-RelayGate-Event-Type", canonicalEnv.EventType)
-		req.Header.Set("X-RelayGate-External-ID", canonicalEnv.ExternalID)
+		outboundHeaders["Content-Type"] = "application/json"
+		outboundHeaders["X-Relaygate-Event-Type"] = canonicalEnv.EventType
+		outboundHeaders["X-Relaygate-External-Id"] = canonicalEnv.ExternalID
 
 		msgID := "msg_" + event.ID
 		tsStr, stdSig := model.SignStandardWebhook(msgID, time.Now().UTC(), bodyToSend, endpoint.SecretKey)
-		req.Header.Set("webhook-id", msgID)
-		req.Header.Set("webhook-timestamp", tsStr)
-		req.Header.Set("webhook-signature", stdSig)
+		outboundHeaders["Webhook-Id"] = msgID
+		outboundHeaders["Webhook-Timestamp"] = tsStr
+		outboundHeaders["Webhook-Signature"] = stdSig
 	}
 
-	startDelivery := time.Now()
+	var (
+		statusCode       int
+		retryAfterHeader string
+		bodySnippet      string
+		durationMs       int64
+		deliveryErr      error
+	)
 
-	// Execute HTTP request
-	resp, err := p.client.Do(req)
-	durationMs := time.Since(startDelivery).Milliseconds()
-	if err != nil {
-		errMsg := fmt.Sprintf("network delivery error: %v", err)
+	startDelivery := time.Now()
+	if p.agentHub != nil && p.agentHub.HasAgent(endpoint.ID) {
+		agentResp, dErr := p.agentHub.Dispatch(ctx, endpoint.ID, agent.DispatchRequest{
+			EventID:       event.ID,
+			EndpointID:    endpoint.ID,
+			TargetURL:     targetURL,
+			Method:        http.MethodPost,
+			Headers:       outboundHeaders,
+			PayloadBase64: base64.StdEncoding.EncodeToString(bodyToSend),
+			TimeoutMs:     p.config.HTTPTimeout.Milliseconds(),
+		})
+		durationMs = time.Since(startDelivery).Milliseconds()
+		if dErr != nil {
+			deliveryErr = dErr
+		} else if agentResp.Error != "" {
+			if agentResp.DurationMs > 0 {
+				durationMs = agentResp.DurationMs
+			}
+			deliveryErr = errors.New(agentResp.Error)
+		} else {
+			statusCode = agentResp.StatusCode
+			retryAfterHeader = agentResp.RetryAfter
+			bodySnippet = agentResp.BodySnippet
+			if agentResp.DurationMs > 0 {
+				durationMs = agentResp.DurationMs
+			}
+		}
+	} else {
+		req, rErr := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(bodyToSend))
+		if rErr != nil {
+			errMsg := fmt.Sprintf("failed to construct request: %v", rErr)
+			return p.handleFailure(ctx, endpoint, event, 0, errMsg)
+		}
+		for k, v := range outboundHeaders {
+			req.Header.Set(k, v)
+		}
+
+		resp, rErr := p.client.Do(req)
+		durationMs = time.Since(startDelivery).Milliseconds()
+		if rErr != nil {
+			deliveryErr = rErr
+		} else {
+			defer resp.Body.Close()
+			rawSnippet, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
+			statusCode = resp.StatusCode
+			retryAfterHeader = resp.Header.Get("Retry-After")
+			bodySnippet = strings.TrimSpace(string(rawSnippet))
+		}
+	}
+
+	if deliveryErr != nil {
+		errMsg := fmt.Sprintf("network delivery error: %v", deliveryErr)
 		_ = p.repo.SaveDeliveryLog(ctx, event.ID, &model.DeliveryLogEntry{
 			Attempt:    event.Attempts + 1,
 			StatusCode: 0,
@@ -629,25 +684,21 @@ func (p *Pool) processEventWithContext(ctx context.Context, eventID string) erro
 		}
 		return p.handleFailure(ctx, endpoint, event, 0, errMsg)
 	}
-	defer resp.Body.Close()
-
-	// Capture response body snippet for error diagnostics
-	bodySnippet, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
 
 	// Success response: 2xx
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+	if statusCode >= 200 && statusCode < 300 {
 		p.recordCircuitSuccess(cbKey)
-		err := p.repo.UpdateEventStatus(ctx, event.ID, model.StatusDelivered, resp.StatusCode, "")
+		err := p.repo.UpdateEventStatus(ctx, event.ID, model.StatusDelivered, statusCode, "")
 		_ = p.repo.SaveDeliveryLog(ctx, event.ID, &model.DeliveryLogEntry{
 			Attempt:    event.Attempts + 1,
-			StatusCode: resp.StatusCode,
+			StatusCode: statusCode,
 			DurationMs: durationMs,
 			Error:      "",
 			CreatedAt:  time.Now().UTC(),
 		})
 		if err == nil {
 			event.Status = model.StatusDelivered
-			event.HTTPStatusCode = resp.StatusCode
+			event.HTTPStatusCode = statusCode
 			event.Attempts++
 			event.LastError = ""
 			event.FailureCode = ""
@@ -658,28 +709,28 @@ func (p *Pool) processEventWithContext(ctx context.Context, eventID string) erro
 	}
 
 	// Failure response: 4xx, 5xx
-	errMsg := fmt.Sprintf("downstream returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(bodySnippet)))
+	errMsg := fmt.Sprintf("downstream returned HTTP %d: %s", statusCode, bodySnippet)
 	_ = p.repo.SaveDeliveryLog(ctx, event.ID, &model.DeliveryLogEntry{
 		Attempt:    event.Attempts + 1,
-		StatusCode: resp.StatusCode,
+		StatusCode: statusCode,
 		DurationMs: durationMs,
 		Error:      errMsg,
 		CreatedAt:  time.Now().UTC(),
 	})
 
 	// Check for HTTP 429 / 503 Retry-After non-penalizing deferral
-	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
-		if retryHeader := resp.Header.Get("Retry-After"); strings.TrimSpace(retryHeader) != "" {
-			if nextRetryAt, ok := ParseRetryAfter(retryHeader, time.Now().UTC()); ok {
-				dErr := p.repo.DeferRetry(ctx, event.ID, nextRetryAt, errMsg, resp.StatusCode)
+	if statusCode == http.StatusTooManyRequests || statusCode == http.StatusServiceUnavailable {
+		if strings.TrimSpace(retryAfterHeader) != "" {
+			if nextRetryAt, ok := ParseRetryAfter(retryAfterHeader, time.Now().UTC()); ok {
+				dErr := p.repo.DeferRetry(ctx, event.ID, nextRetryAt, errMsg, statusCode)
 				if dErr == nil {
 					event.Status = model.StatusRetrying
-					event.HTTPStatusCode = resp.StatusCode
+					event.HTTPStatusCode = statusCode
 					event.LastError = errMsg
 					event.NextRetryAt = &nextRetryAt
 					p.notifyUpdate(event)
 				}
-				if resp.StatusCode == http.StatusServiceUnavailable && p.notifier != nil {
+				if statusCode == http.StatusServiceUnavailable && p.notifier != nil {
 					p.notifier.NotifyIncident(ctx, endpoint, event.ID, "downstream maintenance / consecutive failure (circuit monitor): "+errMsg)
 				}
 				return dErr
@@ -687,13 +738,13 @@ func (p *Pool) processEventWithContext(ctx context.Context, eventID string) erro
 		}
 	}
 
-	if resp.StatusCode >= 500 {
+	if statusCode >= 500 {
 		if p.recordCircuitFailure(cbKey) && p.notifier != nil {
 			p.notifier.NotifyIncident(ctx, endpoint, event.ID, "circuit breaker tripped after consecutive failures: "+errMsg)
 		}
 	}
 
-	return p.handleFailure(ctx, endpoint, event, resp.StatusCode, errMsg)
+	return p.handleFailure(ctx, endpoint, event, statusCode, errMsg)
 }
 
 func (p *Pool) handleFailure(ctx context.Context, endpoint *model.Endpoint, event *model.WebhookEvent, statusCode int, errMsg string) error {

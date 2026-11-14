@@ -58,6 +58,8 @@ export interface Endpoint {
   notification_email?: string;
   provider: ProviderType;
   is_active: boolean;
+  agent_token?: string;
+  agent_connected?: boolean;
   created_at: string;
 }
 

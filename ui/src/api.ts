@@ -172,6 +172,19 @@ export async function updateEndpoint(
   return res.json();
 }
 
+export async function rotateEndpointAgentToken(
+  id: string
+): Promise<{ id: string; agent_token: string; agent_connected: boolean }> {
+  const res = await fetch(`${BASE_URL}/endpoints/${encodeURIComponent(id)}/agent-token`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    throw await parseErrorResponse(res, `Gagal merotasi agent token untuk endpoint ${id}`);
+  }
+  return res.json();
+}
+
 export async function triggerSystemBackup(destinationPath?: string): Promise<BackupResult> {
   const res = await fetch(`${BASE_URL}/system/backup`, {
     method: 'POST',

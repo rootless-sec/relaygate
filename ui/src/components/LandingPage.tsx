@@ -1301,8 +1301,8 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
               <li className="mach__client">
                 <Terminal className="w-[18px] h-[18px] shrink-0 text-zinc-700" />
                 <span>
-                  <strong>CLI &amp; cURL</strong>
-                  <small>Replay scripts &amp; CI</small>
+                  <strong>CLI Agent &amp; cURL</strong>
+                  <small>relaygate-agent tunnel &amp; CI</small>
                 </span>
               </li>
             </ul>

@@ -2,7 +2,9 @@ package storage
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	_ "embed"
 	"encoding/hex"
@@ -43,6 +45,8 @@ type Repository interface {
 	// Endpoint methods
 	SaveEndpoint(ctx context.Context, endpoint *model.Endpoint) error
 	GetEndpointByID(ctx context.Context, id string) (*model.Endpoint, error)
+	GetEndpointByAgentToken(ctx context.Context, token string) (*model.Endpoint, error)
+	RotateEndpointAgentToken(ctx context.Context, endpointID string) (string, error)
 	ListEndpoints(ctx context.Context) ([]*model.Endpoint, error)
 	DeleteEndpoint(ctx context.Context, id string) error
 
@@ -201,6 +205,7 @@ func (d *DB) Migrate(ctx context.Context) error {
 				{"discord_webhook", "ALTER TABLE endpoints ADD COLUMN discord_webhook TEXT NOT NULL DEFAULT '';"},
 				{"slack_webhook", "ALTER TABLE endpoints ADD COLUMN slack_webhook TEXT NOT NULL DEFAULT '';"},
 				{"notification_email", "ALTER TABLE endpoints ADD COLUMN notification_email TEXT NOT NULL DEFAULT '';"},
+				{"agent_token", "ALTER TABLE endpoints ADD COLUMN agent_token TEXT NOT NULL DEFAULT '';"},
 			}
 			for _, add := range epAdditions {
 				if !epCols[add.name] {
@@ -315,6 +320,22 @@ func (d *DB) Migrate(ctx context.Context) error {
 		return fmt.Errorf("migration execution error: %w", err)
 	}
 
+	// Backfill missing agent tokens for legacy endpoints so every endpoint has a CLI agent token.
+	backfillRows, bfErr := d.db.QueryContext(ctx, "SELECT id FROM endpoints WHERE COALESCE(agent_token, '') = '';")
+	if bfErr == nil {
+		var missingIDs []string
+		for backfillRows.Next() {
+			var id string
+			if sErr := backfillRows.Scan(&id); sErr == nil && id != "" {
+				missingIDs = append(missingIDs, id)
+			}
+		}
+		backfillRows.Close()
+		for _, id := range missingIDs {
+			_, _ = d.db.ExecContext(ctx, "UPDATE endpoints SET agent_token = ? WHERE id = ? AND COALESCE(agent_token, '') = '';", GenerateAgentToken(), id)
+		}
+	}
+
 	// Ensure default administrator account is seeded with admin role for backward compatibility
 	var count int
 	row := d.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE email = 'admin@relaygate.local';")
@@ -334,6 +355,74 @@ func (d *DB) Migrate(ctx context.Context) error {
 	return nil
 }
 
+// GenerateAgentToken creates a cryptographically random token for outbound relaygate-agent sessions.
+func GenerateAgentToken() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "agt_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	}
+	return "agt_" + hex.EncodeToString(b)
+}
+
+const endpointSelectColumns = `
+	id, name, secret_key, target_url,
+	COALESCE(destinations_json, '[]'),
+	COALESCE(wrap_envelope, 0),
+	COALESCE(notification_url, ''),
+	COALESCE(telegram_webhook, ''),
+	COALESCE(telegram_chat_id, ''),
+	COALESCE(discord_webhook, ''),
+	COALESCE(slack_webhook, ''),
+	COALESCE(notification_email, ''),
+	COALESCE(agent_token, ''),
+	provider, is_active, created_at
+`
+
+func scanEndpoint(s rowScanner) (*model.Endpoint, error) {
+	var ep model.Endpoint
+	var destJSONStr string
+	var wrapInt int
+	var providerStr string
+	var isActiveInt int
+	var createdAtRaw any
+
+	err := s.Scan(
+		&ep.ID,
+		&ep.Name,
+		&ep.SecretKey,
+		&ep.TargetURL,
+		&destJSONStr,
+		&wrapInt,
+		&ep.NotificationURL,
+		&ep.TelegramWebhook,
+		&ep.TelegramChatID,
+		&ep.DiscordWebhook,
+		&ep.SlackWebhook,
+		&ep.NotificationEmail,
+		&ep.AgentToken,
+		&providerStr,
+		&isActiveInt,
+		&createdAtRaw,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if destJSONStr != "" && destJSONStr != "[]" {
+		_ = json.Unmarshal([]byte(destJSONStr), &ep.Destinations)
+		for _, dest := range ep.Destinations {
+			if dest.URL != "" {
+				ep.TargetURLs = append(ep.TargetURLs, dest.URL)
+			}
+		}
+	}
+	ep.WrapEnvelope = wrapInt == 1
+	ep.Provider = model.ProviderType(providerStr)
+	ep.IsActive = isActiveInt == 1
+	ep.CreatedAt = parseSQLTime(createdAtRaw)
+	return &ep, nil
+}
+
 // SaveEndpoint creates or updates an endpoint
 func (d *DB) SaveEndpoint(ctx context.Context, ep *model.Endpoint) error {
 	if ep == nil {
@@ -348,6 +437,9 @@ func (d *DB) SaveEndpoint(ctx context.Context, ep *model.Endpoint) error {
 	}
 	if ep.Provider == "" {
 		ep.Provider = model.ProviderGeneric
+	}
+	if strings.TrimSpace(ep.AgentToken) == "" {
+		ep.AgentToken = GenerateAgentToken()
 	}
 
 	if len(ep.Destinations) == 0 && len(ep.TargetURLs) > 0 {
@@ -373,9 +465,9 @@ func (d *DB) SaveEndpoint(ctx context.Context, ep *model.Endpoint) error {
 		INSERT INTO endpoints (
 			id, name, secret_key, target_url, destinations_json, wrap_envelope,
 			notification_url, telegram_webhook, telegram_chat_id, discord_webhook, slack_webhook, notification_email,
-			provider, is_active, created_at
+			agent_token, provider, is_active, created_at
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name = excluded.name,
 			secret_key = excluded.secret_key,
@@ -388,6 +480,7 @@ func (d *DB) SaveEndpoint(ctx context.Context, ep *model.Endpoint) error {
 			discord_webhook = excluded.discord_webhook,
 			slack_webhook = excluded.slack_webhook,
 			notification_email = excluded.notification_email,
+			agent_token = CASE WHEN endpoints.agent_token != '' THEN endpoints.agent_token ELSE excluded.agent_token END,
 			provider = excluded.provider,
 			is_active = excluded.is_active;
 	`
@@ -416,6 +509,7 @@ func (d *DB) SaveEndpoint(ctx context.Context, ep *model.Endpoint) error {
 		ep.DiscordWebhook,
 		ep.SlackWebhook,
 		ep.NotificationEmail,
+		ep.AgentToken,
 		string(ep.Provider),
 		isActiveInt,
 		createdAtStr,
@@ -432,68 +526,74 @@ func (d *DB) GetEndpointByID(ctx context.Context, id string) (*model.Endpoint, e
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	query := `
-		SELECT
-			id, name, secret_key, target_url,
-			COALESCE(destinations_json, '[]'),
-			COALESCE(wrap_envelope, 0),
-			COALESCE(notification_url, ''),
-			COALESCE(telegram_webhook, ''),
-			COALESCE(telegram_chat_id, ''),
-			COALESCE(discord_webhook, ''),
-			COALESCE(slack_webhook, ''),
-			COALESCE(notification_email, ''),
-			provider, is_active, created_at
-		FROM endpoints
-		WHERE id = ?;
-	`
-
-	var ep model.Endpoint
-	var destJSONStr string
-	var wrapInt int
-	var providerStr string
-	var isActiveInt int
-	var createdAtRaw any
-
-	row := d.db.QueryRowContext(ctx, query, id)
-	err := row.Scan(
-		&ep.ID,
-		&ep.Name,
-		&ep.SecretKey,
-		&ep.TargetURL,
-		&destJSONStr,
-		&wrapInt,
-		&ep.NotificationURL,
-		&ep.TelegramWebhook,
-		&ep.TelegramChatID,
-		&ep.DiscordWebhook,
-		&ep.SlackWebhook,
-		&ep.NotificationEmail,
-		&providerStr,
-		&isActiveInt,
-		&createdAtRaw,
-	)
+	query := "SELECT " + endpointSelectColumns + " FROM endpoints WHERE id = ?;"
+	ep, err := scanEndpoint(d.db.QueryRowContext(ctx, query, id))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("endpoint not found: %w", err)
 		}
 		return nil, fmt.Errorf("failed to get endpoint by id: %w", err)
 	}
+	return ep, nil
+}
 
-	if destJSONStr != "" && destJSONStr != "[]" {
-		_ = json.Unmarshal([]byte(destJSONStr), &ep.Destinations)
-		for _, dest := range ep.Destinations {
-			if dest.URL != "" {
-				ep.TargetURLs = append(ep.TargetURLs, dest.URL)
-			}
+// GetEndpointByAgentToken authenticates an agent token in constant time and returns its endpoint.
+func (d *DB) GetEndpointByAgentToken(ctx context.Context, token string) (*model.Endpoint, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil, fmt.Errorf("agent token is required")
+	}
+
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	query := "SELECT " + endpointSelectColumns + " FROM endpoints WHERE COALESCE(agent_token, '') != '';"
+	rows, err := d.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query agent endpoints: %w", err)
+	}
+	defer rows.Close()
+
+	tokenBytes := []byte(token)
+	var matched *model.Endpoint
+	for rows.Next() {
+		ep, scanErr := scanEndpoint(rows)
+		if scanErr != nil {
+			continue
+		}
+		if subtle.ConstantTimeCompare([]byte(ep.AgentToken), tokenBytes) == 1 {
+			matched = ep
 		}
 	}
-	ep.WrapEnvelope = wrapInt == 1
-	ep.Provider = model.ProviderType(providerStr)
-	ep.IsActive = isActiveInt == 1
-	ep.CreatedAt = parseSQLTime(createdAtRaw)
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed iterating agent endpoints: %w", err)
+	}
+	if matched == nil {
+		return nil, fmt.Errorf("invalid agent token")
+	}
+	return matched, nil
+}
 
-	return &ep, nil
+// RotateEndpointAgentToken generates and persists a new agent token for an endpoint.
+func (d *DB) RotateEndpointAgentToken(ctx context.Context, endpointID string) (string, error) {
+	if strings.TrimSpace(endpointID) == "" {
+		return "", fmt.Errorf("endpoint id is required")
+	}
+
+	newToken := GenerateAgentToken()
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	res, err := d.db.ExecContext(ctx, "UPDATE endpoints SET agent_token = ? WHERE id = ?;", newToken, endpointID)
+	if err != nil {
+		return "", fmt.Errorf("failed to rotate agent token: %w", err)
+	}
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		return "", fmt.Errorf("endpoint not found")
+	}
+	return newToken, nil
 }
 
 // ListEndpoints retrieves all registered endpoints
@@ -501,21 +601,7 @@ func (d *DB) ListEndpoints(ctx context.Context) ([]*model.Endpoint, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	query := `
-		SELECT
-			id, name, secret_key, target_url,
-			COALESCE(destinations_json, '[]'),
-			COALESCE(wrap_envelope, 0),
-			COALESCE(notification_url, ''),
-			COALESCE(telegram_webhook, ''),
-			COALESCE(telegram_chat_id, ''),
-			COALESCE(discord_webhook, ''),
-			COALESCE(slack_webhook, ''),
-			COALESCE(notification_email, ''),
-			provider, is_active, created_at
-		FROM endpoints
-		ORDER BY created_at DESC;
-	`
+	query := "SELECT " + endpointSelectColumns + " FROM endpoints ORDER BY created_at DESC;"
 
 	rows, err := d.db.QueryContext(ctx, query)
 	if err != nil {
@@ -525,46 +611,11 @@ func (d *DB) ListEndpoints(ctx context.Context) ([]*model.Endpoint, error) {
 
 	var endpoints []*model.Endpoint
 	for rows.Next() {
-		var ep model.Endpoint
-		var destJSONStr string
-		var wrapInt int
-		var providerStr string
-		var isActiveInt int
-		var createdAtRaw any
-
-		if err := rows.Scan(
-			&ep.ID,
-			&ep.Name,
-			&ep.SecretKey,
-			&ep.TargetURL,
-			&destJSONStr,
-			&wrapInt,
-			&ep.NotificationURL,
-			&ep.TelegramWebhook,
-			&ep.TelegramChatID,
-			&ep.DiscordWebhook,
-			&ep.SlackWebhook,
-			&ep.NotificationEmail,
-			&providerStr,
-			&isActiveInt,
-			&createdAtRaw,
-		); err != nil {
+		ep, err := scanEndpoint(rows)
+		if err != nil {
 			return nil, fmt.Errorf("failed to scan endpoint row: %w", err)
 		}
-
-		if destJSONStr != "" && destJSONStr != "[]" {
-			_ = json.Unmarshal([]byte(destJSONStr), &ep.Destinations)
-			for _, dest := range ep.Destinations {
-				if dest.URL != "" {
-					ep.TargetURLs = append(ep.TargetURLs, dest.URL)
-				}
-			}
-		}
-		ep.WrapEnvelope = wrapInt == 1
-		ep.Provider = model.ProviderType(providerStr)
-		ep.IsActive = isActiveInt == 1
-		ep.CreatedAt = parseSQLTime(createdAtRaw)
-		endpoints = append(endpoints, &ep)
+		endpoints = append(endpoints, ep)
 	}
 
 	if err := rows.Err(); err != nil {

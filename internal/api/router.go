@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rootless-sec/relaygate/internal/agent"
 	"github.com/rootless-sec/relaygate/internal/mailer"
 	"github.com/rootless-sec/relaygate/internal/storage"
 	"github.com/rootless-sec/relaygate/internal/worker"
@@ -349,6 +350,13 @@ type Router struct {
 	mux *http.ServeMux
 }
 
+// SetAgentHub attaches an outbound agent tunnel hub to the router's API handlers.
+func (rt *Router) SetAgentHub(h *agent.Hub) {
+	if rt != nil && rt.api != nil {
+		rt.api.SetAgentHub(h)
+	}
+}
+
 // NewRouter registers all control plane API endpoints
 func NewRouter(repo storage.Repository, pool *worker.Pool, hub *Hub, mailerOpt ...*mailer.Mailer) *Router {
 	api := NewAPI(repo, pool, hub, mailerOpt...)
@@ -364,6 +372,11 @@ func NewRouter(repo storage.Repository, pool *worker.Pool, hub *Hub, mailerOpt .
 	mux.HandleFunc("POST /api/v1/endpoints", api.CreateEndpoint)
 	mux.HandleFunc("PATCH /api/v1/endpoints/{id}", api.UpdateEndpoint)
 	mux.HandleFunc("DELETE /api/v1/endpoints/{id}", api.DeleteEndpoint)
+	mux.HandleFunc("POST /api/v1/endpoints/{id}/agent-token", api.RotateEndpointAgentToken)
+
+	// Agent Tunnel Endpoints
+	mux.HandleFunc("GET /api/v1/agent/connect", api.AgentConnect)
+	mux.HandleFunc("GET /api/v1/agents", api.ListAgentStatus)
 
 	mux.HandleFunc("GET /api/v1/stats", api.GetStats)
 	mux.HandleFunc("GET /api/v1/overview", api.GetOverview)
@@ -422,7 +435,7 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Enable CORS for local Vite dev server and cross-origin tools
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Cache-Control")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Cache-Control, X-RelayGate-Agent-Token")
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
@@ -442,6 +455,12 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.Header.Del("X-User-Role")
 	r.Header.Del("X-Admin")
 	r.Header.Del("X-User-Email")
+
+	// Agent tunnel connections authenticate using endpoint agt_ tokens directly inside AgentConnect.
+	if r.URL.Path == "/api/v1/agent/connect" {
+		rt.mux.ServeHTTP(w, r)
+		return
+	}
 
 	// Server-side Session / Token Authentication Middleware
 	token := extractTokenFromRequest(r)

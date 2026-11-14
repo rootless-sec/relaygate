@@ -39,6 +39,7 @@ import {
   bulkReplay,
   createEndpoint,
   updateEndpoint,
+  rotateEndpointAgentToken,
   logoutUser,
   UserProfile,
 } from './api';
@@ -253,6 +254,23 @@ export const App: React.FC = () => {
         }
       });
 
+      eventSource.addEventListener('agent_status', (e: MessageEvent) => {
+        try {
+          const payload = JSON.parse(e.data);
+          const data = payload.event || payload.data || payload;
+          if (!data?.endpoint_id) return;
+          setEndpoints((prev) =>
+            prev.map((ep) =>
+              ep.id === data.endpoint_id
+                ? { ...ep, agent_connected: Boolean(data.agent_connected) }
+                : ep
+            )
+          );
+        } catch (err) {
+          console.error('SSE agent_status error:', err);
+        }
+      });
+
       eventSource.onerror = () => {
         if (eventSource) {
           eventSource.close();
@@ -356,6 +374,27 @@ export const App: React.FC = () => {
       );
     } catch (err: any) {
       showToast(err?.message || 'Gagal mengubah status endpoint', 'error');
+    }
+  };
+
+  const handleRotateAgentToken = async (ep: Endpoint) => {
+    try {
+      const res = await rotateEndpointAgentToken(ep.id);
+      setEndpoints((prev) =>
+        prev.map((item) =>
+          item.id === ep.id
+            ? {
+                ...item,
+                agent_token: res.agent_token,
+                agent_connected: Boolean(res.agent_connected),
+              }
+            : item
+        )
+      );
+      showToast(`Token CLI agent untuk ${ep.name} diperbarui`, 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'Gagal merotasi agent token', 'error');
+      throw err;
     }
   };
 
@@ -714,6 +753,7 @@ export const App: React.FC = () => {
                 endpoints={endpoints}
                 onAddEndpoint={handleAddEndpoint}
                 onToggleActive={handleToggleEndpointActive}
+                onRotateAgentToken={handleRotateAgentToken}
                 onToast={(msg) => showToast(msg, 'info')}
               />
             )}

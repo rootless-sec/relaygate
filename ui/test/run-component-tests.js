@@ -2539,6 +2539,66 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.doesNotMatch(htmlWithoutLogs, /data-testid="delivery-log-list"/, 'Must NOT render delivery-log-list when delivery_log is empty');
   });
 
+  test('EndpointsView renders Relay Agent connection status and CLI trigger without slop pills', () => {
+    const mockEndpoints = [
+      {
+        id: 'ep_agent_online',
+        name: 'Local Stripe Receiver',
+        provider_type: 'stripe',
+        secret_key: 'whsec_test_1',
+        target_url: 'http://127.0.0.1:3000/webhooks',
+        agent_token: 'agt_online_secret_token_value',
+        agent_connected: true,
+        timeout_seconds: 10,
+        circuit_state: 'CLOSED',
+        failure_count: 0,
+        created_at: '2026-11-14T10:00:00Z',
+        updated_at: '2026-11-14T10:00:00Z',
+      },
+      {
+        id: 'ep_direct_http',
+        name: 'Cloud GitHub Target',
+        provider_type: 'github',
+        secret_key: 'gh_secret_2',
+        target_url: 'https://api.example.com/hooks',
+        agent_token: 'agt_offline_secret_token_value',
+        agent_connected: false,
+        timeout_seconds: 10,
+        circuit_state: 'CLOSED',
+        failure_count: 0,
+        created_at: '2026-11-14T10:00:00Z',
+        updated_at: '2026-11-14T10:00:00Z',
+      },
+    ];
+
+    const html = renderToString(
+      React.createElement(EndpointsView, {
+        endpoints: mockEndpoints,
+        events: [],
+        onRefresh: () => {},
+        onCreateEndpoint: async () => {},
+        onUpdateEndpoint: async () => {},
+        onDeleteEndpoint: async () => {},
+        onRotateAgentToken: async () => ({}),
+        onToast: () => {},
+      })
+    );
+
+    assert.match(html, /Relay Agent/, 'EndpointsView must render Relay Agent column');
+    assert.match(html, /<span[^>]*>Agent Online<\/span>/, 'Connected endpoint must render exact Agent Online pill without decorative dots or icons');
+    assert.match(html, /<span[^>]*>Direct HTTP<\/span>/, 'Disconnected endpoint must render exact Direct HTTP pill without decorative dots or icons');
+    assert.match(html, /Konfigurasi CLI Agent Local Stripe Receiver/, 'EndpointsView must expose CLI Agent configuration trigger');
+    assert.doesNotMatch(html, /\u2022\s*(Agent Online|Direct HTTP|Aktif|Nonaktif)|(Agent Online|Direct HTTP|Aktif|Nonaktif)\s*\u2022/, 'Status pills must not render decorative bullet dots');
+    assert.doesNotMatch(html, /animate-pulse|animate-ping/, 'Status pills must not use pulse or ping animations');
+    assert.doesNotMatch(html, /agt_online_secret_token_value/, 'Table view must not leak plaintext agent token before opening reveal modal');
+
+    const epSrcPath = fs.existsSync('src/components/EndpointsView.tsx')
+      ? 'src/components/EndpointsView.tsx'
+      : 'ui/src/components/EndpointsView.tsx';
+    const epSrc = fs.readFileSync(epSrcPath, 'utf8');
+    assert.doesNotMatch(epSrc, /[\u2014\u2013]/, 'EndpointsView.tsx must not contain unicode em or en dashes');
+  });
+
   // Cleanup temp files
   try {
     fs.rmSync(outDir, { recursive: true, force: true, maxRetries: 0 });

@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rootless-sec/relaygate/internal/agent"
 	"github.com/rootless-sec/relaygate/internal/api"
 	"github.com/rootless-sec/relaygate/internal/ingest"
 	"github.com/rootless-sec/relaygate/internal/mailer"
@@ -31,11 +32,33 @@ func main() {
 	}
 	defaultDB := getEnv("RELAYGATE_DB_PATH", "./data/relaygate.db")
 	defaultWorkers := getEnvInt("RELAYGATE_WORKERS", 10)
+	defaultServerURL := getEnv("RELAYGATE_SERVER_URL", "http://127.0.0.1:8080")
+	defaultAgentToken := getEnv("RELAYGATE_AGENT_TOKEN", "")
+	defaultAgentForward := getEnv("RELAYGATE_AGENT_FORWARD", "")
 
 	addr := flag.String("addr", defaultAddr, "HTTP server listening address")
 	dbPath := flag.String("db", defaultDB, "SQLite database file path")
 	workers := flag.Int("workers", defaultWorkers, "Number of concurrent dispatch workers")
+	agentMode := flag.Bool("agent", false, "Run in outbound relaygate-agent CLI tunnel mode")
+	agentServer := flag.String("server", defaultServerURL, "RelayGate server URL (agent mode)")
+	agentToken := flag.String("token", defaultAgentToken, "Endpoint agent token agt_... (agent mode)")
+	agentForward := flag.String("forward", defaultAgentForward, "Optional local HTTP target URL override (agent mode)")
+	agentTimeout := flag.Duration("timeout", 15*time.Second, "Per-webhook local forward timeout (agent mode)")
 	flag.Parse()
+
+	if *agentMode || (flag.NArg() > 0 && flag.Arg(0) == "agent") {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := agent.RunCLI(ctx, agent.ClientConfig{
+			ServerURL:  *agentServer,
+			Token:      *agentToken,
+			ForwardURL: *agentForward,
+			Timeout:    *agentTimeout,
+		}); err != nil && err != context.Canceled {
+			log.Fatalf("[RelayGate Agent] Fatal error: %v", err)
+		}
+		return
+	}
 
 	log.Printf("[RelayGate] Starting core engine...")
 	log.Printf("[RelayGate] Database path: %s", *dbPath)
@@ -75,11 +98,18 @@ func main() {
 		log.Printf("[RelayGate] Worker pool stopped cleanly.")
 	}()
 
-	// Initialize SSE broadcasting Hub
+	// Initialize SSE broadcasting Hub and outbound agent tunnel Hub
 	hub := api.NewHub()
+	agentHub := agent.NewHub(repo, func(endpointID string, connected bool) {
+		hub.Broadcast("agent_status", map[string]any{
+			"endpoint_id":     endpointID,
+			"agent_connected": connected,
+		})
+	})
 
-	// Connect Hub to Worker Pool and Ingest Handler
+	// Connect Hubs to Worker Pool and Ingest Handler
 	pool.SetBroadcaster(hub)
+	pool.SetAgentHub(agentHub)
 
 	// Initialize HTTP Ingest handler
 	ingestHandler := ingest.NewHandler(repo, pool)
@@ -96,6 +126,7 @@ func main() {
 
 	// Initialize API Router
 	apiRouter := api.NewRouter(repo, pool, hub, emailSender)
+	apiRouter.SetAgentHub(agentHub)
 
 	// Router setup
 	mux := http.NewServeMux()

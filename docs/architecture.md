@@ -83,7 +83,7 @@ When processing a `PENDING` or `RETRYING` event, `worker.Pool` executes:
    - `circuitClosed`: allow immediate attempt.
    - `circuitOpen`: if `now < openUntil`, defer via `repo.DeferRetry` (`status = RETRYING`, `next_retry_at = openUntil`, `attempts` unchanged). Once `openUntil` passes, transition to `circuitHalfOpen` and admit a single probe request (`probeInFlight = true`).
 3. If `endpoint.WrapEnvelope` is enabled, construct a `model.CanonicalEnvelope` (`event_type`, `external_id`, `amount`, `currency`, `raw_payload`), override `Content-Type: application/json`, inject `X-RelayGate-Event-Type` and `X-RelayGate-External-ID`, and append Standard Webhooks headers (`webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<base64_hmac_sha256>`).
-4. Execute `http.Client.Do` (filtering hop-by-hop headers and internal `X-RelayGate-Request-Target`, adding `X-RelayGate-Delivery`, `X-RelayGate-Attempt`, `X-RelayGate-Provider`, `X-RelayGate-Verified`), measure `time.Since(startDelivery).Milliseconds()`, and persist a row into `delivery_logs`.
+4. Dispatch the outbound request: if a `relaygate-agent` RFC 6455 WebSocket tunnel session is connected for `endpoint.ID`, forward raw payload bytes (`payload_base64`) and canonicalized headers (filtering hop-by-hop headers and internal `X-RelayGate-Request-Target`, adding `X-RelayGate-Delivery`, `X-RelayGate-Attempt`, `X-RelayGate-Provider`, `X-RelayGate-Verified`) over `agent.Hub.Dispatch` and await the agent ACK; otherwise execute `http.Client.Do` directly. Record latency `duration_ms` and persist a row into `delivery_logs`.
 5. Classify the HTTP outcome:
    - `2xx`: call `recordCircuitSuccess(cbKey)` (returns circuit to `CLOSED`, resets failure count), mark `DELIVERED`.
    - `429` or `503` with `Retry-After`: `ParseRetryAfter` parses delta-seconds (clamped `2s..86400s`) or RFC HTTP-dates and calls `DeferRetry` so `attempts` is preserved for genuine downstream failures.
@@ -98,7 +98,7 @@ SQLite runs in WAL mode (`modernc.org/sqlite`) with periodic checkpoints every 3
 
 | Table | Purpose & Key Columns |
 | :--- | :--- |
-| `endpoints` | Routing targets, `destinations_json`, `wrap_envelope`, `provider`, `secret_key`, and alert sinks (`notification_url`, `telegram_webhook`, `telegram_chat_id`, `discord_webhook`, `slack_webhook`, `notification_email`) |
+| `endpoints` | Routing targets, `destinations_json`, `wrap_envelope`, `provider`, `secret_key`, `agent_token`, and alert sinks (`notification_url`, `telegram_webhook`, `telegram_chat_id`, `discord_webhook`, `slack_webhook`, `notification_email`) |
 | `webhook_events` | Primary and child (`parent_event_id`) event queue rows, raw header JSON, raw payload BLOB, `target_url`, `external_id`, `status`, `attempts`, `max_attempts`, `failure_code`, `failed_at`, `next_retry_at` |
 | `delivery_logs` | Per-attempt telemetry rows (`id`, `event_id`, `attempt`, `status_code`, `duration_ms`, `error`, `created_at`) with foreign key `ON DELETE CASCADE` |
 | `idempotency_keys` | Composite primary key `(endpoint_id, idempotency_key)` mapping to first-seen `event_id` |

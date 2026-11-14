@@ -25,6 +25,7 @@ import (
 	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
 
+	"github.com/rootless-sec/relaygate/internal/agent"
 	"github.com/rootless-sec/relaygate/internal/api"
 	"github.com/rootless-sec/relaygate/internal/ingest"
 	"github.com/rootless-sec/relaygate/internal/mailer"
@@ -4932,4 +4933,271 @@ func TestEndToEnd_Scenario_FullLifecycleMultiServiceRelay(t *testing.T) {
 	if evt == nil {
 		t.Fatalf("expected event record to exist")
 	}
+}
+
+func TestEndToEnd_RelayGateAgentTunnel(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "relaygate-e2e-agent-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dbPath := filepath.Join(tempDir, "relaygate.db")
+	db, err := storage.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open storage db: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	v := verifier.NewEngine()
+	workerCfg := worker.DefaultConfig()
+	workerCfg.Concurrency = 2
+	workerCfg.PollInterval = 25 * time.Millisecond
+	workerCfg.HTTPTimeout = 2 * time.Second
+	workerCfg.HTTPClient = &http.Client{Timeout: 2 * time.Second}
+
+	pool := worker.NewPool(db, v, workerCfg)
+	hub := api.NewHub()
+	pool.SetBroadcaster(hub)
+
+	statusUpdates := make(chan bool, 10)
+	agentHub := agent.NewHub(db, func(epID string, connected bool) {
+		hub.Broadcast("agent_status", map[string]any{
+			"endpoint_id":     epID,
+			"agent_connected": connected,
+		})
+		select {
+		case statusUpdates <- connected:
+		default:
+		}
+	})
+	pool.SetAgentHub(agentHub)
+	pool.Start()
+	defer pool.Stop()
+
+	ingestHandler := ingest.NewHandler(db, pool)
+	ingestHandler.SetBroadcaster(hub)
+	ingestHandler.SetIPResolver(api.ResolveClientIP)
+
+	emailSender := mailer.NewMailerFromEnv()
+	apiRouter := api.NewRouter(db, pool, hub, emailSender)
+	apiRouter.SetAgentHub(agentHub)
+
+	mux := http.NewServeMux()
+	mux.Handle("POST /ingest/{endpoint_id}", ingestHandler)
+	mux.Handle("/ingest/", ingestHandler)
+	mux.Handle("/api/v1/", apiRouter)
+
+	server := httptest.NewServer(api.SecurityHeaders(mux))
+	defer server.Close()
+	client := server.Client()
+
+	// 1. Login as seeded admin to obtain bearer token
+	loginResp, err := client.Post(
+		server.URL+"/api/v1/auth/login",
+		"application/json",
+		strings.NewReader(`{"email":"admin@relaygate.local","password":"relaygate123"}`),
+	)
+	if err != nil {
+		t.Fatalf("admin login request failed: %v", err)
+	}
+	var loginData struct {
+		Token string `json:"token"`
+	}
+	_ = json.NewDecoder(loginResp.Body).Decode(&loginData)
+	_ = loginResp.Body.Close()
+	if loginResp.StatusCode != http.StatusOK || loginData.Token == "" {
+		t.Fatalf("admin login failed: status=%d", loginResp.StatusCode)
+	}
+
+	// 2. Provision endpoint via HTTP API; target_url is intentionally unreachable to prove delivery uses WebSocket tunnel
+	epSecret := "whsec_agent_e2e_secret"
+	createReq, _ := http.NewRequest(
+		http.MethodPost,
+		server.URL+"/api/v1/endpoints",
+		strings.NewReader(fmt.Sprintf(
+			`{"name":"Local Agent Service","provider":"stripe","secret_key":%q,"target_url":"http://127.0.0.1:1/unreachable-direct","timeout_seconds":5}`,
+			epSecret,
+		)),
+	)
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("Authorization", "Bearer "+loginData.Token)
+	createResp, err := client.Do(createReq)
+	if err != nil {
+		t.Fatalf("create endpoint request failed: %v", err)
+	}
+	var createdEp model.Endpoint
+	_ = json.NewDecoder(createResp.Body).Decode(&createdEp)
+	_ = createResp.Body.Close()
+	if createResp.StatusCode != http.StatusCreated && createResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected endpoint creation 200/201, got %d", createResp.StatusCode)
+	}
+	if createdEp.ID == "" || !strings.HasPrefix(createdEp.AgentToken, "agt_") {
+		t.Fatalf("expected auto-generated agt_ token on created endpoint, got id=%q token=%q", createdEp.ID, createdEp.AgentToken)
+	}
+
+	// 3. Spin up private local receiver reachable only to relaygate-agent
+	var receivedBodyMu sync.Mutex
+	var receivedBody []byte
+	var receivedSig string
+	var receivedDeliveryID string
+	localDelivered := make(chan struct{}, 1)
+	localPrivateTarget := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		receivedBodyMu.Lock()
+		receivedBody = body
+		receivedSig = r.Header.Get("Stripe-Signature")
+		receivedDeliveryID = r.Header.Get("X-RelayGate-Delivery")
+		receivedBodyMu.Unlock()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true,"via":"relaygate-agent"}`))
+		select {
+		case localDelivered <- struct{}{}:
+		default:
+		}
+	}))
+	defer localPrivateTarget.Close()
+
+	// 4. Connect outbound agent.Client to RelayGate Server
+	agentCtx, cancelAgent := context.WithCancel(context.Background())
+	defer cancelAgent()
+
+	welcomed := make(chan agent.WelcomePayload, 1)
+	agentClient := agent.NewClient(agent.ClientConfig{
+		ServerURL:    server.URL,
+		Token:        createdEp.AgentToken,
+		ForwardURL:   localPrivateTarget.URL + "/webhook",
+		Timeout:      5 * time.Second,
+		PingInterval: 1 * time.Second,
+		PongWait:     3 * time.Second,
+		OnWelcome: func(w agent.WelcomePayload) {
+			select {
+			case welcomed <- w:
+			default:
+			}
+		},
+	})
+	go func() {
+		_ = agentClient.Run(agentCtx)
+	}()
+
+	select {
+	case w := <-welcomed:
+		if w.EndpointID != createdEp.ID {
+			t.Fatalf("expected welcome endpoint_id %q, got %q", createdEp.ID, w.EndpointID)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for agent WebSocket handshake welcome")
+	}
+
+	if !agentHub.HasAgent(createdEp.ID) {
+		t.Fatalf("expected agentHub.HasAgent(%s) == true", createdEp.ID)
+	}
+
+	// 5. Verify /api/v1/endpoints and /api/v1/agents report online agent status
+	agentsReq, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/agents", nil)
+	agentsReq.Header.Set("Authorization", "Bearer "+loginData.Token)
+	agentsResp, err := client.Do(agentsReq)
+	if err != nil {
+		t.Fatalf("GET /api/v1/agents failed: %v", err)
+	}
+	agentsBody, _ := io.ReadAll(agentsResp.Body)
+	_ = agentsResp.Body.Close()
+	if agentsResp.StatusCode != http.StatusOK || !strings.Contains(string(agentsBody), createdEp.ID) {
+		t.Fatalf("expected 200 and endpoint id %q in /api/v1/agents, got %d: %s", createdEp.ID, agentsResp.StatusCode, string(agentsBody))
+	}
+
+	// 6. Ingest valid signed Stripe webhook and confirm tunnel forwarding to private target
+	payload := []byte(`{"id":"evt_agent_tunnel_1","type":"checkout.session.completed","amount":125000}`)
+	stripeSig := GenerateStripeSignature(epSecret, payload, time.Now().Unix())
+	ingestReq, _ := http.NewRequest(http.MethodPost, server.URL+"/ingest/"+createdEp.ID, bytes.NewReader(payload))
+	ingestReq.Header.Set("Content-Type", "application/json")
+	ingestReq.Header.Set("Stripe-Signature", stripeSig)
+	ingestResp, err := client.Do(ingestReq)
+	if err != nil {
+		t.Fatalf("ingest POST failed: %v", err)
+	}
+	var ingestResult ingest.Response
+	_ = json.NewDecoder(ingestResp.Body).Decode(&ingestResult)
+	_ = ingestResp.Body.Close()
+	if ingestResp.StatusCode != http.StatusOK || ingestResult.ID == "" {
+		t.Fatalf("unexpected ingest status=%d id=%q", ingestResp.StatusCode, ingestResult.ID)
+	}
+
+	select {
+	case <-localDelivered:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for webhook delivery through relaygate-agent tunnel")
+	}
+
+	receivedBodyMu.Lock()
+	gotBody := string(receivedBody)
+	gotSig := receivedSig
+	gotDeliveryID := receivedDeliveryID
+	receivedBodyMu.Unlock()
+
+	if gotBody != string(payload) {
+		t.Fatalf("forwarded payload mismatch: want %s, got %s", string(payload), gotBody)
+	}
+	if gotSig != stripeSig {
+		t.Fatalf("Stripe-Signature header was altered: want %q, got %q", stripeSig, gotSig)
+	}
+	if gotDeliveryID != ingestResult.ID {
+		t.Fatalf("expected X-RelayGate-Delivery=%q, got %q", ingestResult.ID, gotDeliveryID)
+	}
+
+	// Wait briefly for DB status update after ACK
+	var evt *model.WebhookEvent
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		evt, err = db.GetEventByID(context.Background(), ingestResult.ID)
+		if err == nil && evt != nil && evt.Status == model.StatusDelivered {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if evt == nil || evt.Status != model.StatusDelivered {
+		t.Fatalf("expected DB event status DELIVERED, got %+v (err=%v)", evt, err)
+	}
+	if len(evt.DeliveryLog) == 0 {
+		t.Fatalf("expected persisted delivery_logs entry on GetEventByID after agent ACK, got 0")
+	}
+	if evt.DeliveryLog[0].StatusCode != http.StatusOK {
+		t.Fatalf("expected delivery_log status_code 200, got %d", evt.DeliveryLog[0].StatusCode)
+	}
+
+	// 7. Rotate agent token and verify active session is disconnected cleanly
+	rotateReq, _ := http.NewRequest(http.MethodPost, server.URL+"/api/v1/endpoints/"+createdEp.ID+"/agent-token", nil)
+	rotateReq.Header.Set("Authorization", "Bearer "+loginData.Token)
+	rotateResp, err := client.Do(rotateReq)
+	if err != nil {
+		t.Fatalf("rotate agent token request failed: %v", err)
+	}
+	rotateBody, _ := io.ReadAll(rotateResp.Body)
+	_ = rotateResp.Body.Close()
+	if rotateResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on token rotation, got %d: %s", rotateResp.StatusCode, string(rotateBody))
+	}
+
+	updatedEp, err := db.GetEndpointByID(context.Background(), createdEp.ID)
+	if err != nil || updatedEp == nil {
+		t.Fatalf("GetEndpointByID after rotation failed: %v", err)
+	}
+	if updatedEp.AgentToken == "" || updatedEp.AgentToken == createdEp.AgentToken {
+		t.Fatalf("expected rotated agent token to change, old=%q new=%q", createdEp.AgentToken, updatedEp.AgentToken)
+	}
+	if !strings.Contains(string(rotateBody), updatedEp.AgentToken) {
+		t.Fatalf("expected rotation response to include new token %q, got %s", updatedEp.AgentToken, string(rotateBody))
+	}
+
+	disconnectDeadline := time.Now().Add(2 * time.Second)
+	for agentHub.HasAgent(createdEp.ID) && time.Now().Before(disconnectDeadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if agentHub.HasAgent(createdEp.ID) {
+		t.Fatalf("expected active agent session to be disconnected upon token rotation")
+	}
+
+	// Cancel old agent before checking old token rejection on reconnect
+	cancelAgent()
 }
