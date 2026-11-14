@@ -44,7 +44,7 @@ RelayGate exposes a REST API and an SSE stream for webhook ingestion, session ma
 | `GET` | `/api/v1/endpoints` | Session / Bearer | Lists configured endpoints |
 | `POST` | `/api/v1/endpoints` | Session / Bearer | Registers a new endpoint with optional fan-out destinations, canonical envelope, and alert channels |
 | `PATCH` | `/api/v1/endpoints/{id}` | Session / Bearer | Updates endpoint settings, secret key, destinations, or notification channels |
-| `DELETE` | `/api/v1/endpoints/{id}` | Session / Bearer (`admin`) | Deletes an endpoint (returns `409 Conflict` if `PENDING` or `RETRYING` events exist) |
+| `DELETE` | `/api/v1/endpoints/{id}` | Session / Bearer (`admin`) | Deletes an endpoint, disconnects active `relaygate-agent` sessions, and returns `409 Conflict` if `PENDING` or `RETRYING` events exist |
 | `POST` | `/api/v1/endpoints/{id}/agent-token` | Session / Bearer | Rotates the endpoint `agent_token` (`agt_...`) and disconnects any active `relaygate-agent` session |
 | `GET` | `/api/v1/agents` | Session / Bearer | Lists active outbound `relaygate-agent` session counts per endpoint |
 | `GET` | `/api/v1/agent/connect` | Agent Token (`X-RelayGate-Agent-Token` / Bearer / `?agent_token=`) | RFC 6455 WebSocket tunnel endpoint for `relaygate-agent` outbound dispatch & ACKs |

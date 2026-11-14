@@ -110,3 +110,32 @@ SQLite runs in WAL mode (`modernc.org/sqlite`) with periodic checkpoints every 3
 - `GET /api/v1/overview` calls `GetThroughput` (12 1-minute UTC buckets via SQL `GROUP BY`), `GetEndpointBreakdown` (aggregated status counters per endpoint via SQL `LEFT JOIN` and `GROUP BY`), and `GetRecentFailedEvents` (indexed `LIMIT 5` lookup hydrated with `delivery_logs`) without loading historical payload BLOBs into Go heap memory.
 - `SQLiteRepository.Backup` uses an independent `backupMu` mutex (without holding the read/write transaction lock), checks `PRAGMA foreign_key_check;`, validates path confinement (no `..`, null bytes, drive roots, or OS system directories), and executes native SQLite `VACUUM INTO ?`.
 - `PruneDeliveredEvents` runs hourly in `cmd/relaygate/main.go` when `RELAYGATE_RETENTION_DAYS > 0`, deleting `DELIVERED` rows older than the cutoff (cascading their `delivery_logs`) while strictly excluding `FAILED`, `PENDING`, and `RETRYING` rows.
+
+---
+
+## 5. RelayGate CLI Agent Tunnel (`internal/agent`)
+
+`relaygate-agent` solves the problem of forwarding verified webhooks into private or local development environments (`http://127.0.0.1:3000`, Docker bridges, corporate intranets) without exposing inbound ports, configuring router NAT rules, or routing traffic through third-party tunneling SaaS.
+
+```text
+  [Private Network / Localhost]                      [Public / Hub RelayGate Server]
+  relaygate-agent                                    internal/api + internal/agent/hub.go
+         │                                                          ▲
+         └──── Outbound WebSocket (GET /api/v1/agent/connect) ──────┘
+               Header: X-RelayGate-Agent-Token: agt_...
+                     │
+                     ├── Server sends `welcome` (endpoint metadata)
+                     ├── Worker pushes `dispatch` (payload_base64 + headers)
+                     ├── Agent POSTs locally (redirects blocked, max 32 in-flight)
+                     └── Agent replies `ack` (status_code, duration_ms, error)
+```
+
+### Protocol & Reliability Mechanics
+
+1. **Outbound RFC 6455 Framing (`internal/agent/ws.go`, `protocol.go`)**: Implemented directly on Go standard library networking (`net/http`, `net`, `crypto/sha1`) with zero external WebSocket dependencies. JSON frames carry five types: `welcome`, `dispatch`, `ack`, `ping`, and `pong`.
+2. **Automatic Dispatch Routing**: When `worker.Pool` processes an event for an endpoint, it queries `agent.Hub`. If at least one `relaygate-agent` session is registered for `endpoint_id`, delivery routes through the WebSocket tunnel and awaits the `ack` frame; if no agent is connected, RelayGate falls back to direct outbound HTTP (`Direct HTTP`).
+3. **Bounded Reconnect & Pending ACK Flush (`internal/agent/client.go`)**: When a tunnel disconnects, the client reconnects automatically with bounded backoff (`100ms`, `500ms`, `1s`, `2s`, `5s`), resetting the backoff counter after 3 seconds of healthy connection. Any `ack` frames completed right as the socket dropped are buffered in `pendingAcks` and flushed on the next connection.
+4. **Hardening & Control Plane Integration**:
+   - Local HTTP forwarding uses `http.ErrUseLastResponse` in `CheckRedirect` so malicious or misconfigured downstream `3xx` responses cannot redirect the agent into unintended internal endpoints.
+   - Hop-by-hop headers (`Connection`, `Keep-Alive`, `Host`, `Content-Length`, `Upgrade`, etc.) are stripped before invoking the local target URL.
+   - Connecting, disconnecting, rotating `agent_token`, or deleting an endpoint via the admin UI immediately broadcasts an `agent_status` SSE event so the dashboard updates between `Agent Online` and `Direct HTTP` in real time.

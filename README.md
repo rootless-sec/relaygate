@@ -41,13 +41,37 @@
 
 * Multi-target fan-out per endpoint (`destinations` / `target_urls`), optional canonical JSON envelope normalization with Standard Webhooks headers (`wrap_envelope`), and upstream idempotency deduplication via `idempotency_keys`.
 * Per-destination circuit breakers (`CLOSED -> OPEN -> HALF_OPEN`), `Retry-After` non-penalizing deferral on HTTP `429`/`503`, and incident alerts via Telegram, Discord, Slack, generic webhooks, or SMTP (5-minute per-endpoint cooldown).
+* Built-in `relaygate-agent` outbound WebSocket tunnel for delivering verified webhooks into `localhost` or private-network services behind NAT/firewalls with zero inbound port forwarding or third-party tunnel dependencies.
 * Per-attempt HTTP latency and status logging in `delivery_logs`, single or bulk DLQ replay, online `VACUUM INTO` backups (`POST /api/v1/system/backup`), and automated retention pruning for `DELIVERED` events.
+
+## RelayGate CLI Agent (`relaygate-agent`)
+
+`relaygate-agent` is RelayGate's built-in outbound tunnel client for connecting a public or shared RelayGate server to downstream consumers running on `localhost`, private VPC subnets, or internal office/staging networks behind NAT and firewalls.
+
+**Purpose and Goals:**
+
+* **Zero Inbound Exposure:** The agent dials outbound over RFC 6455 WebSocket to `/api/v1/agent/connect` using a per-endpoint `agt_...` token, so internal services do not need public IPs, open firewall ports, reverse SSH tunnels, or external third-party tools like ngrok.
+* **Full Gateway Guarantees Preserved:** Even when delivering through a local tunnel, every webhook still goes through RelayGate's server-side signature verification, idempotency deduplication, canonical envelope wrapping, `delivery_logs` telemetry, per-destination circuit breakers, and DLQ replay.
+* **Live Control-Plane Visibility:** Connected endpoints automatically show an `Agent Online` status pill in the **Endpoints** UI (switching back to `Direct HTTP` when offline), with a `>_ CLI` modal to view the ready-to-run command and rotate `agent_token` credentials on demand.
+* **Zero External Runtime Dependencies:** Built on pure Go standard library WebSocket framing with automatic exponential-backoff reconnection (`100ms` to `5s`), HTTP redirect blocking on local forwards, hop-by-hop header filtering, and pending ACK recovery across brief disconnects.
+
+**Quick Usage:**
+
+```bash
+# Option 1: Dedicated agent binary
+go build -o relaygate-agent ./cmd/relaygate-agent
+./relaygate-agent -server http://127.0.0.1:8080 -token agt_your_endpoint_token -forward http://127.0.0.1:3000/webhooks
+
+# Option 2: Embedded agent mode using the main relaygate binary
+./relaygate -agent -server http://127.0.0.1:8080 -token agt_your_endpoint_token -forward http://127.0.0.1:3000/webhooks
+```
 
 ## Quickstart
 
 ```bash
 npm --prefix ui install && npm --prefix ui run build
 go build -o relaygate ./cmd/relaygate
+go build -o relaygate-agent ./cmd/relaygate-agent
 ./relaygate -addr 127.0.0.1:8080 -db ./data/relaygate.db -workers 10
 ```
 
@@ -60,9 +84,9 @@ npm --prefix ui test
 
 ## Documentation
 
-* [API Reference](docs/api.md) - Ingest responses, event filters (`provider`, `failure_code`), endpoint fan-out/notification fields, replay, and hot backup routes.
-* [Configuration & Deployment](docs/configuration.md) - CLI flags, environment variables (`RELAYGATE_RETENTION_DAYS`, `SMTP_*` vs `RELAYGATE_SMTP_*`), Nginx/Caddy configs, and systemd unit.
-* [Architecture & Internals](docs/architecture.md) - Ingestion pipeline, SQLite WAL schema (`delivery_logs`, `idempotency_keys`), verification details, and circuit breaker mechanics.
+* [API Reference](docs/api.md) - Ingest responses, event filters (`provider`, `failure_code`), endpoint CRUD/fan-out/agent-token routes, replay, and hot backup routes.
+* [Configuration & Deployment](docs/configuration.md) - Server and `relaygate-agent` CLI flags, environment variables (`RELAYGATE_RETENTION_DAYS`, `RELAYGATE_AGENT_*`, `SMTP_*` vs `RELAYGATE_SMTP_*`), Nginx/Caddy configs, and systemd units.
+* [Architecture & Internals](docs/architecture.md) - Ingestion pipeline, SQLite WAL schema (`delivery_logs`, `idempotency_keys`), verification engines, circuit breakers, and `relaygate-agent` tunnel internals.
 
 ## License
 

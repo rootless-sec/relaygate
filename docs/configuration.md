@@ -19,16 +19,18 @@ RelayGate compiles into a single static binary containing the Go engine, an embe
 
 ### `relaygate-agent` CLI Flags (Local Outbound Forwarder)
 
+`relaygate-agent` creates a persistent outbound WebSocket tunnel from private networks or developer workstations to a RelayGate server, forwarding verified webhook deliveries locally without opening inbound firewall ports. You can run either the dedicated `relaygate-agent` binary (`./cmd/relaygate-agent`) or the embedded mode (`./relaygate -agent ...` / `./relaygate agent ...`), and retrieve or rotate per-endpoint `agt_...` tokens from the **Endpoints** view via the `>_ CLI` button.
+
 ```bash
 ./relaygate-agent -server http://127.0.0.1:8080 -token agt_your_endpoint_token -forward http://127.0.0.1:3000/webhooks
 ```
 
-| Flag | Default | Description |
-| :--- | :--- | :--- |
-| `-server` | `http://127.0.0.1:8080` | RelayGate server base URL (`http://`, `https://`, `ws://`, or `wss://`) |
-| `-token` | (required) | Endpoint agent token (`agt_...`) shown in the Endpoints view |
-| `-forward` | `""` (endpoint `target_url`) | Optional local private HTTP service URL override for forwarded webhook POST requests |
-| `-timeout` | `15s` | Local HTTP forward timeout |
+| Flag | Default | Environment Override | Description |
+| :--- | :--- | :--- | :--- |
+| `-server` | `http://127.0.0.1:8080` | `RELAYGATE_SERVER_URL` | RelayGate server base URL (`http://`, `https://`, `ws://`, or `wss://`) |
+| `-token` | (required) | `RELAYGATE_AGENT_TOKEN` | Endpoint agent token (`agt_...`) shown in the Endpoints `>_ CLI` modal |
+| `-forward` | `""` (endpoint `target_url`) | `RELAYGATE_AGENT_FORWARD` | Optional local private HTTP service URL override for forwarded webhook POST requests |
+| `-timeout` | `15s` | - | Local HTTP forward timeout per attempt |
 
 `cmd/relaygate/main.go` automatically loads key-value pairs from a local `.env` file on startup when the corresponding environment variable is unset.
 
