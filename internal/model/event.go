@@ -16,6 +16,8 @@ const (
 	ProviderXendit   ProviderType = "xendit"
 	ProviderGithub   ProviderType = "github"
 	ProviderShopify  ProviderType = "shopify"
+	ProviderDoku     ProviderType = "doku"
+	ProviderFlip     ProviderType = "flip"
 )
 
 // ErrSignatureInvalid signals an invalid cryptographic signature or corrupted encoding
@@ -24,7 +26,7 @@ var ErrSignatureInvalid = errors.New("invalid signature")
 // IsValid reports whether the provider type is supported
 func (p ProviderType) IsValid() bool {
 	switch ProviderType(strings.ToLower(strings.TrimSpace(string(p)))) {
-	case ProviderGeneric, ProviderMidtrans, ProviderStripe, ProviderXendit, ProviderGithub, ProviderShopify:
+	case ProviderGeneric, ProviderMidtrans, ProviderStripe, ProviderXendit, ProviderGithub, ProviderShopify, ProviderDoku, ProviderFlip:
 		return true
 	default:
 		return false
@@ -54,27 +56,31 @@ func NormalizeMaxAttempts(maxAttempts int) int {
 
 // WebhookEvent represents an incoming webhook transaction record
 type WebhookEvent struct {
-	ID             string            `json:"id"`
-	EndpointID     string            `json:"endpoint_id"`
-	Provider       ProviderType      `json:"provider"`
-	SourceIP       string            `json:"source_ip"`
-	Headers        map[string]string `json:"headers"`
-	Payload        []byte            `json:"payload"`
-	Signature      string            `json:"signature,omitempty"`
-	IsVerified     int               `json:"is_verified"` // 1: valid, 0: skipped/unknown, -1: invalid
-	Status         EventStatus       `json:"status"`
-	HTTPStatusCode int               `json:"http_status_code"`
-	Attempts       int               `json:"attempts"`
-	MaxAttempts    int               `json:"max_attempts"`
-	LastError      string            `json:"last_error,omitempty"`
-	NextRetryAt    *time.Time        `json:"next_retry_at,omitempty"`
-	FailureCode    string            `json:"failure_code,omitempty"`
-	FailedAt       *time.Time        `json:"failed_at,omitempty"`
-	ErrorCode        string            `json:"error_code,omitempty"`
-	ErrorClass       string            `json:"error_class,omitempty"`
-	VerificationKind string            `json:"verification_kind,omitempty"`
-	CreatedAt        time.Time         `json:"created_at"`
-	UpdatedAt        time.Time         `json:"updated_at"`
+	ID               string            `json:"id"`
+	EndpointID       string            `json:"endpoint_id"`
+	TargetURL        string            `json:"target_url,omitempty"`
+	ParentEventID    string            `json:"parent_event_id,omitempty"`
+	ExternalID       string            `json:"external_id,omitempty"`
+	Provider         ProviderType      `json:"provider"`
+	SourceIP         string            `json:"source_ip"`
+	Headers          map[string]string `json:"headers"`
+	Payload          []byte            `json:"payload"`
+	Signature        string            `json:"signature,omitempty"`
+	IsVerified       int               `json:"is_verified"` // 1: valid, 0: skipped/unknown, -1: invalid
+	Status           EventStatus       `json:"status"`
+	HTTPStatusCode   int               `json:"http_status_code"`
+	Attempts         int               `json:"attempts"`
+	MaxAttempts      int               `json:"max_attempts"`
+	LastError        string            `json:"last_error,omitempty"`
+	NextRetryAt      *time.Time        `json:"next_retry_at,omitempty"`
+	FailureCode      string            `json:"failure_code,omitempty"`
+	FailedAt         *time.Time        `json:"failed_at,omitempty"`
+	ErrorCode        string             `json:"error_code,omitempty"`
+	ErrorClass       string             `json:"error_class,omitempty"`
+	VerificationKind string             `json:"verification_kind,omitempty"`
+	DeliveryLog      []DeliveryLogEntry `json:"delivery_log,omitempty"`
+	CreatedAt        time.Time          `json:"created_at"`
+	UpdatedAt        time.Time          `json:"updated_at"`
 }
 
 // IsEligibleForReplay returns whether the event is eligible for replay.
@@ -137,15 +143,30 @@ const (
 	ErrCodeDeliveryFailed ErrorCode = "DELIVERY_FAILED"
 )
 
+// EndpointDestination represents a target URL and optional retry limit for multi-target fan-out
+type EndpointDestination struct {
+	URL         string `json:"url"`
+	MaxAttempts int    `json:"max_attempts,omitempty"`
+}
+
 // Endpoint represents a configured target webhook routing destination
 type Endpoint struct {
-	ID        string       `json:"id"`
-	Name      string       `json:"name"`
-	SecretKey string       `json:"secret_key"`
-	TargetURL string       `json:"target_url"`
-	Provider  ProviderType `json:"provider"`
-	IsActive  bool         `json:"is_active"`
-	CreatedAt time.Time    `json:"created_at"`
+	ID                string                `json:"id"`
+	Name              string                `json:"name"`
+	SecretKey         string                `json:"secret_key"`
+	TargetURL         string                `json:"target_url"`
+	TargetURLs        []string              `json:"target_urls,omitempty"`
+	Destinations      []EndpointDestination `json:"destinations,omitempty"`
+	WrapEnvelope      bool                  `json:"wrap_envelope"`
+	NotificationURL   string                `json:"notification_url,omitempty"`
+	TelegramWebhook   string                `json:"telegram_webhook,omitempty"`
+	TelegramChatID    string                `json:"telegram_chat_id,omitempty"`
+	DiscordWebhook    string                `json:"discord_webhook,omitempty"`
+	SlackWebhook      string                `json:"slack_webhook,omitempty"`
+	NotificationEmail string                `json:"notification_email,omitempty"`
+	Provider          ProviderType          `json:"provider"`
+	IsActive          bool                  `json:"is_active"`
+	CreatedAt         time.Time             `json:"created_at"`
 }
 
 // IngestResponse represents the immediate response given to webhook providers
@@ -166,6 +187,8 @@ type StatsSummary struct {
 
 // DeliveryLogEntry represents a delivery attempt log in the timeline
 type DeliveryLogEntry struct {
+	ID         string    `json:"id,omitempty"`
+	EventID    string    `json:"event_id,omitempty"`
 	Attempt    int       `json:"attempt"`
 	StatusCode int       `json:"code"`
 	DurationMs int64     `json:"ms"`
@@ -192,13 +215,20 @@ func InferFailureCode(lastError string, httpStatusCode int, attempts int, isVeri
 	}
 
 	// 1. Verification rejected: explicit verification invalid (-1) or (0 attempts and not explicitly verified)
-	if isVerified == -1 || (attempts == 0 && isVerified != 1 && (strings.Contains(errLower, "signature") || strings.Contains(errLower, "payload") || strings.Contains(errLower, "header") || strings.Contains(errLower, "token") || strings.Contains(errLower, "midtrans") || strings.Contains(errLower, "stripe") || strings.Contains(errLower, "github") || strings.Contains(errLower, "xendit") || strings.Contains(errLower, "shopify"))) {
+	if isVerified == -1 || (attempts == 0 && isVerified != 1 && (strings.Contains(errLower, "signature") || strings.Contains(errLower, "payload") || strings.Contains(errLower, "header") || strings.Contains(errLower, "token") || strings.Contains(errLower, "midtrans") || strings.Contains(errLower, "stripe") || strings.Contains(errLower, "github") || strings.Contains(errLower, "xendit") || strings.Contains(errLower, "shopify") || strings.Contains(errLower, "doku") || strings.Contains(errLower, "flip"))) {
 		switch {
 		case strings.Contains(errLower, "missing signature header") ||
 			strings.Contains(errLower, "missing stripe-signature") ||
 			strings.Contains(errLower, "missing x-hub-signature") ||
 			strings.Contains(errLower, "missing x-callback-token") ||
 			strings.Contains(errLower, "missing x-shopify-hmac-sha256") ||
+			strings.Contains(errLower, "missing doku") ||
+			strings.Contains(errLower, "missing client-id") ||
+			strings.Contains(errLower, "missing request-id") ||
+			strings.Contains(errLower, "missing request-timestamp") ||
+			strings.Contains(errLower, "missing digest") ||
+			strings.Contains(errLower, "missing flip") ||
+			strings.Contains(errLower, "missing token") ||
 			strings.Contains(errLower, "signature_key not found"):
 			return ErrorClassVerificationRejected, ErrCodeSignatureHeaderMissing
 

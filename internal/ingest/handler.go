@@ -14,6 +14,7 @@ import (
 
 	"github.com/rootless-sec/relaygate/internal/model"
 	"github.com/rootless-sec/relaygate/internal/storage"
+	"github.com/rootless-sec/relaygate/internal/verifier"
 	"github.com/rootless-sec/relaygate/internal/worker"
 )
 
@@ -191,16 +192,68 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		headers[k] = strings.Join(v, ", ")
 	}
+	if model.LookupHeader(headers, "Request-Target") == "" {
+		headers["X-RelayGate-Request-Target"] = r.URL.Path
+	}
 
 	// Extract signature (from headers or body)
 	signature := extractSignature(headers, payload)
 
-	// Create WebhookEvent
+	// Extract upstream idempotency key
+	idempKey := model.ExtractIdempotencyKey(endpoint.Provider, headers, payload)
+
+	// Create primary WebhookEvent ID
 	eventID := uuid.NewString()
+
+	// Perform upstream idempotency deduplication unless an explicit signature is present and invalid,
+	// so forged requests cannot poison the idempotency table.
+	if idempKey != "" {
+		allowDedup := true
+		if signature != "" {
+			vStatus, _ := verifier.NewEngine().Verify(endpoint, headers, payload)
+			if vStatus == verifier.VerificationInvalid {
+				allowDedup = false
+			}
+		}
+		if allowDedup {
+			existingID, alreadyExists, idempErr := h.repo.CheckAndSetIdempotency(r.Context(), endpoint.ID, idempKey, eventID)
+			if idempErr == nil && alreadyExists {
+				writeJSON(w, http.StatusOK, Response{
+					Status:  "duplicate_ignored",
+					ID:      existingID,
+					EventID: existingID,
+					Message: "duplicate webhook ignored",
+				})
+				return
+			}
+		}
+	}
+
+	// Resolve fan-out destinations
+	var validDests []model.EndpointDestination
+	for _, d := range endpoint.Destinations {
+		if u := strings.TrimSpace(d.URL); u != "" {
+			validDests = append(validDests, model.EndpointDestination{
+				URL:         u,
+				MaxAttempts: model.NormalizeMaxAttempts(d.MaxAttempts),
+			})
+		}
+	}
+	if len(validDests) == 0 {
+		validDests = []model.EndpointDestination{
+			{
+				URL:         endpoint.TargetURL,
+				MaxAttempts: model.DefaultMaxAttempts,
+			},
+		}
+	}
+
 	now := time.Now().UTC()
 	event := &model.WebhookEvent{
 		ID:             eventID,
 		EndpointID:     endpoint.ID,
+		TargetURL:      validDests[0].URL,
+		ExternalID:     idempKey,
 		Provider:       endpoint.Provider,
 		SourceIP:       sourceIP,
 		Headers:        headers,
@@ -210,15 +263,43 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Status:         model.StatusPending,
 		HTTPStatusCode: 0,
 		Attempts:       0,
-		MaxAttempts:    model.DefaultMaxAttempts,
+		MaxAttempts:    validDests[0].MaxAttempts,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
 
-	// Synchronously write to SQLite queue in WAL mode
+	// Synchronously write primary event to SQLite queue in WAL mode
 	if err := h.repo.SaveEvent(r.Context(), event); err != nil {
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: "internal error", Message: "failed to persist webhook event"})
 		return
+	}
+
+	// Create and persist fan-out child events for additional destinations
+	var childEventIDs []string
+	for i := 1; i < len(validDests); i++ {
+		childID := uuid.NewString()
+		childEvent := &model.WebhookEvent{
+			ID:             childID,
+			EndpointID:     endpoint.ID,
+			TargetURL:      validDests[i].URL,
+			ParentEventID:  event.ID,
+			ExternalID:     idempKey,
+			Provider:       endpoint.Provider,
+			SourceIP:       sourceIP,
+			Headers:        headers,
+			Payload:        payload,
+			Signature:      signature,
+			IsVerified:     0,
+			Status:         model.StatusPending,
+			HTTPStatusCode: 0,
+			Attempts:       0,
+			MaxAttempts:    validDests[i].MaxAttempts,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}
+		if err := h.repo.SaveEvent(r.Context(), childEvent); err == nil {
+			childEventIDs = append(childEventIDs, childID)
+		}
 	}
 
 	// Return HTTP 200 OK immediately (< 5ms)
@@ -229,9 +310,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Message: "webhook received and queued",
 	})
 
-	// Asynchronously push to internal dispatcher channel
+	// Asynchronously push primary and fan-out child events to internal dispatcher channel
 	if h.pool != nil {
 		h.pool.Enqueue(event.ID)
+		for _, cid := range childEventIDs {
+			h.pool.Enqueue(cid)
+		}
 	}
 
 	// Broadcast live event creation to SSE listeners

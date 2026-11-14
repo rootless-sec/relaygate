@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -1023,3 +1024,727 @@ func TestStorage_DeleteEndpointWithActiveEventsBlocked(t *testing.T) {
 }
 
 
+
+
+func TestStorage_DeliveryLogs(t *testing.T) {
+	db, cleanup := createTempDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	ep := &model.Endpoint{
+		ID:        "ep-logs-test",
+		Name:      "Delivery Log Endpoint",
+		SecretKey: "whsec_test",
+		TargetURL: "https://example.com/webhook",
+		Provider:  model.ProviderStripe,
+		IsActive:  true,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := db.SaveEndpoint(ctx, ep); err != nil {
+		t.Fatalf("SaveEndpoint failed: %v", err)
+	}
+
+	ev := &model.WebhookEvent{
+		ID:          "ev-logs-test-1",
+		EndpointID:  ep.ID,
+		Provider:    model.ProviderStripe,
+		SourceIP:    "127.0.0.1",
+		Headers:     map[string]string{"Content-Type": "application/json"},
+		Payload:     []byte(`{"test":true}`),
+		Status:      model.StatusRetrying,
+		Attempts:    2,
+		MaxAttempts: 5,
+		CreatedAt:   time.Now().UTC(),
+		UpdatedAt:   time.Now().UTC(),
+	}
+	if err := db.SaveEvent(ctx, ev); err != nil {
+		t.Fatalf("SaveEvent failed: %v", err)
+	}
+
+	// 1. Initial empty logs check
+	initialLogs, err := db.ListDeliveryLogs(ctx, ev.ID)
+	if err != nil {
+		t.Fatalf("ListDeliveryLogs failed: %v", err)
+	}
+	if len(initialLogs) != 0 {
+		t.Fatalf("expected 0 initial logs, got %d", len(initialLogs))
+	}
+
+	// 2. Save 3 attempts in non-sorted insertion order (attempt 2, then 1, then 3)
+	entry2 := &model.DeliveryLogEntry{
+		Attempt:    2,
+		StatusCode: 429,
+		DurationMs: 45,
+		Error:      "rate limited: 429",
+		CreatedAt:  time.Now().UTC().Add(-1 * time.Minute),
+	}
+	entry1 := &model.DeliveryLogEntry{
+		Attempt:    1,
+		StatusCode: 500,
+		DurationMs: 82,
+		Error:      "upstream server error: 500",
+		CreatedAt:  time.Now().UTC().Add(-2 * time.Minute),
+	}
+	entry3 := &model.DeliveryLogEntry{
+		Attempt:    3,
+		StatusCode: 200,
+		DurationMs: 14,
+		Error:      "",
+		CreatedAt:  time.Now().UTC(),
+	}
+
+	if err := db.SaveDeliveryLog(ctx, ev.ID, entry2); err != nil {
+		t.Fatalf("SaveDeliveryLog attempt 2 failed: %v", err)
+	}
+	if err := db.SaveDeliveryLog(ctx, ev.ID, entry1); err != nil {
+		t.Fatalf("SaveDeliveryLog attempt 1 failed: %v", err)
+	}
+	if err := db.SaveDeliveryLog(ctx, ev.ID, entry3); err != nil {
+		t.Fatalf("SaveDeliveryLog attempt 3 failed: %v", err)
+	}
+
+	// 3. List logs and assert sorted by attempt ASC
+	logs, err := db.ListDeliveryLogs(ctx, ev.ID)
+	if err != nil {
+		t.Fatalf("ListDeliveryLogs failed: %v", err)
+	}
+	if len(logs) != 3 {
+		t.Fatalf("expected 3 delivery logs, got %d", len(logs))
+	}
+
+	if logs[0].Attempt != 1 || logs[0].StatusCode != 500 || logs[0].DurationMs != 82 || logs[0].Error != "upstream server error: 500" {
+		t.Errorf("unexpected log 0: %+v", logs[0])
+	}
+	if logs[1].Attempt != 2 || logs[1].StatusCode != 429 || logs[1].DurationMs != 45 || logs[1].Error != "rate limited: 429" {
+		t.Errorf("unexpected log 1: %+v", logs[1])
+	}
+	if logs[2].Attempt != 3 || logs[2].StatusCode != 200 || logs[2].DurationMs != 14 || logs[2].Error != "" {
+		t.Errorf("unexpected log 2: %+v", logs[2])
+	}
+
+	// 4. Test ON DELETE CASCADE: delete event and assert logs are cascaded
+	_, err = db.RawDB().ExecContext(ctx, "DELETE FROM webhook_events WHERE id = ?;", ev.ID)
+	if err != nil {
+		t.Fatalf("failed to delete event: %v", err)
+	}
+
+	cascadedLogs, err := db.ListDeliveryLogs(ctx, ev.ID)
+	if err != nil {
+		t.Fatalf("ListDeliveryLogs after delete failed: %v", err)
+	}
+	if len(cascadedLogs) != 0 {
+		t.Errorf("expected 0 delivery logs after event deletion (ON DELETE CASCADE), got %d", len(cascadedLogs))
+	}
+}
+
+func TestStorage_PruneDeliveredEvents_DLQPreserved(t *testing.T) {
+	db, cleanup := createTempDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	ep := &model.Endpoint{
+		ID:        "ep-prune-test",
+		Name:      "Prune Test Endpoint",
+		SecretKey: "whsec_test",
+		TargetURL: "https://example.com/webhook",
+		Provider:  model.ProviderStripe,
+		IsActive:  true,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := db.SaveEndpoint(ctx, ep); err != nil {
+		t.Fatalf("SaveEndpoint failed: %v", err)
+	}
+
+	now := time.Now().UTC()
+	oldTime := now.Add(-10 * 24 * time.Hour) // 10 days ago
+
+	// 1. Old DELIVERED event (should be pruned)
+	evOldDelivered := &model.WebhookEvent{
+		ID:             "ev-old-delivered",
+		EndpointID:     ep.ID,
+		Provider:       model.ProviderStripe,
+		SourceIP:       "127.0.0.1",
+		Headers:        map[string]string{"Content-Type": "application/json"},
+		Payload:        []byte(`{"delivered":true}`),
+		Status:         model.StatusDelivered,
+		HTTPStatusCode: 200,
+		Attempts:       1,
+		MaxAttempts:    5,
+		CreatedAt:      oldTime,
+		UpdatedAt:      oldTime,
+	}
+	if err := db.SaveEvent(ctx, evOldDelivered); err != nil {
+		t.Fatalf("SaveEvent evOldDelivered failed: %v", err)
+	}
+	// Add delivery log to ensure it cascades on prune
+	if err := db.SaveDeliveryLog(ctx, evOldDelivered.ID, &model.DeliveryLogEntry{
+		Attempt:    1,
+		StatusCode: 200,
+		DurationMs: 25,
+		CreatedAt:  oldTime,
+	}); err != nil {
+		t.Fatalf("SaveDeliveryLog failed: %v", err)
+	}
+
+	// 2. Recent DELIVERED event (should NOT be pruned)
+	evRecentDelivered := &model.WebhookEvent{
+		ID:             "ev-recent-delivered",
+		EndpointID:     ep.ID,
+		Provider:       model.ProviderStripe,
+		SourceIP:       "127.0.0.1",
+		Headers:        map[string]string{"Content-Type": "application/json"},
+		Payload:        []byte(`{"delivered":true}`),
+		Status:         model.StatusDelivered,
+		HTTPStatusCode: 200,
+		Attempts:       1,
+		MaxAttempts:    5,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	if err := db.SaveEvent(ctx, evRecentDelivered); err != nil {
+		t.Fatalf("SaveEvent evRecentDelivered failed: %v", err)
+	}
+
+	// 3. Old FAILED event (DLQ: must be strictly preserved!)
+	evOldFailed := &model.WebhookEvent{
+		ID:             "ev-old-failed",
+		EndpointID:     ep.ID,
+		Provider:       model.ProviderStripe,
+		SourceIP:       "127.0.0.1",
+		Headers:        map[string]string{"Content-Type": "application/json"},
+		Payload:        []byte(`{"failed":true}`),
+		Status:         model.StatusFailed,
+		HTTPStatusCode: 500,
+		Attempts:       5,
+		MaxAttempts:    5,
+		LastError:      "fatal downstream error",
+		FailureCode:    "DOWNSTREAM_5XX",
+		CreatedAt:      oldTime,
+		UpdatedAt:      oldTime,
+	}
+	if err := db.SaveEvent(ctx, evOldFailed); err != nil {
+		t.Fatalf("SaveEvent evOldFailed failed: %v", err)
+	}
+
+	// 4. Old RETRYING event (must be preserved)
+	evOldRetrying := &model.WebhookEvent{
+		ID:             "ev-old-retrying",
+		EndpointID:     ep.ID,
+		Provider:       model.ProviderStripe,
+		SourceIP:       "127.0.0.1",
+		Headers:        map[string]string{"Content-Type": "application/json"},
+		Payload:        []byte(`{"retrying":true}`),
+		Status:         model.StatusRetrying,
+		HTTPStatusCode: 429,
+		Attempts:       2,
+		MaxAttempts:    5,
+		CreatedAt:      oldTime,
+		UpdatedAt:      oldTime,
+	}
+	if err := db.SaveEvent(ctx, evOldRetrying); err != nil {
+		t.Fatalf("SaveEvent evOldRetrying failed: %v", err)
+	}
+
+	// Manually update created_at for old events because SaveEvent uses CURRENT_TIMESTAMP if not forced
+	oldTimeStr := oldTime.Format("2006-01-02 15:04:05")
+	_, err := db.RawDB().ExecContext(ctx, "UPDATE webhook_events SET created_at = ? WHERE id IN (?, ?, ?);",
+		oldTimeStr, evOldDelivered.ID, evOldFailed.ID, evOldRetrying.ID)
+	if err != nil {
+		t.Fatalf("failed to update created_at: %v", err)
+	}
+
+	// 5. Run Prune with 5-day cutoff
+	cutoff := now.Add(-5 * 24 * time.Hour)
+	prunedCount, err := db.PruneDeliveredEvents(ctx, cutoff)
+	if err != nil {
+		t.Fatalf("PruneDeliveredEvents failed: %v", err)
+	}
+	if prunedCount != 1 {
+		t.Errorf("expected 1 pruned event, got %d", prunedCount)
+	}
+
+	// 6. Verify old DELIVERED event is deleted
+	oldDel, _ := db.GetEventByID(ctx, evOldDelivered.ID)
+	if oldDel != nil {
+		t.Errorf("expected old DELIVERED event to be pruned")
+	}
+	// Verify its delivery log was also cascaded
+	logs, _ := db.ListDeliveryLogs(ctx, evOldDelivered.ID)
+	if len(logs) != 0 {
+		t.Errorf("expected delivery logs for pruned event to be deleted, got %d", len(logs))
+	}
+
+	// 7. Verify recent DELIVERED event still exists
+	recDel, _ := db.GetEventByID(ctx, evRecentDelivered.ID)
+	if recDel == nil {
+		t.Errorf("expected recent DELIVERED event to be preserved")
+	}
+
+	// 8. CRITICAL: Verify old FAILED (DLQ) event is strictly preserved!
+	oldFail, _ := db.GetEventByID(ctx, evOldFailed.ID)
+	if oldFail == nil {
+		t.Fatalf("CRITICAL: old FAILED (DLQ) event was mistakenly deleted by retention pruning!")
+	}
+	if oldFail.Status != model.StatusFailed {
+		t.Errorf("expected FAILED status preserved, got %s", oldFail.Status)
+	}
+
+	// 9. Verify old RETRYING event still exists
+	oldRet, _ := db.GetEventByID(ctx, evOldRetrying.ID)
+	if oldRet == nil {
+		t.Errorf("expected old RETRYING event to be preserved")
+	}
+
+	// 10. Test validation: zero time returns error
+	_, err = db.PruneDeliveredEvents(ctx, time.Time{})
+	if err == nil {
+		t.Errorf("expected error when olderThan is zero time")
+	}
+}
+
+func TestStorage_DeferRetry(t *testing.T) {
+	db, cleanup := createTempDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	ep := &model.Endpoint{
+		ID:        "ep-defer-test",
+		Name:      "Defer Test Endpoint",
+		SecretKey: "whsec_test",
+		TargetURL: "https://example.com/webhook",
+		Provider:  model.ProviderStripe,
+		IsActive:  true,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := db.SaveEndpoint(ctx, ep); err != nil {
+		t.Fatalf("SaveEndpoint failed: %v", err)
+	}
+
+	ev := &model.WebhookEvent{
+		ID:          "ev-defer-test-1",
+		EndpointID:  ep.ID,
+		Provider:    model.ProviderStripe,
+		SourceIP:    "127.0.0.1",
+		Headers:     map[string]string{"Content-Type": "application/json"},
+		Payload:     []byte(`{"test":true}`),
+		Status:      model.StatusRetrying,
+		Attempts:    2,
+		MaxAttempts: 5,
+		CreatedAt:   time.Now().UTC(),
+		UpdatedAt:   time.Now().UTC(),
+	}
+	if err := db.SaveEvent(ctx, ev); err != nil {
+		t.Fatalf("SaveEvent failed: %v", err)
+	}
+
+	// Defer retry to 60 seconds into the future
+	futureTime := time.Now().UTC().Add(60 * time.Second)
+	errMsg := "rate limited: 429 Too Many Requests (Retry-After: 60)"
+	statusCode := 429
+
+	if err := db.DeferRetry(ctx, ev.ID, futureTime, errMsg, statusCode); err != nil {
+		t.Fatalf("DeferRetry failed: %v", err)
+	}
+
+	updated, err := db.GetEventByID(ctx, ev.ID)
+	if err != nil {
+		t.Fatalf("GetEventByID failed: %v", err)
+	}
+
+	// Non-penalizing invariant: attempts MUST NOT be incremented
+	if updated.Attempts != 2 {
+		t.Errorf("expected attempts to remain 2, got %d", updated.Attempts)
+	}
+	if updated.Status != model.StatusRetrying {
+		t.Errorf("expected status RETRYING, got %s", updated.Status)
+	}
+	if updated.HTTPStatusCode != 429 {
+		t.Errorf("expected status code 429, got %d", updated.HTTPStatusCode)
+	}
+	if updated.LastError != errMsg {
+		t.Errorf("expected last error %q, got %q", errMsg, updated.LastError)
+	}
+	if updated.NextRetryAt == nil {
+		t.Fatalf("expected next_retry_at to be set, got nil")
+	}
+	if diff := updated.NextRetryAt.Sub(futureTime); diff > time.Second || diff < -time.Second {
+		t.Errorf("expected next_retry_at close to %v, got %v (diff: %v)", futureTime, *updated.NextRetryAt, diff)
+	}
+
+	// Test non-existent event
+	err = db.DeferRetry(ctx, "nonexistent-ev-id", futureTime, "err", 503)
+	if err == nil {
+		t.Errorf("expected error when deferring non-existent event")
+	}
+}
+
+func TestStorage_ListEvents_Filters(t *testing.T) {
+	db, cleanup := createTempDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	epStripe := &model.Endpoint{
+		ID: "ep-stripe-flt", Name: "Stripe Endpoint", SecretKey: "sec1", TargetURL: "https://stripe.com",
+		Provider: model.ProviderStripe, IsActive: true, CreatedAt: time.Now().UTC(),
+	}
+	epGitHub := &model.Endpoint{
+		ID: "ep-github-flt", Name: "GitHub Endpoint", SecretKey: "sec2", TargetURL: "https://github.com",
+		Provider: model.ProviderGithub, IsActive: true, CreatedAt: time.Now().UTC(),
+	}
+	if err := db.SaveEndpoint(ctx, epStripe); err != nil {
+		t.Fatalf("SaveEndpoint failed: %v", err)
+	}
+	if err := db.SaveEndpoint(ctx, epGitHub); err != nil {
+		t.Fatalf("SaveEndpoint failed: %v", err)
+	}
+
+	// 1. Stripe event with SIGNATURE_MISMATCH
+	ev1 := &model.WebhookEvent{
+		ID: "ev-flt-1", EndpointID: epStripe.ID, Provider: model.ProviderStripe, SourceIP: "1.1.1.1",
+		Headers: map[string]string{}, Payload: []byte(`{}`), Status: model.StatusFailed,
+		FailureCode: "SIGNATURE_MISMATCH", MaxAttempts: 5, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	}
+	// 2. Stripe event with TIMEOUT
+	ev2 := &model.WebhookEvent{
+		ID: "ev-flt-2", EndpointID: epStripe.ID, Provider: model.ProviderStripe, SourceIP: "1.1.1.2",
+		Headers: map[string]string{}, Payload: []byte(`{}`), Status: model.StatusFailed,
+		FailureCode: "TIMEOUT", MaxAttempts: 5, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	}
+	// 3. GitHub event with SIGNATURE_MISMATCH
+	ev3 := &model.WebhookEvent{
+		ID: "ev-flt-3", EndpointID: epGitHub.ID, Provider: model.ProviderGithub, SourceIP: "1.1.1.3",
+		Headers: map[string]string{}, Payload: []byte(`{}`), Status: model.StatusFailed,
+		FailureCode: "SIGNATURE_MISMATCH", MaxAttempts: 5, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	}
+
+	for _, ev := range []*model.WebhookEvent{ev1, ev2, ev3} {
+		if err := db.SaveEvent(ctx, ev); err != nil {
+			t.Fatalf("SaveEvent failed: %v", err)
+		}
+	}
+
+	// Filter by Provider = Stripe (should return ev1 and ev2)
+	stripeEvents, totalStripe, err := db.ListEvents(ctx, storage.ListFilter{Provider: model.ProviderStripe})
+	if err != nil {
+		t.Fatalf("ListEvents provider stripe failed: %v", err)
+	}
+	if totalStripe != 2 || len(stripeEvents) != 2 {
+		t.Errorf("expected 2 stripe events, got total=%d len=%d", totalStripe, len(stripeEvents))
+	}
+	for _, ev := range stripeEvents {
+		if ev.Provider != model.ProviderStripe {
+			t.Errorf("expected provider stripe, got %s", ev.Provider)
+		}
+	}
+
+	// Filter by FailureCode = SIGNATURE_MISMATCH (should return ev1 and ev3)
+	sigEvents, totalSig, err := db.ListEvents(ctx, storage.ListFilter{FailureCode: "SIGNATURE_MISMATCH"})
+	if err != nil {
+		t.Fatalf("ListEvents failure_code failed: %v", err)
+	}
+	if totalSig != 2 || len(sigEvents) != 2 {
+		t.Errorf("expected 2 signature mismatch events, got total=%d len=%d", totalSig, len(sigEvents))
+	}
+	for _, ev := range sigEvents {
+		if ev.FailureCode != "SIGNATURE_MISMATCH" {
+			t.Errorf("expected failure code SIGNATURE_MISMATCH, got %s", ev.FailureCode)
+		}
+	}
+
+	// Filter by both Provider = Stripe AND FailureCode = SIGNATURE_MISMATCH (should return only ev1)
+	combinedEvents, totalComb, err := db.ListEvents(ctx, storage.ListFilter{
+		Provider:    model.ProviderStripe,
+		FailureCode: "SIGNATURE_MISMATCH",
+	})
+	if err != nil {
+		t.Fatalf("ListEvents combined failed: %v", err)
+	}
+	if totalComb != 1 || len(combinedEvents) != 1 || combinedEvents[0].ID != "ev-flt-1" {
+		t.Errorf("expected only ev-flt-1 for combined filter, got total=%d len=%d", totalComb, len(combinedEvents))
+	}
+}
+
+func TestStorage_Backup_NonBlocking(t *testing.T) {
+	db, cleanup := createTempDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	ep := &model.Endpoint{
+		ID:        "ep-backup-test",
+		Name:      "Backup Test Endpoint",
+		SecretKey: "whsec_test",
+		TargetURL: "https://example.com/webhook",
+		Provider:  model.ProviderStripe,
+		IsActive:  true,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := db.SaveEndpoint(ctx, ep); err != nil {
+		t.Fatalf("SaveEndpoint failed: %v", err)
+	}
+
+	// Seed some initial data
+	for i := 0; i < 10; i++ {
+		ev := &model.WebhookEvent{
+			ID:          fmt.Sprintf("ev-seed-%d", i),
+			EndpointID:  ep.ID,
+			Provider:    model.ProviderStripe,
+			SourceIP:    "127.0.0.1",
+			Headers:     map[string]string{"Content-Type": "application/json"},
+			Payload:     []byte(fmt.Sprintf(`{"index":%d}`, i)),
+			Status:      model.StatusDelivered,
+			MaxAttempts: 5,
+			CreatedAt:   time.Now().UTC(),
+			UpdatedAt:   time.Now().UTC(),
+		}
+		if err := db.SaveEvent(ctx, ev); err != nil {
+			t.Fatalf("SaveEvent seed %d failed: %v", i, err)
+		}
+	}
+
+	// Run concurrent writers during backup to verify non-blocking behavior
+	stopCh := make(chan struct{})
+	var wg sync.WaitGroup
+	var concurrentWrites int64
+	var writeMu sync.Mutex
+
+	for w := 0; w < 3; w++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			idx := 0
+			for {
+				select {
+				case <-stopCh:
+					return
+				default:
+					ev := &model.WebhookEvent{
+						ID:          fmt.Sprintf("ev-async-%d-%d-%d", workerID, idx, time.Now().UnixNano()),
+						EndpointID:  ep.ID,
+						Provider:    model.ProviderStripe,
+						SourceIP:    "127.0.0.1",
+						Headers:     map[string]string{"Content-Type": "application/json"},
+						Payload:     []byte(`{"concurrent":true}`),
+						Status:      model.StatusPending,
+						MaxAttempts: 5,
+						CreatedAt:   time.Now().UTC(),
+						UpdatedAt:   time.Now().UTC(),
+					}
+					if err := db.SaveEvent(ctx, ev); err == nil {
+						writeMu.Lock()
+						concurrentWrites++
+						writeMu.Unlock()
+					}
+					idx++
+					time.Sleep(1 * time.Millisecond)
+				}
+			}
+		}(w)
+	}
+
+	backupDir, err := os.MkdirTemp("", "relaygate-backup-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp backup dir: %v", err)
+	}
+	defer os.RemoveAll(backupDir)
+
+	backupFile := filepath.Join(backupDir, "snapshot.db")
+
+	// Trigger hot backup
+	result, err := db.Backup(ctx, backupFile)
+	if err != nil {
+		t.Fatalf("db.Backup failed: %v", err)
+	}
+
+	// Stop concurrent writers
+	close(stopCh)
+	wg.Wait()
+
+	if result.DestinationPath != backupFile {
+		t.Errorf("expected destination path %s, got %s", backupFile, result.DestinationPath)
+	}
+	if result.SizeBytes <= 0 {
+		t.Errorf("expected positive size_bytes, got %d", result.SizeBytes)
+	}
+	if result.DurationMs < 0 {
+		t.Errorf("expected non-negative duration_ms, got %d", result.DurationMs)
+	}
+
+	// Verify the backup database is valid and uncorrupted
+	backupDB, err := storage.Open(backupFile)
+	if err != nil {
+		t.Fatalf("failed to open backup database: %v", err)
+	}
+	defer backupDB.Close()
+
+	var integrity string
+	row := backupDB.RawDB().QueryRowContext(ctx, "PRAGMA integrity_check;")
+	if err := row.Scan(&integrity); err != nil || integrity != "ok" {
+		t.Errorf("integrity check failed on backup snapshot: %s, err: %v", integrity, err)
+	}
+
+	// Verify endpoints and events can be read from the backup snapshot
+	epBack, err := backupDB.GetEndpointByID(ctx, ep.ID)
+	if err != nil || epBack == nil {
+		t.Fatalf("failed to query endpoint from backup snapshot: %v", err)
+	}
+
+	// Close the reader DB so Windows allows unlinking the file on the next backup
+	if err := backupDB.Close(); err != nil {
+		t.Fatalf("failed to close backup db: %v", err)
+	}
+
+	// Test overwriting existing file
+	result2, err := db.Backup(ctx, backupFile)
+	if err != nil {
+		t.Fatalf("db.Backup overwrite failed: %v", err)
+	}
+	if result2.SizeBytes <= 0 {
+		t.Errorf("expected positive size after overwrite, got %d", result2.SizeBytes)
+	}
+}
+
+func TestStorage_Backup_PathConfinement(t *testing.T) {
+	db, cleanup := createTempDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// 1. Directory traversal rejection
+	_, err := db.Backup(ctx, "../../escaped_backup.db")
+	if err == nil {
+		t.Fatalf("expected error for directory traversal path with '..', got nil")
+	}
+
+	// 2. Prohibit direct filesystem root
+	_, err = db.Backup(ctx, "/root_backup.db")
+	if err == nil {
+		t.Fatalf("expected error for filesystem root path, got nil")
+	}
+
+	// 3. Prohibit system directories outside allowed roots
+	var sysPath string
+	if runtime.GOOS == "windows" {
+		sysPath = "C:\\Windows\\System32\\test_backup.db"
+	} else {
+		sysPath = "/etc/test_backup.db"
+	}
+	_, err = db.Backup(ctx, sysPath)
+	if err == nil {
+		t.Fatalf("expected error for system directory path %s, got nil", sysPath)
+	}
+}
+
+func TestStorage_OverviewAggregations(t *testing.T) {
+	db, cleanup := createTempDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	ep1 := &model.Endpoint{
+		ID: "ep-agg-1", Name: "Endpoint One", SecretKey: "sec1", TargetURL: "https://one.com",
+		Provider: model.ProviderStripe, IsActive: true, CreatedAt: time.Now().UTC(),
+	}
+	ep2 := &model.Endpoint{
+		ID: "ep-agg-2", Name: "Endpoint Two", SecretKey: "sec2", TargetURL: "https://two.com",
+		Provider: model.ProviderGithub, IsActive: true, CreatedAt: time.Now().UTC(),
+	}
+	if err := db.SaveEndpoint(ctx, ep1); err != nil {
+		t.Fatalf("SaveEndpoint 1 failed: %v", err)
+	}
+	if err := db.SaveEndpoint(ctx, ep2); err != nil {
+		t.Fatalf("SaveEndpoint 2 failed: %v", err)
+	}
+
+	// Endpoint 1: 2 DELIVERED, 1 FAILED
+	// Endpoint 2: 0 events
+	ev1 := &model.WebhookEvent{
+		ID: "ev-agg-1", EndpointID: ep1.ID, Provider: model.ProviderStripe, SourceIP: "1.1.1.1",
+		Headers: map[string]string{}, Payload: []byte(`{}`), Status: model.StatusDelivered,
+		MaxAttempts: 5, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	}
+	ev2 := &model.WebhookEvent{
+		ID: "ev-agg-2", EndpointID: ep1.ID, Provider: model.ProviderStripe, SourceIP: "1.1.1.1",
+		Headers: map[string]string{}, Payload: []byte(`{}`), Status: model.StatusDelivered,
+		MaxAttempts: 5, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	}
+	ev3 := &model.WebhookEvent{
+		ID: "ev-agg-3", EndpointID: ep1.ID, Provider: model.ProviderStripe, SourceIP: "1.1.1.1",
+		Headers: map[string]string{}, Payload: []byte(`{}`), Status: model.StatusFailed,
+		MaxAttempts: 5, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	}
+
+	for _, ev := range []*model.WebhookEvent{ev1, ev2, ev3} {
+		if err := db.SaveEvent(ctx, ev); err != nil {
+			t.Fatalf("SaveEvent failed: %v", err)
+		}
+	}
+
+	// 1. Throughput buckets
+	buckets, err := db.GetThroughput(ctx, 12)
+	if err != nil {
+		t.Fatalf("GetThroughput failed: %v", err)
+	}
+	if len(buckets) != 12 {
+		t.Fatalf("expected 12 buckets, got %d", len(buckets))
+	}
+	// Bucket 11 is "now"
+	if buckets[11].Label != "now" {
+		t.Errorf("expected bucket 11 label 'now', got %s", buckets[11].Label)
+	}
+	if buckets[11].Total != 3 {
+		t.Errorf("expected 3 total events in current bucket, got %d", buckets[11].Total)
+	}
+	if buckets[11].Failed != 1 {
+		t.Errorf("expected 1 failed event in current bucket, got %d", buckets[11].Failed)
+	}
+
+	// 2. Endpoint breakdown
+	breakdown, err := db.GetEndpointBreakdown(ctx)
+	if err != nil {
+		t.Fatalf("GetEndpointBreakdown failed: %v", err)
+	}
+	if len(breakdown) != 2 {
+		t.Fatalf("expected 2 endpoints in breakdown, got %d", len(breakdown))
+	}
+
+	foundEP1 := false
+	foundEP2 := false
+	for _, b := range breakdown {
+		if b.ID == ep1.ID {
+			foundEP1 = true
+			if b.Total != 3 || b.Delivered != 2 || b.Failed != 1 {
+				t.Errorf("ep1 unexpected breakdown: total=%d, del=%d, fail=%d", b.Total, b.Delivered, b.Failed)
+			}
+			// 2/3 * 100 = 66%
+			if b.SuccessRate != 66 {
+				t.Errorf("expected success rate 66, got %d", b.SuccessRate)
+			}
+		}
+		if b.ID == ep2.ID {
+			foundEP2 = true
+			if b.Total != 0 || b.Delivered != 0 || b.Failed != 0 || b.SuccessRate != 0 {
+				t.Errorf("ep2 unexpected breakdown: %+v", b)
+			}
+		}
+	}
+	if !foundEP1 || !foundEP2 {
+		t.Errorf("did not find both endpoints in breakdown: foundEP1=%v foundEP2=%v", foundEP1, foundEP2)
+	}
+
+	// 3. Recent failed events
+	recentFailed, err := db.GetRecentFailedEvents(ctx, 5)
+	if err != nil {
+		t.Fatalf("GetRecentFailedEvents failed: %v", err)
+	}
+	if len(recentFailed) != 1 {
+		t.Fatalf("expected 1 recent failed event, got %d", len(recentFailed))
+	}
+	if recentFailed[0].ID != ev3.ID {
+		t.Errorf("expected failed event %s, got %s", ev3.ID, recentFailed[0].ID)
+	}
+}

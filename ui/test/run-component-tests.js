@@ -2486,6 +2486,54 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.doesNotMatch(appSource, /\u2014/, 'App.tsx must have ZERO unicode em dashes');
   });
 
+  await suite.test('R6 & Regional Providers: InspectorDrawer renders genuine delivery_log attempt history and omits when empty', () => {
+    const eventWithLogs = {
+      ...mockEvent,
+      id: 'evt-with-logs-1234',
+      is_verified: 1,
+      status: 'FAILED',
+      http_status_code: 502,
+      attempts: 2,
+      max_attempts: 5,
+      failure_code: 'HTTP_5XX',
+      last_error: 'HTTP 502 Bad Gateway',
+      delivery_log: [
+        { attempt: 1, code: 500, ms: 48, err: 'HTTP 500 Internal Server Error', t: '2026-11-14T10:00:00Z' },
+        { attempt: 2, code: 502, ms: 31, err: 'HTTP 502 Bad Gateway', t: '2026-11-14T10:00:10Z' },
+      ],
+    };
+
+    const htmlWithLogs = renderToString(
+      React.createElement(InspectorDrawer, {
+        event: eventWithLogs,
+        endpoints: [{ id: 'ep-orders', name: 'Orders Service', provider: 'doku', target_url: 'https://api.test/webhook' }],
+        onClose: () => {},
+        onReplay: () => {},
+        onToast: () => {},
+      })
+    );
+
+    assert.match(htmlWithLogs, /data-testid="delivery-log-list"/, 'Must render delivery-log-list when delivery_log has entries');
+    assert.match(htmlWithLogs, /Log Pengiriman Downstream \([\s<!->]*2[\s<!->]*\)/, 'Must display total delivery log count');
+    assert.match(htmlWithLogs, /#(?:<!-- -->)?1/, 'Must display attempt #1');
+    assert.match(htmlWithLogs, /HTTP (?:<!-- -->)?500/, 'Must display HTTP 500 badge');
+    assert.match(htmlWithLogs, /48(?:<!-- -->)?\s*ms/, 'Must display 48 ms duration');
+    assert.match(htmlWithLogs, /#(?:<!-- -->)?2/, 'Must display attempt #2');
+    assert.match(htmlWithLogs, /HTTP (?:<!-- -->)?502/, 'Must display HTTP 502 badge');
+    assert.match(htmlWithLogs, /31(?:<!-- -->)?\s*ms/, 'Must display 31 ms duration');
+
+    const htmlWithoutLogs = renderToString(
+      React.createElement(InspectorDrawer, {
+        event: { ...mockEvent, delivery_log: [] },
+        endpoints: [],
+        onClose: () => {},
+        onReplay: () => {},
+        onToast: () => {},
+      })
+    );
+    assert.doesNotMatch(htmlWithoutLogs, /data-testid="delivery-log-list"/, 'Must NOT render delivery-log-list when delivery_log is empty');
+  });
+
   // Cleanup temp files
   try {
     fs.rmSync(outDir, { recursive: true, force: true, maxRetries: 0 });

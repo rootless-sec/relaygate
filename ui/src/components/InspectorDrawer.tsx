@@ -59,6 +59,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
     status: 'success' | 'still_failed' | 'info';
     message: string;
   } | null>(null);
+  const [hydratedLogs, setHydratedLogs] = useState< NonNullable<WebhookEvent['delivery_log']> >([]);
 
   const drawerRef = useRef<HTMLDivElement>(null);
 
@@ -69,8 +70,22 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
     setShowReverifyConfirm(false);
     setReplayInProgress(false);
     setReplayInlineResult(null);
+    setHydratedLogs([]);
     if (event) {
       setTimeout(() => drawerRef.current?.focus(), 50);
+      if (
+        typeof window !== 'undefined' &&
+        event.attempts > 0 &&
+        (!event.delivery_log || event.delivery_log.length === 0)
+      ) {
+        fetchEvent(event.id, false)
+          .then((detail) => {
+            if (detail?.delivery_log && detail.delivery_log.length > 0) {
+              setHydratedLogs(detail.delivery_log);
+            }
+          })
+          .catch(() => {});
+      }
     }
   }, [event?.id]);
 
@@ -698,6 +713,55 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               </details>
             </div>
           )}
+
+          {(() => {
+            const activeDeliveryLogs =
+              event.delivery_log && event.delivery_log.length > 0
+                ? event.delivery_log
+                : hydratedLogs;
+            if (!activeDeliveryLogs || activeDeliveryLogs.length === 0) return null;
+            return (
+              <div
+                data-testid="delivery-log-list"
+                className="border border-zinc-200/90 rounded-lg overflow-hidden bg-white"
+              >
+                <div className="px-3.5 py-2 bg-zinc-50/90 border-b border-zinc-200/80 flex items-center justify-between">
+                  <span className="text-xs font-medium text-zinc-700">
+                    Log Pengiriman Downstream ({activeDeliveryLogs.length})
+                  </span>
+                </div>
+                <div className="divide-y divide-zinc-100">
+                  {activeDeliveryLogs.map((entry) => (
+                    <div
+                      key={`${entry.attempt}-${entry.t}`}
+                      className="px-3.5 py-2 text-xs flex items-center justify-between gap-2"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-mono font-medium text-zinc-700">
+                          #{entry.attempt}
+                        </span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded font-mono text-[11px] font-medium border ${
+                            entry.code >= 200 && entry.code < 300
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              : 'bg-rose-50 text-rose-800 border-rose-200'
+                          }`}
+                        >
+                          {entry.code > 0 ? `HTTP ${entry.code}` : 'ERR'}
+                        </span>
+                        {entry.err && (
+                          <span className="text-zinc-500 truncate">{entry.err}</span>
+                        )}
+                      </div>
+                      <span className="font-mono text-[11px] text-zinc-500 shrink-0 tabular-nums">
+                        {entry.ms} ms
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Active Tab Content Card (Navattic Bordered Section Box Pattern) */}
           {activeTab === 'payload' && (

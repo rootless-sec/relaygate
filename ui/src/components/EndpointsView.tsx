@@ -19,6 +19,8 @@ interface EndpointsViewProps {
     name: string;
     provider: ProviderType;
     target_url: string;
+    target_urls?: string[];
+    wrap_envelope?: boolean;
     secret_key?: string;
   }) => Promise<void>;
   onToggleActive: (endpoint: Endpoint) => Promise<void>;
@@ -35,6 +37,8 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
   const [name, setName] = useState('');
   const [provider, setProvider] = useState<ProviderType>('generic');
   const [targetUrl, setTargetUrl] = useState('');
+  const [extraTargetUrls, setExtraTargetUrls] = useState('');
+  const [wrapEnvelope, setWrapEnvelope] = useState(false);
   const [secretKey, setSecretKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -121,6 +125,26 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
       return;
     }
 
+    const additionalUrls = extraTargetUrls
+      .split(/[\n,]+/)
+      .map((u) => u.trim())
+      .filter((u) => u.length > 0);
+
+    for (const u of additionalUrls) {
+      try {
+        const parsed = new URL(u);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          setError('Semua URL Fan-Out harus menggunakan protokol http:// atau https://');
+          return;
+        }
+      } catch {
+        setError(`Format URL Fan-Out tidak valid: ${u}`);
+        return;
+      }
+    }
+
+    const allTargetUrls = additionalUrls.length > 0 ? [trimmedUrl, ...additionalUrls] : undefined;
+
     setLoading(true);
     setError(null);
     try {
@@ -128,10 +152,14 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
         name: trimmedName,
         provider,
         target_url: trimmedUrl,
+        target_urls: allTargetUrls,
+        wrap_envelope: wrapEnvelope || undefined,
         secret_key: secretKey.trim() || undefined,
       });
       setName('');
       setTargetUrl('');
+      setExtraTargetUrls('');
+      setWrapEnvelope(false);
       setSecretKey('');
       setShowAddModal(false);
       onToast('Endpoint berhasil ditambahkan');
@@ -249,7 +277,19 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                   </td>
 
                   <td className="py-3 px-3.5 font-mono text-zinc-700 whitespace-nowrap">
-                    {ep.target_url}
+                    <div className="flex items-center gap-1.5">
+                      <span>{ep.target_url}</span>
+                      {ep.target_urls && ep.target_urls.length > 1 && (
+                        <span className="px-1.5 py-0.5 rounded bg-zinc-100 border border-zinc-200 text-[10px] font-sans font-medium text-zinc-600">
+                          +{ep.target_urls.length - 1} fan-out
+                        </span>
+                      )}
+                      {ep.wrap_envelope && (
+                        <span className="px-1.5 py-0.5 rounded bg-zinc-100 border border-zinc-200 text-[10px] font-sans font-medium text-zinc-700">
+                          Canonical
+                        </span>
+                      )}
+                    </div>
                   </td>
 
                   <td className="py-3 px-3.5 whitespace-nowrap">
@@ -403,6 +443,8 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                       <option value="shopify">Shopify</option>
                       <option value="xendit">Xendit</option>
                       <option value="midtrans">Midtrans</option>
+                      <option value="doku">DOKU</option>
+                      <option value="flip">Flip</option>
                       <option value="github">GitHub</option>
                     </select>
                     <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-zinc-400">
@@ -436,6 +478,26 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                 </div>
 
                 <div className="space-y-1.5">
+                  <label htmlFor="endpoint-extra-urls" className="block text-xs font-medium text-zinc-700">
+                    Target URL Fan-Out Tambahan <span className="text-zinc-400 font-normal">(Opsional)</span>
+                  </label>
+                  <input
+                    id="endpoint-extra-urls"
+                    type="text"
+                    value={extraTargetUrls}
+                    onChange={(e) => {
+                      setExtraTargetUrls(e.target.value);
+                      if (error) setError(null);
+                    }}
+                    placeholder="https://analytics.internal.id/hooks, https://audit.internal.id/hooks"
+                    className="w-full h-10 px-3 text-sm bg-white rounded-lg border border-zinc-200/90 text-zinc-950 placeholder:text-zinc-400 placeholder:font-normal focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 focus:outline-none transition-colors shadow-2xs"
+                  />
+                  <p className="text-[11px] text-zinc-500">
+                    Pisahkan beberapa URL dengan koma untuk replikasi fan-out ke banyak layanan sekaligus.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
                   <label htmlFor="endpoint-secret-key" className="block text-xs font-medium text-zinc-700">
                     Secret Key / Callback Token <span className="text-zinc-400 font-normal">(Opsional)</span>
                   </label>
@@ -453,6 +515,22 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                   <p className="text-[11px] text-zinc-500">
                     Kunci rahasia untuk memverifikasi HMAC signature payload webhook.
                   </p>
+                </div>
+
+                <div className="flex items-start gap-2.5 pt-1">
+                  <input
+                    id="endpoint-wrap-envelope"
+                    type="checkbox"
+                    checked={wrapEnvelope}
+                    onChange={(e) => setWrapEnvelope(e.target.checked)}
+                    className="mt-0.5 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900 cursor-pointer"
+                  />
+                  <label htmlFor="endpoint-wrap-envelope" className="text-xs text-zinc-700 cursor-pointer">
+                    <span className="font-medium text-zinc-900 block">Bungkus Canonical Envelope</span>
+                    <span className="text-[11px] text-zinc-500">
+                      Normalisasi payload menjadi format kanonik disertai signature Standard Webhooks.
+                    </span>
+                  </label>
                 </div>
 
                 <div className="pt-3 flex items-center justify-end gap-2.5 border-t border-zinc-100">

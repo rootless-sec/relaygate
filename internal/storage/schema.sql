@@ -8,7 +8,15 @@ CREATE TABLE IF NOT EXISTS endpoints (
     name TEXT NOT NULL,
     secret_key TEXT NOT NULL,
     target_url TEXT NOT NULL,
-    provider TEXT NOT NULL DEFAULT 'generic', -- generic, midtrans, stripe, xendit, github
+    destinations_json TEXT NOT NULL DEFAULT '[]',
+    wrap_envelope INTEGER NOT NULL DEFAULT 0,
+    notification_url TEXT NOT NULL DEFAULT '',
+    telegram_webhook TEXT NOT NULL DEFAULT '',
+    telegram_chat_id TEXT NOT NULL DEFAULT '',
+    discord_webhook TEXT NOT NULL DEFAULT '',
+    slack_webhook TEXT NOT NULL DEFAULT '',
+    notification_email TEXT NOT NULL DEFAULT '',
+    provider TEXT NOT NULL DEFAULT 'generic', -- generic, midtrans, stripe, xendit, github, shopify, doku, flip
     is_active INTEGER NOT NULL DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -16,6 +24,9 @@ CREATE TABLE IF NOT EXISTS endpoints (
 CREATE TABLE IF NOT EXISTS webhook_events (
     id TEXT PRIMARY KEY,                       -- UUID v4 or ULID
     endpoint_id TEXT NOT NULL,
+    target_url TEXT NOT NULL DEFAULT '',
+    parent_event_id TEXT NOT NULL DEFAULT '',
+    external_id TEXT NOT NULL DEFAULT '',
     provider TEXT NOT NULL,
     source_ip TEXT NOT NULL,
     headers TEXT NOT NULL,                     -- JSON serialized key-value map
@@ -40,6 +51,30 @@ CREATE INDEX IF NOT EXISTS idx_events_failure_code ON webhook_events(failure_cod
 CREATE INDEX IF NOT EXISTS idx_events_next_retry ON webhook_events(next_retry_at) WHERE status = 'RETRYING';
 CREATE INDEX IF NOT EXISTS idx_events_created ON webhook_events(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_events_endpoint ON webhook_events(endpoint_id);
+CREATE INDEX IF NOT EXISTS idx_events_provider ON webhook_events(provider);
+CREATE INDEX IF NOT EXISTS idx_events_external_id ON webhook_events(external_id);
+CREATE INDEX IF NOT EXISTS idx_events_parent ON webhook_events(parent_event_id);
+
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+    endpoint_id TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (endpoint_id, idempotency_key)
+);
+
+CREATE TABLE IF NOT EXISTS delivery_logs (
+    id TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL,
+    attempt INTEGER NOT NULL,
+    status_code INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    error TEXT DEFAULT '',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(event_id) REFERENCES webhook_events(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_delivery_logs_event_attempt ON delivery_logs(event_id, attempt ASC);
 
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,

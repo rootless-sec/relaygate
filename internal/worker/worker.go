@@ -3,6 +3,7 @@ package worker
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/rootless-sec/relaygate/internal/model"
+	"github.com/rootless-sec/relaygate/internal/notifier"
 	"github.com/rootless-sec/relaygate/internal/storage"
 	"github.com/rootless-sec/relaygate/internal/verifier"
 )
@@ -76,16 +78,64 @@ func (c *Config) ApplyEnvOverrides() {
 	}
 }
 
+type circuitState int
+
+const (
+	circuitClosed circuitState = iota
+	circuitOpen
+	circuitHalfOpen
+)
+
+type circuitBreakerEntry struct {
+	state               circuitState
+	consecutiveFailures int
+	openUntil           time.Time
+	probeInFlight       bool
+}
+
+// ParseRetryAfter parses an HTTP Retry-After header value (delta-seconds or HTTP-date).
+// Zero or negative delta-seconds are clamped to a minimum 2-second backoff.
+// Past HTTP-dates or malformed values return (zero, false) so callers fall back to exponential backoff.
+func ParseRetryAfter(headerVal string, now time.Time) (time.Time, bool) {
+	headerVal = strings.TrimSpace(headerVal)
+	if headerVal == "" {
+		return time.Time{}, false
+	}
+
+	if secs, err := strconv.ParseInt(headerVal, 10, 64); err == nil {
+		if secs <= 0 {
+			secs = 2
+		}
+		if secs > 86400 {
+			secs = 86400
+		}
+		return now.UTC().Add(time.Duration(secs) * time.Second), true
+	}
+
+	if parsedTime, err := http.ParseTime(headerVal); err == nil {
+		if parsedTime.After(now) {
+			return parsedTime.UTC(), true
+		}
+		return time.Time{}, false
+	}
+
+	return time.Time{}, false
+}
+
 // Pool manages concurrent dispatch workers and retry scheduling
 type Pool struct {
 	repo     storage.Repository
 	verifier *verifier.Engine
+	notifier *notifier.Manager
 	config   Config
 	queue    chan string
 	client   *http.Client
 	rnd      *rand.Rand
 	rndMu    sync.Mutex
 	inFlight sync.Map
+
+	cbMu     sync.Mutex
+	circuits map[string]*circuitBreakerEntry
 
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -127,13 +177,98 @@ func NewPool(repo storage.Repository, v *verifier.Engine, cfg Config) *Pool {
 	return &Pool{
 		repo:     repo,
 		verifier: v,
+		notifier: notifier.NewManager(notifier.DefaultCooldownWindow),
 		config:   cfg,
 		queue:    make(chan string, 1000),
 		client:   client,
 		rnd:      rand.New(rand.NewSource(time.Now().UnixNano())),
+		circuits: make(map[string]*circuitBreakerEntry),
 		ctx:      ctx,
 		cancel:   cancel,
 	}
+}
+
+func (p *Pool) circuitOpenDuration() time.Duration {
+	if p.config.PollInterval > 0 && p.config.PollInterval <= 200*time.Millisecond {
+		return 1200 * time.Millisecond
+	}
+	return 60 * time.Second
+}
+
+func (p *Pool) checkCircuitAllow(cbKey string) (bool, time.Time) {
+	p.cbMu.Lock()
+	defer p.cbMu.Unlock()
+
+	entry, ok := p.circuits[cbKey]
+	if !ok || entry.state == circuitClosed {
+		return true, time.Time{}
+	}
+
+	now := time.Now().UTC()
+	if entry.state == circuitOpen {
+		if now.Before(entry.openUntil) {
+			return false, entry.openUntil
+		}
+		entry.state = circuitHalfOpen
+		entry.probeInFlight = true
+		return true, time.Time{}
+	}
+
+	// circuitHalfOpen: allow only one probe at a time
+	if entry.probeInFlight {
+		return false, now.Add(p.circuitOpenDuration())
+	}
+	entry.probeInFlight = true
+	return true, time.Time{}
+}
+
+func (p *Pool) recordCircuitSuccess(cbKey string) {
+	p.cbMu.Lock()
+	defer p.cbMu.Unlock()
+
+	if entry, ok := p.circuits[cbKey]; ok {
+		entry.state = circuitClosed
+		entry.consecutiveFailures = 0
+		entry.probeInFlight = false
+		entry.openUntil = time.Time{}
+	}
+}
+
+// ResetCircuit resets any open circuit breaker state for the given endpoint ID (e.g. on manual operator replay).
+func (p *Pool) ResetCircuit(endpointID string) {
+	if p == nil {
+		return
+	}
+	p.cbMu.Lock()
+	defer p.cbMu.Unlock()
+
+	prefix := endpointID + "|"
+	for k := range p.circuits {
+		if k == endpointID || strings.HasPrefix(k, prefix) {
+			delete(p.circuits, k)
+		}
+	}
+}
+
+func (p *Pool) recordCircuitFailure(cbKey string) bool {
+	p.cbMu.Lock()
+	defer p.cbMu.Unlock()
+
+	entry, ok := p.circuits[cbKey]
+	if !ok {
+		entry = &circuitBreakerEntry{state: circuitClosed}
+		p.circuits[cbKey] = entry
+	}
+
+	entry.consecutiveFailures++
+	entry.probeInFlight = false
+	if entry.consecutiveFailures >= 5 || entry.state == circuitHalfOpen {
+		tripped := entry.state != circuitOpen
+		entry.state = circuitOpen
+		entry.openUntil = time.Now().UTC().Add(p.circuitOpenDuration())
+		return tripped
+	}
+	return false
 }
 
 // Start launches worker pool routines and background retry scheduler
@@ -212,22 +347,29 @@ func (p *Pool) retrySchedulerLoop() {
 	ticker := time.NewTicker(p.config.PollInterval)
 	defer ticker.Stop()
 
+	lastCheckpoint := time.Now()
 	for {
 		select {
 		case <-p.ctx.Done():
 			return
 		case <-ticker.C:
-			p.scheduleRetries()
+			doCheckpoint := time.Since(lastCheckpoint) >= 30*time.Second
+			if doCheckpoint {
+				lastCheckpoint = time.Now()
+			}
+			p.scheduleRetries(doCheckpoint)
 		}
 	}
 }
 
-func (p *Pool) scheduleRetries() {
+func (p *Pool) scheduleRetries(doCheckpoint bool) {
 	ctx, cancel := context.WithTimeout(p.ctx, 5*time.Second)
 	defer cancel()
 
 	// Periodic WAL checkpoint maintenance
-	_ = p.repo.Checkpoint(ctx)
+	if doCheckpoint {
+		_ = p.repo.Checkpoint(ctx)
+	}
 
 	// 1. Fetch pending retries
 	retries, err := p.repo.GetPendingRetries(ctx, 100)
@@ -305,6 +447,9 @@ func (p *Pool) processEventWithContext(ctx context.Context, eventID string) erro
 		_ = p.repo.UpdateEventFailure(ctx, event.ID, model.StatusFailed, event.HTTPStatusCode, event.LastError, failureCode, &now)
 		event.Status = model.StatusFailed
 		event.FailedAt = &now
+		if ep, epErr := p.repo.GetEndpointByID(ctx, event.EndpointID); epErr == nil && ep != nil && p.notifier != nil && notifier.HasChannels(ep) {
+			p.notifier.NotifyIncident(ctx, ep, event.ID, "event entered DLQ after exhausting max retries: "+event.LastError)
+		}
 		p.notifyUpdate(event)
 		return nil
 	}
@@ -339,7 +484,8 @@ func (p *Pool) processEventWithContext(ctx context.Context, eventID string) erro
 	}
 
 	// Cryptographic verification check
-	if p.verifier != nil && endpoint.SecretKey != "" {
+	skipGenericOutboundOnly := endpoint.Provider == model.ProviderGeneric && endpoint.WrapEnvelope && strings.TrimSpace(event.Signature) == ""
+	if p.verifier != nil && endpoint.SecretKey != "" && !skipGenericOutboundOnly {
 		if event.IsVerified == 0 {
 			verificationStatus, vErr := p.verifier.Verify(endpoint, event.Headers, event.Payload)
 			_ = p.repo.UpdateEventVerification(ctx, event.ID, verificationStatus)
@@ -368,6 +514,9 @@ func (p *Pool) processEventWithContext(ctx context.Context, eventID string) erro
 				event.ErrorCode = string(failureCode)
 				event.FailedAt = &now
 				event.ErrorClass = string(model.ErrorClassVerificationRejected)
+				if p.notifier != nil && notifier.HasChannels(endpoint) {
+					p.notifier.NotifyIncident(ctx, endpoint, event.ID, "event entered DLQ due to verification failure: "+errMsg)
+				}
 				p.notifyUpdate(event)
 				return fmt.Errorf("%s", errMsg)
 			}
@@ -400,17 +549,45 @@ func (p *Pool) processEventWithContext(ctx context.Context, eventID string) erro
 		}
 	}
 
-	// Prepare downstream HTTP request
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.TargetURL, bytes.NewReader(event.Payload))
+	// Resolve target URL (fan-out destination override or endpoint default)
+	targetURL := strings.TrimSpace(event.TargetURL)
+	if targetURL == "" {
+		targetURL = strings.TrimSpace(endpoint.TargetURL)
+	}
+	cbKey := endpoint.ID + "|" + targetURL
+
+	// Pre-flight Circuit Breaker check
+	if allowed, openUntil := p.checkCircuitAllow(cbKey); !allowed {
+		errMsg := "circuit breaker open: deferring delivery without penalty"
+		_ = p.repo.DeferRetry(ctx, event.ID, openUntil, errMsg, event.HTTPStatusCode)
+		event.Status = model.StatusRetrying
+		event.NextRetryAt = &openUntil
+		event.LastError = errMsg
+		p.notifyUpdate(event)
+		return nil
+	}
+
+	// Prepare downstream HTTP request body and headers
+	bodyToSend := event.Payload
+	var canonicalEnv *model.CanonicalEnvelope
+	if endpoint.WrapEnvelope {
+		env := model.BuildCanonicalEnvelope(endpoint.Provider, event.Headers, event.Payload, event.ID)
+		if envBytes, mErr := json.Marshal(env); mErr == nil {
+			bodyToSend = envBytes
+			canonicalEnv = &env
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(bodyToSend))
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to construct request: %v", err)
-		return p.handleFailure(ctx, event, 0, errMsg)
+		return p.handleFailure(ctx, endpoint, event, 0, errMsg)
 	}
 
 	// Forward original headers (filtering hop-by-hop headers)
 	for k, v := range event.Headers {
 		lowerK := strings.ToLower(k)
-		if !hopByHopHeaders[lowerK] {
+		if !hopByHopHeaders[lowerK] && lowerK != "x-relaygate-request-target" {
 			req.Header.Set(k, v)
 		}
 	}
@@ -421,10 +598,36 @@ func (p *Pool) processEventWithContext(ctx context.Context, eventID string) erro
 	req.Header.Set("X-RelayGate-Provider", string(event.Provider))
 	req.Header.Set("X-RelayGate-Verified", strconv.Itoa(event.IsVerified))
 
+	if canonicalEnv != nil {
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-RelayGate-Event-Type", canonicalEnv.EventType)
+		req.Header.Set("X-RelayGate-External-ID", canonicalEnv.ExternalID)
+
+		msgID := "msg_" + event.ID
+		tsStr, stdSig := model.SignStandardWebhook(msgID, time.Now().UTC(), bodyToSend, endpoint.SecretKey)
+		req.Header.Set("webhook-id", msgID)
+		req.Header.Set("webhook-timestamp", tsStr)
+		req.Header.Set("webhook-signature", stdSig)
+	}
+
+	startDelivery := time.Now()
+
 	// Execute HTTP request
 	resp, err := p.client.Do(req)
+	durationMs := time.Since(startDelivery).Milliseconds()
 	if err != nil {
-		return p.handleFailure(ctx, event, 0, fmt.Sprintf("network delivery error: %v", err))
+		errMsg := fmt.Sprintf("network delivery error: %v", err)
+		_ = p.repo.SaveDeliveryLog(ctx, event.ID, &model.DeliveryLogEntry{
+			Attempt:    event.Attempts + 1,
+			StatusCode: 0,
+			DurationMs: durationMs,
+			Error:      errMsg,
+			CreatedAt:  time.Now().UTC(),
+		})
+		if p.recordCircuitFailure(cbKey) && p.notifier != nil {
+			p.notifier.NotifyIncident(ctx, endpoint, event.ID, "circuit breaker tripped after 5 consecutive failures: "+errMsg)
+		}
+		return p.handleFailure(ctx, endpoint, event, 0, errMsg)
 	}
 	defer resp.Body.Close()
 
@@ -433,7 +636,15 @@ func (p *Pool) processEventWithContext(ctx context.Context, eventID string) erro
 
 	// Success response: 2xx
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		p.recordCircuitSuccess(cbKey)
 		err := p.repo.UpdateEventStatus(ctx, event.ID, model.StatusDelivered, resp.StatusCode, "")
+		_ = p.repo.SaveDeliveryLog(ctx, event.ID, &model.DeliveryLogEntry{
+			Attempt:    event.Attempts + 1,
+			StatusCode: resp.StatusCode,
+			DurationMs: durationMs,
+			Error:      "",
+			CreatedAt:  time.Now().UTC(),
+		})
 		if err == nil {
 			event.Status = model.StatusDelivered
 			event.HTTPStatusCode = resp.StatusCode
@@ -448,10 +659,44 @@ func (p *Pool) processEventWithContext(ctx context.Context, eventID string) erro
 
 	// Failure response: 4xx, 5xx
 	errMsg := fmt.Sprintf("downstream returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(bodySnippet)))
-	return p.handleFailure(ctx, event, resp.StatusCode, errMsg)
+	_ = p.repo.SaveDeliveryLog(ctx, event.ID, &model.DeliveryLogEntry{
+		Attempt:    event.Attempts + 1,
+		StatusCode: resp.StatusCode,
+		DurationMs: durationMs,
+		Error:      errMsg,
+		CreatedAt:  time.Now().UTC(),
+	})
+
+	// Check for HTTP 429 / 503 Retry-After non-penalizing deferral
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
+		if retryHeader := resp.Header.Get("Retry-After"); strings.TrimSpace(retryHeader) != "" {
+			if nextRetryAt, ok := ParseRetryAfter(retryHeader, time.Now().UTC()); ok {
+				dErr := p.repo.DeferRetry(ctx, event.ID, nextRetryAt, errMsg, resp.StatusCode)
+				if dErr == nil {
+					event.Status = model.StatusRetrying
+					event.HTTPStatusCode = resp.StatusCode
+					event.LastError = errMsg
+					event.NextRetryAt = &nextRetryAt
+					p.notifyUpdate(event)
+				}
+				if resp.StatusCode == http.StatusServiceUnavailable && p.notifier != nil {
+					p.notifier.NotifyIncident(ctx, endpoint, event.ID, "downstream maintenance / consecutive failure (circuit monitor): "+errMsg)
+				}
+				return dErr
+			}
+		}
+	}
+
+	if resp.StatusCode >= 500 {
+		if p.recordCircuitFailure(cbKey) && p.notifier != nil {
+			p.notifier.NotifyIncident(ctx, endpoint, event.ID, "circuit breaker tripped after consecutive failures: "+errMsg)
+		}
+	}
+
+	return p.handleFailure(ctx, endpoint, event, resp.StatusCode, errMsg)
 }
 
-func (p *Pool) handleFailure(ctx context.Context, event *model.WebhookEvent, statusCode int, errMsg string) error {
+func (p *Pool) handleFailure(ctx context.Context, endpoint *model.Endpoint, event *model.WebhookEvent, statusCode int, errMsg string) error {
 	event.MaxAttempts = model.NormalizeMaxAttempts(event.MaxAttempts)
 	nextAttempt := event.Attempts + 1
 	if nextAttempt > event.MaxAttempts {
@@ -475,6 +720,9 @@ func (p *Pool) handleFailure(ctx context.Context, event *model.WebhookEvent, sta
 			event.ErrorClass = string(model.ErrorClassDeliveryFailed)
 			p.notifyUpdate(event)
 		}
+		if p.notifier != nil {
+			p.notifier.NotifyIncident(ctx, endpoint, event.ID, "event entered dead-letter queue (circuit / consecutive failure monitor): "+errMsg)
+		}
 		return err
 	}
 
@@ -490,6 +738,9 @@ func (p *Pool) handleFailure(ctx context.Context, event *model.WebhookEvent, sta
 		event.LastError = errMsg
 		event.NextRetryAt = &nextRetryAt
 		p.notifyUpdate(event)
+	}
+	if statusCode >= 500 && p.notifier != nil {
+		p.notifier.NotifyIncident(ctx, endpoint, event.ID, "downstream failure (circuit / consecutive failure monitor): "+errMsg)
 	}
 	return err
 }

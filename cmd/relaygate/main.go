@@ -140,6 +140,30 @@ func main() {
 	shutdownCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Background retention pruning goroutine for DELIVERED events (preserves FAILED DLQ events)
+	retentionDays := getEnvInt("RELAYGATE_RETENTION_DAYS", 30)
+	if retentionDays > 0 {
+		go func(days int) {
+			cutoff := time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour)
+			if pruned, pErr := repo.PruneDeliveredEvents(shutdownCtx, cutoff); pErr == nil && pruned > 0 {
+				log.Printf("[RelayGate] Retention pruning removed %d old DELIVERED events (>%d days).", pruned, days)
+			}
+			ticker := time.NewTicker(1 * time.Hour)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-shutdownCtx.Done():
+					return
+				case <-ticker.C:
+					c := time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour)
+					if pruned, pErr := repo.PruneDeliveredEvents(shutdownCtx, c); pErr == nil && pruned > 0 {
+						log.Printf("[RelayGate] Retention pruning removed %d old DELIVERED events (>%d days).", pruned, days)
+					}
+				}
+			}
+		}(retentionDays)
+	}
+
 	// Start server in background
 	serverErrChan := make(chan error, 1)
 	go func() {

@@ -72,39 +72,46 @@ type BulkReplayResponse struct {
 
 // CreateEndpointRequest represents payload to register a new endpoint
 type CreateEndpointRequest struct {
-	Name      string             `json:"name"`
-	Provider  model.ProviderType `json:"provider"`
-	TargetURL string             `json:"target_url"`
-	SecretKey string             `json:"secret_key"`
+	Name              string                      `json:"name"`
+	Provider          model.ProviderType          `json:"provider"`
+	TargetURL         string                      `json:"target_url"`
+	TargetURLs        []string                    `json:"target_urls,omitempty"`
+	Destinations      []model.EndpointDestination `json:"destinations,omitempty"`
+	WrapEnvelope      bool                        `json:"wrap_envelope"`
+	NotificationURL   string                      `json:"notification_url,omitempty"`
+	TelegramWebhook   string                      `json:"telegram_webhook,omitempty"`
+	TelegramChatID    string                      `json:"telegram_chat_id,omitempty"`
+	DiscordWebhook    string                      `json:"discord_webhook,omitempty"`
+	SlackWebhook      string                      `json:"slack_webhook,omitempty"`
+	NotificationEmail string                      `json:"notification_email,omitempty"`
+	NotifyEmail       string                      `json:"notify_email,omitempty"`
+	SecretKey         string                      `json:"secret_key"`
 }
 
 // UpdateEndpointRequest represents payload to patch an endpoint
 type UpdateEndpointRequest struct {
-	Name      *string             `json:"name,omitempty"`
-	Provider  *model.ProviderType `json:"provider,omitempty"`
-	TargetURL *string             `json:"target_url,omitempty"`
-	SecretKey *string             `json:"secret_key,omitempty"`
-	IsActive  *bool               `json:"is_active,omitempty"`
+	Name              *string                      `json:"name,omitempty"`
+	Provider          *model.ProviderType          `json:"provider,omitempty"`
+	TargetURL         *string                      `json:"target_url,omitempty"`
+	TargetURLs        *[]string                    `json:"target_urls,omitempty"`
+	Destinations      *[]model.EndpointDestination `json:"destinations,omitempty"`
+	WrapEnvelope      *bool                        `json:"wrap_envelope,omitempty"`
+	NotificationURL   *string                      `json:"notification_url,omitempty"`
+	TelegramWebhook   *string                      `json:"telegram_webhook,omitempty"`
+	TelegramChatID    *string                      `json:"telegram_chat_id,omitempty"`
+	DiscordWebhook    *string                      `json:"discord_webhook,omitempty"`
+	SlackWebhook      *string                      `json:"slack_webhook,omitempty"`
+	NotificationEmail *string                      `json:"notification_email,omitempty"`
+	NotifyEmail       *string                      `json:"notify_email,omitempty"`
+	SecretKey         *string                      `json:"secret_key,omitempty"`
+	IsActive          *bool                        `json:"is_active,omitempty"`
 }
 
 // ThroughputBucket represents a 1-minute slice of event traffic
-type ThroughputBucket struct {
-	Index  int    `json:"index"`
-	Total  int    `json:"total"`
-	Failed int    `json:"failed"`
-	Label  string `json:"label"`
-}
+type ThroughputBucket = model.ThroughputBucket
 
 // EndpointBreakdown represents traffic metrics for a single endpoint
-type EndpointBreakdown struct {
-	ID          string             `json:"id"`
-	Name        string             `json:"name"`
-	Provider    model.ProviderType `json:"provider"`
-	Total       int                `json:"total"`
-	Delivered   int                `json:"delivered"`
-	Failed      int                `json:"failed"`
-	SuccessRate int                `json:"success_rate"`
-}
+type EndpointBreakdown = model.EndpointBreakdown
 
 // OverviewResponse represents global dashboard metrics and visual analytics
 type OverviewResponse struct {
@@ -426,17 +433,21 @@ func (a *API) ListEvents(w http.ResponseWriter, r *http.Request) {
 
 	status := model.EventStatus(strings.ToUpper(strings.TrimSpace(q.Get("status"))))
 	endpointID := strings.TrimSpace(q.Get("endpoint_id"))
+	provider := model.ProviderType(strings.ToLower(strings.TrimSpace(q.Get("provider"))))
+	failureCode := strings.ToUpper(strings.TrimSpace(q.Get("failure_code")))
 	search := strings.TrimSpace(q.Get("search"))
 	if search == "" {
 		search = strings.TrimSpace(q.Get("q"))
 	}
 
 	filter := storage.ListFilter{
-		EndpointID: endpointID,
-		Status:     status,
-		Search:     search,
-		Limit:      limit,
-		Offset:     offset,
+		EndpointID:  endpointID,
+		Status:      status,
+		Provider:    provider,
+		FailureCode: failureCode,
+		Search:      search,
+		Limit:       limit,
+		Offset:      offset,
 	}
 
 	events, total, err := a.repo.ListEvents(r.Context(), filter)
@@ -515,7 +526,11 @@ func (a *API) GetEvent(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[AUDIT] Sensitive headers revealed for event %s by %s from IP %s (headers: %s)", id, session.UserEmail, ip, revealedNamesStr)
 	}
 
-	writeJSON(w, http.StatusOK, formatEventResponseWithReveal(event, reveal))
+	resp := formatEventResponseWithReveal(event, reveal)
+	if logs, err := a.repo.ListDeliveryLogs(r.Context(), event.ID); err == nil && len(logs) > 0 {
+		resp.DeliveryLog = logs
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // executeSingleReplay performs server-side validation and resets an event for replay.
@@ -539,6 +554,46 @@ func (a *API) executeSingleReplay(ctx context.Context, id string) (*model.Webhoo
 	// Idempotency: Reject immediate duplicate replay if event is already queued or running
 	if event.Status == model.StatusPending || event.Status == model.StatusRetrying {
 		return nil, false, "ALREADY_PENDING", fmt.Errorf("Event ini sedang dalam antrean pengiriman (status Menunggu). Silakan tunggu hingga proses selesai.")
+	}
+
+	// If this is a primary fan-out event that already succeeded (DELIVERED), check if any child fan-out
+	// destinations failed and replay only those failed child destinations without re-sending to the delivered target.
+	if event.Status == model.StatusDelivered && event.ParentEventID == "" {
+		if children, cErr := a.listChildEvents(ctx, event.ID); cErr == nil && len(children) > 0 {
+			var firstReplayed *model.WebhookEvent
+			var anyReVerified bool
+			for _, child := range children {
+				if child.Status == model.StatusFailed && child.IsEligibleForReplay() {
+					if child.IsVerified == verifier.VerificationInvalid || child.IsVerified < 0 {
+						_ = a.repo.UpdateEventVerification(ctx, child.ID, 0)
+						child.IsVerified = 0
+						anyReVerified = true
+					}
+					if uErr := a.repo.UpdateEventStatus(ctx, child.ID, model.StatusPending, child.HTTPStatusCode, ""); uErr == nil {
+						child.Status = model.StatusPending
+						child.Attempts = 0
+						child.LastError = ""
+						child.FailureCode = ""
+						child.ErrorCode = ""
+						child.ErrorClass = ""
+						child.FailedAt = nil
+						if a.pool != nil {
+							a.pool.ResetCircuit(child.EndpointID)
+							a.pool.Enqueue(child.ID)
+						}
+						if a.hub != nil {
+							a.hub.Broadcast("event_updated", child)
+						}
+						if firstReplayed == nil {
+							firstReplayed = child
+						}
+					}
+				}
+			}
+			if firstReplayed != nil {
+				return firstReplayed, anyReVerified, "", nil
+			}
+		}
 	}
 
 	if !event.IsEligibleForReplay() {
@@ -575,8 +630,9 @@ func (a *API) executeSingleReplay(ctx context.Context, id string) (*model.Webhoo
 	event.FailedAt = nil
 	event.VerificationKind = string(verifier.ProviderVerificationKind(event.Provider))
 
-	// Enqueue in worker pool
+	// Enqueue in worker pool (and reset circuit breaker so manual operator replay executes immediately)
 	if a.pool != nil {
+		a.pool.ResetCircuit(event.EndpointID)
 		a.pool.Enqueue(id)
 	}
 
@@ -585,7 +641,45 @@ func (a *API) executeSingleReplay(ctx context.Context, id string) (*model.Webhoo
 		a.hub.Broadcast("event_updated", event)
 	}
 
+	// If this is a primary fan-out event, also replay any failed child fan-out events
+	if event.ParentEventID == "" {
+		if children, cErr := a.listChildEvents(ctx, event.ID); cErr == nil && len(children) > 0 {
+			for _, child := range children {
+				if child.Status == model.StatusFailed && child.IsEligibleForReplay() {
+					if child.IsVerified == verifier.VerificationInvalid || child.IsVerified < 0 {
+						_ = a.repo.UpdateEventVerification(ctx, child.ID, 0)
+						child.IsVerified = 0
+					}
+					if uErr := a.repo.UpdateEventStatus(ctx, child.ID, model.StatusPending, child.HTTPStatusCode, ""); uErr == nil {
+						child.Status = model.StatusPending
+						child.Attempts = 0
+						child.LastError = ""
+						child.FailureCode = ""
+						child.ErrorCode = ""
+						child.ErrorClass = ""
+						child.FailedAt = nil
+						if a.pool != nil {
+							a.pool.Enqueue(child.ID)
+						}
+						if a.hub != nil {
+							a.hub.Broadcast("event_updated", child)
+						}
+					}
+				}
+			}
+		}
+	}
+
 	return event, wasVerificationInvalid, "", nil
+}
+
+func (a *API) listChildEvents(ctx context.Context, parentEventID string) ([]*model.WebhookEvent, error) {
+	if childLister, ok := a.repo.(interface {
+		ListChildEvents(ctx context.Context, parentEventID string) ([]*model.WebhookEvent, error)
+	}); ok {
+		return childLister.ListChildEvents(ctx, parentEventID)
+	}
+	return nil, nil
 }
 
 // ReplayEvent handles POST /api/v1/events/{id}/replay
@@ -704,6 +798,40 @@ func (a *API) CreateEndpoint(w http.ResponseWriter, r *http.Request) {
 	req.Name = strings.TrimSpace(req.Name)
 	req.TargetURL = strings.TrimSpace(req.TargetURL)
 
+	var validDestinations []model.EndpointDestination
+	for _, d := range req.Destinations {
+		u := strings.TrimSpace(d.URL)
+		if u == "" {
+			continue
+		}
+		parsedD, dErr := url.ParseRequestURI(u)
+		if dErr != nil || (parsedD.Scheme != "http" && parsedD.Scheme != "https") || parsedD.Host == "" {
+			writeError(w, http.StatusBadRequest, "valid destination url (http:// or https://) is required", nil)
+			return
+		}
+		validDestinations = append(validDestinations, model.EndpointDestination{
+			URL:         u,
+			MaxAttempts: d.MaxAttempts,
+		})
+	}
+	if len(validDestinations) == 0 && len(req.TargetURLs) > 0 {
+		for _, rawU := range req.TargetURLs {
+			u := strings.TrimSpace(rawU)
+			if u == "" {
+				continue
+			}
+			parsedD, dErr := url.ParseRequestURI(u)
+			if dErr != nil || (parsedD.Scheme != "http" && parsedD.Scheme != "https") || parsedD.Host == "" {
+				writeError(w, http.StatusBadRequest, "valid target_urls entry (http:// or https://) is required", nil)
+				return
+			}
+			validDestinations = append(validDestinations, model.EndpointDestination{URL: u})
+		}
+	}
+	if req.TargetURL == "" && len(validDestinations) > 0 {
+		req.TargetURL = validDestinations[0].URL
+	}
+
 	if req.Name == "" {
 		writeError(w, http.StatusBadRequest, "endpoint name is required", nil)
 		return
@@ -749,14 +877,27 @@ func (a *API) CreateEndpoint(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	notifEmail := strings.TrimSpace(req.NotificationEmail)
+	if notifEmail == "" {
+		notifEmail = strings.TrimSpace(req.NotifyEmail)
+	}
+
 	endpoint := &model.Endpoint{
-		ID:        "ep_" + strings.ToLower(uuid.NewString()[:8]),
-		Name:      req.Name,
-		SecretKey: secretKey,
-		TargetURL: req.TargetURL,
-		Provider:  provider,
-		IsActive:  true,
-		CreatedAt: time.Now().UTC(),
+		ID:                "ep_" + strings.ToLower(uuid.NewString()[:8]),
+		Name:              req.Name,
+		SecretKey:         secretKey,
+		TargetURL:         req.TargetURL,
+		Destinations:      validDestinations,
+		WrapEnvelope:      req.WrapEnvelope,
+		NotificationURL:   strings.TrimSpace(req.NotificationURL),
+		TelegramWebhook:   strings.TrimSpace(req.TelegramWebhook),
+		TelegramChatID:    strings.TrimSpace(req.TelegramChatID),
+		DiscordWebhook:    strings.TrimSpace(req.DiscordWebhook),
+		SlackWebhook:      strings.TrimSpace(req.SlackWebhook),
+		NotificationEmail: notifEmail,
+		Provider:          provider,
+		IsActive:          true,
+		CreatedAt:         time.Now().UTC(),
 	}
 
 	if err := a.repo.SaveEndpoint(r.Context(), endpoint); err != nil {
@@ -829,6 +970,61 @@ func (a *API) UpdateEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.IsActive != nil {
 		existing.IsActive = *req.IsActive
+	}
+	if req.WrapEnvelope != nil {
+		existing.WrapEnvelope = *req.WrapEnvelope
+	}
+	if req.Destinations != nil {
+		var validDests []model.EndpointDestination
+		for _, d := range *req.Destinations {
+			u := strings.TrimSpace(d.URL)
+			if u == "" {
+				continue
+			}
+			parsedD, dErr := url.ParseRequestURI(u)
+			if dErr != nil || (parsedD.Scheme != "http" && parsedD.Scheme != "https") || parsedD.Host == "" {
+				writeError(w, http.StatusBadRequest, "valid destination url (http:// or https://) is required", nil)
+				return
+			}
+			validDests = append(validDests, model.EndpointDestination{URL: u, MaxAttempts: d.MaxAttempts})
+		}
+		existing.Destinations = validDests
+	}
+	if req.TargetURLs != nil {
+		var validDests []model.EndpointDestination
+		for _, rawU := range *req.TargetURLs {
+			u := strings.TrimSpace(rawU)
+			if u == "" {
+				continue
+			}
+			parsedD, dErr := url.ParseRequestURI(u)
+			if dErr != nil || (parsedD.Scheme != "http" && parsedD.Scheme != "https") || parsedD.Host == "" {
+				writeError(w, http.StatusBadRequest, "valid target_urls entry (http:// or https://) is required", nil)
+				return
+			}
+			validDests = append(validDests, model.EndpointDestination{URL: u})
+		}
+		existing.Destinations = validDests
+	}
+	if req.NotificationURL != nil {
+		existing.NotificationURL = strings.TrimSpace(*req.NotificationURL)
+	}
+	if req.TelegramWebhook != nil {
+		existing.TelegramWebhook = strings.TrimSpace(*req.TelegramWebhook)
+	}
+	if req.TelegramChatID != nil {
+		existing.TelegramChatID = strings.TrimSpace(*req.TelegramChatID)
+	}
+	if req.DiscordWebhook != nil {
+		existing.DiscordWebhook = strings.TrimSpace(*req.DiscordWebhook)
+	}
+	if req.SlackWebhook != nil {
+		existing.SlackWebhook = strings.TrimSpace(*req.SlackWebhook)
+	}
+	if req.NotificationEmail != nil {
+		existing.NotificationEmail = strings.TrimSpace(*req.NotificationEmail)
+	} else if req.NotifyEmail != nil {
+		existing.NotificationEmail = strings.TrimSpace(*req.NotifyEmail)
 	}
 
 	if err := a.repo.SaveEndpoint(r.Context(), existing); err != nil {
@@ -920,93 +1116,30 @@ func (a *API) GetOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	endpoints, err := a.repo.ListEndpoints(ctx)
+	// 1. Throughput calculation for last 12 minutes via SQL aggregation
+	buckets, err := a.repo.GetThroughput(ctx, 12)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to retrieve endpoints", err)
+		writeError(w, http.StatusInternalServerError, "failed to calculate throughput", err)
 		return
 	}
 
-	recentEvents, _, err := a.repo.ListEvents(ctx, storage.ListFilter{
-		Limit: 500,
-	})
+	// 2. Endpoint breakdown calculation via SQL aggregation
+	breakdownList, err := a.repo.GetEndpointBreakdown(ctx)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to retrieve recent events", err)
+		writeError(w, http.StatusInternalServerError, "failed to calculate endpoint breakdown", err)
 		return
 	}
 
-	// 1. Throughput calculation for last 12 minutes
-	const numBuckets = 12
-	now := time.Now().UTC()
-	buckets := make([]ThroughputBucket, numBuckets)
-	for i := 0; i < numBuckets; i++ {
-		minsAgo := numBuckets - 1 - i
-		label := fmt.Sprintf("-%dm", minsAgo)
-		if minsAgo == 0 {
-			label = "now"
-		}
-		buckets[i] = ThroughputBucket{
-			Index: i,
-			Label: label,
-		}
+	// 3. Recent failed events (top 5) via indexed SQL query
+	recentFailedEvents, err := a.repo.GetRecentFailedEvents(ctx, 5)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to retrieve recent failed events", err)
+		return
 	}
 
-	for _, ev := range recentEvents {
-		diff := now.Sub(ev.CreatedAt)
-		mins := int(diff.Minutes())
-		if mins >= 0 && mins < numBuckets {
-			idx := numBuckets - 1 - mins
-			buckets[idx].Total++
-			if ev.Status == model.StatusFailed || ev.Status == model.StatusRetrying {
-				buckets[idx].Failed++
-			}
-		}
-	}
-
-	// 2. Endpoint breakdown calculation
-	endpointMap := make(map[string]*EndpointBreakdown)
-	for _, ep := range endpoints {
-		endpointMap[ep.ID] = &EndpointBreakdown{
-			ID:       ep.ID,
-			Name:     ep.Name,
-			Provider: ep.Provider,
-		}
-	}
-
-	for _, ev := range recentEvents {
-		if eb, ok := endpointMap[ev.EndpointID]; ok {
-			eb.Total++
-			if ev.Status == model.StatusDelivered {
-				eb.Delivered++
-			} else if ev.Status == model.StatusFailed {
-				eb.Failed++
-			}
-		}
-	}
-
-	breakdownList := make([]EndpointBreakdown, 0, len(endpoints))
-	for _, ep := range endpoints {
-		if eb, ok := endpointMap[ep.ID]; ok {
-			rate := 0
-			if eb.Total > 0 {
-				rate = int(float64(eb.Delivered) / float64(eb.Total) * 100)
-			}
-			eb.SuccessRate = rate
-			breakdownList = append(breakdownList, *eb)
-		}
-	}
-
-	// 3. Recent failed events (top 5)
-	var recentFailed []EventResponse
-	for _, ev := range recentEvents {
-		if ev.Status == model.StatusFailed {
-			recentFailed = append(recentFailed, formatEventResponse(ev))
-			if len(recentFailed) >= 5 {
-				break
-			}
-		}
-	}
-	if recentFailed == nil {
-		recentFailed = make([]EventResponse, 0)
+	recentFailed := make([]EventResponse, 0, len(recentFailedEvents))
+	for _, ev := range recentFailedEvents {
+		recentFailed = append(recentFailed, formatEventResponse(ev))
 	}
 
 	writeJSON(w, http.StatusOK, OverviewResponse{
@@ -1069,6 +1202,82 @@ func (a *API) StreamSSE(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+// AdminMiddleware ensures the request is authenticated with an active session belonging to role 'admin'.
+func (a *API) AdminMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		session := a.getSession(r)
+		if session == nil {
+			writeError(w, http.StatusUnauthorized, "Sesi tidak valid atau telah kedaluwarsa. Autentikasi admin diperlukan.", nil)
+			return
+		}
+		if session.Role != "admin" {
+			writeError(w, http.StatusForbidden, "Hanya admin yang memiliki izin untuk menjalankan tindakan ini.", nil)
+			return
+		}
+		next(w, r)
+	}
+}
+
+// SystemBackup handles POST /api/v1/system/backup
+func (a *API) SystemBackup(w http.ResponseWriter, r *http.Request) {
+	var req model.BackupRequest
+	if r.Body != nil && r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	destPath := strings.TrimSpace(req.DestinationPath)
+	if destPath == "" {
+		destPath = strings.TrimSpace(r.URL.Query().Get("destination_path"))
+	}
+
+	if strings.Contains(destPath, "..") {
+		writeError(w, http.StatusBadRequest, "Path tujuan backup tidak valid: directory traversal tidak diizinkan", nil)
+		return
+	}
+
+	result, err := a.repo.Backup(r.Context(), destPath)
+	if err != nil {
+		errStr := err.Error()
+		if strings.Contains(errStr, "traversal") || strings.Contains(errStr, "outside allowed") || strings.Contains(errStr, "system directory") || strings.Contains(errStr, "null byte") || strings.Contains(errStr, "root directory") {
+			writeError(w, http.StatusBadRequest, "Path tujuan backup tidak valid atau berada di luar batas yang diizinkan", err)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "Gagal membuat database hot backup", err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+// SystemRetentionPrune handles POST /api/v1/system/retention/prune
+func (a *API) SystemRetentionPrune(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Cutoff string `json:"cutoff"`
+	}
+	if r.Body != nil && r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	cutoff := time.Now().Add(-30 * 24 * time.Hour)
+	if req.Cutoff != "" {
+		parsed, err := time.Parse(time.RFC3339, req.Cutoff)
+		if err != nil {
+			parsed, err = time.Parse("2006-01-02T15:04:05Z07:00", req.Cutoff)
+		}
+		if err == nil {
+			cutoff = parsed
+		}
+	}
+
+	pruned, err := a.repo.PruneDeliveredEvents(r.Context(), cutoff)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Gagal menjalankan retention pruning", err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"pruned": pruned})
 }
 
 // Register handles POST /api/v1/auth/register
@@ -2134,11 +2343,28 @@ func formatEventResponseWithReveal(ev *model.WebhookEvent, revealSensitive bool)
 	if !revealSensitive && evCopy.Headers != nil {
 		evCopy.Headers = maskHeaders(ev.Headers)
 	}
+	if !revealSensitive && evCopy.Signature != "" && (ev.Provider == model.ProviderFlip || ev.Provider == model.ProviderXendit) {
+		evCopy.Signature = "••••••••••••••••••••••••••••••••"
+	}
+
+	payloadRaw := string(ev.Payload)
+	if !revealSensitive && (ev.Provider == model.ProviderFlip || strings.Contains(payloadRaw, "token=")) {
+		if form, err := url.ParseQuery(payloadRaw); err == nil && form.Get("token") != "" {
+			form.Set("token", "••••••••")
+			payloadRaw = form.Encode()
+			evCopy.Payload = []byte(payloadRaw)
+		}
+	}
+
+	deliveryLogs := make([]model.DeliveryLogEntry, 0, len(ev.DeliveryLog))
+	if len(ev.DeliveryLog) > 0 {
+		deliveryLogs = append(deliveryLogs, ev.DeliveryLog...)
+	}
 
 	res := EventResponse{
 		WebhookEvent:     &evCopy,
-		PayloadRaw:       string(ev.Payload),
-		DeliveryLog:      make([]model.DeliveryLogEntry, 0),
+		PayloadRaw:       payloadRaw,
+		DeliveryLog:      deliveryLogs,
 		ErrorCode:        code,
 		FailureCode:      ev.FailureCode,
 		ErrorClass:       class,

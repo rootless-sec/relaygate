@@ -337,6 +337,8 @@ export const App: React.FC = () => {
     name: string;
     provider: ProviderType;
     target_url: string;
+    target_urls?: string[];
+    wrap_envelope?: boolean;
     secret_key?: string;
   }) => {
     await createEndpoint(data);

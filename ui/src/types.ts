@@ -1,4 +1,4 @@
-export type ProviderType = 'generic' | 'midtrans' | 'stripe' | 'xendit' | 'github' | 'shopify';
+export type ProviderType = 'generic' | 'midtrans' | 'stripe' | 'xendit' | 'github' | 'shopify' | 'doku' | 'flip';
 
 export type EventStatus = 'PENDING' | 'DELIVERED' | 'FAILED' | 'RETRYING';
 
@@ -37,13 +37,34 @@ export interface WebhookEvent {
   verification_kind?: 'static_token' | 'hmac' | 'hash';
 }
 
+export interface EndpointDestination {
+  url: string;
+  max_attempts?: number;
+}
+
 export interface Endpoint {
   id: string;
   name: string;
   secret_key: string;
   target_url: string;
+  target_urls?: string[];
+  destinations?: EndpointDestination[];
+  wrap_envelope?: boolean;
+  notification_url?: string;
+  telegram_webhook?: string;
+  telegram_chat_id?: string;
+  discord_webhook?: string;
+  slack_webhook?: string;
+  notification_email?: string;
   provider: ProviderType;
   is_active: boolean;
+  created_at: string;
+}
+
+export interface BackupResult {
+  destination_path: string;
+  size_bytes: number;
+  duration_ms: number;
   created_at: string;
 }
 

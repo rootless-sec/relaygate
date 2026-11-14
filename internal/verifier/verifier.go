@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -127,6 +128,20 @@ func (e *Engine) Verify(ep *model.Endpoint, headers map[string]string, payload [
 
 	case model.ProviderShopify:
 		valid, err := e.VerifyShopify(secretKey, headers, payload)
+		if err != nil || !valid {
+			return VerificationInvalid, err
+		}
+		return VerificationValid, nil
+
+	case model.ProviderDoku:
+		valid, err := e.VerifyDoku(secretKey, headers, payload)
+		if err != nil || !valid {
+			return VerificationInvalid, err
+		}
+		return VerificationValid, nil
+
+	case model.ProviderFlip:
+		valid, err := e.VerifyFlip(secretKey, headers, payload)
 		if err != nil || !valid {
 			return VerificationInvalid, err
 		}
@@ -425,15 +440,85 @@ func (e *Engine) VerifyShopify(secretKey string, headers map[string]string, payl
 	return false, newVerificationError(model.ErrCodeSignatureMismatch, "shopify signature mismatch")
 }
 
+// VerifyDoku validates DOKU Notification Signature (HMAC-SHA256 over component string + SHA-256 Digest)
+func (e *Engine) VerifyDoku(secretKey string, headers map[string]string, payload []byte) (bool, error) {
+	if strings.TrimSpace(secretKey) == "" {
+		return false, fmt.Errorf("secret key cannot be empty")
+	}
+
+	clientID := getHeader(headers, "Client-Id")
+	requestID := getHeader(headers, "Request-Id")
+	requestTimestamp := getHeader(headers, "Request-Timestamp")
+	digestHeader := getHeader(headers, "Digest")
+	sigHeader := getHeader(headers, "Signature")
+	requestTarget := getHeader(headers, "Request-Target", "X-RelayGate-Request-Target")
+
+	if clientID == "" || requestID == "" || requestTimestamp == "" || digestHeader == "" || sigHeader == "" {
+		return false, newVerificationError(model.ErrCodeSignatureHeaderMissing, "missing doku signature headers (Client-Id, Request-Id, Request-Timestamp, Digest, or Signature)")
+	}
+
+	payloadHash := sha256.Sum256(payload)
+	expectedDigest := "SHA-256=" + base64.StdEncoding.EncodeToString(payloadHash[:])
+	if subtle.ConstantTimeCompare([]byte(strings.TrimSpace(digestHeader)), []byte(expectedDigest)) != 1 {
+		return false, newVerificationError(model.ErrCodeSignatureMismatch, "doku payload digest mismatch: %w", model.ErrSignatureInvalid)
+	}
+
+	componentStr := fmt.Sprintf(
+		"Client-Id:%s\nRequest-Id:%s\nRequest-Timestamp:%s\nRequest-Target:%s\nDigest:%s",
+		strings.TrimSpace(clientID),
+		strings.TrimSpace(requestID),
+		strings.TrimSpace(requestTimestamp),
+		strings.TrimSpace(requestTarget),
+		strings.TrimSpace(digestHeader),
+	)
+
+	mac := hmac.New(sha256.New, []byte(secretKey))
+	mac.Write([]byte(componentStr))
+	expectedSig := "HMACSHA256=" + base64.StdEncoding.EncodeToString(mac.Sum(nil))
+
+	if subtle.ConstantTimeCompare([]byte(strings.TrimSpace(sigHeader)), []byte(expectedSig)) != 1 {
+		return false, newVerificationError(model.ErrCodeSignatureMismatch, "doku signature mismatch: %w", model.ErrSignatureInvalid)
+	}
+
+	return true, nil
+}
+
+// VerifyFlip validates Flip callback token from application/x-www-form-urlencoded body or header
+func (e *Engine) VerifyFlip(secretKey string, headers map[string]string, payload []byte) (bool, error) {
+	if strings.TrimSpace(secretKey) == "" {
+		return false, fmt.Errorf("secret key cannot be empty")
+	}
+	if len(payload) == 0 {
+		return false, newVerificationError(model.ErrCodeSignaturePayloadMalformed, "empty flip payload")
+	}
+
+	token := ""
+	if form, err := url.ParseQuery(string(payload)); err == nil {
+		token = form.Get("token")
+	}
+	if token == "" {
+		token = getHeader(headers, "X-Callback-Token", "X-Flip-Token")
+	}
+	if token == "" {
+		return false, newVerificationError(model.ErrCodeSignatureHeaderMissing, "missing flip token parameter")
+	}
+
+	if subtle.ConstantTimeCompare([]byte(token), []byte(secretKey)) != 1 {
+		return false, newVerificationError(model.ErrCodeSignatureMismatch, "flip token mismatch: %w", model.ErrSignatureInvalid)
+	}
+
+	return true, nil
+}
+
 // ProviderVerificationKind returns the verification kind for a given provider.
 // This is the single source of truth for verification kinds.
 func ProviderVerificationKind(provider model.ProviderType) VerificationKind {
 	switch provider {
-	case model.ProviderXendit:
+	case model.ProviderXendit, model.ProviderFlip:
 		return VerificationKindStaticToken
 	case model.ProviderMidtrans:
 		return VerificationKindHash
-	case model.ProviderStripe, model.ProviderGithub, model.ProviderShopify, model.ProviderGeneric:
+	case model.ProviderStripe, model.ProviderGithub, model.ProviderShopify, model.ProviderDoku, model.ProviderGeneric:
 		return VerificationKindHMAC
 	default:
 		return VerificationKindHMAC

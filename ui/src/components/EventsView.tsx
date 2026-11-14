@@ -50,6 +50,8 @@ export const EventsView: React.FC<EventsViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [endpointFilter, setEndpointFilter] = useState<string>('');
+  const [providerFilter, setProviderFilter] = useState<string>('');
+  const [failureCodeFilter, setFailureCodeFilter] = useState<string>('');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -316,11 +318,21 @@ export const EventsView: React.FC<EventsViewProps> = ({
     setEndpointFilter(val);
     setCurrentPage(1);
   };
+  const handleProviderFilterChange = (val: string) => {
+    setProviderFilter(val);
+    setCurrentPage(1);
+  };
+  const handleFailureCodeFilterChange = (val: string) => {
+    setFailureCodeFilter(val);
+    setCurrentPage(1);
+  };
 
   // Filtered event list
   const filteredEvents = events.filter((ev) => {
     if (statusFilter && ev.status !== statusFilter) return false;
     if (endpointFilter && ev.endpoint_id !== endpointFilter) return false;
+    if (providerFilter && ev.provider !== providerFilter) return false;
+    if (failureCodeFilter && (ev.failure_code || ev.error_code || '') !== failureCodeFilter) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       const rawText = (
@@ -399,7 +411,11 @@ export const EventsView: React.FC<EventsViewProps> = ({
     : events.filter((e) => e.status === 'FAILED').length;
 
   const activeFilterCount =
-    (searchQuery ? 1 : 0) + (statusFilter ? 1 : 0) + (endpointFilter ? 1 : 0);
+    (searchQuery ? 1 : 0) +
+    (statusFilter ? 1 : 0) +
+    (endpointFilter ? 1 : 0) +
+    (providerFilter ? 1 : 0) +
+    (failureCodeFilter ? 1 : 0);
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-white px-4 lg:px-7 py-5 overflow-hidden">
@@ -558,6 +574,44 @@ export const EventsView: React.FC<EventsViewProps> = ({
             </select>
           </div>
 
+          <div className="inline-flex items-center gap-1.5 h-7 px-2.5 bg-white border border-zinc-200/90 rounded-md text-xs shadow-2xs">
+            <span className="text-zinc-500">Provider:</span>
+            <select
+              value={providerFilter}
+              onChange={(e) => handleProviderFilterChange(e.target.value)}
+              className="bg-transparent text-xs font-medium text-zinc-900 focus:outline-none cursor-pointer"
+              aria-label="Filter provider event"
+            >
+              <option value="">Semua provider</option>
+              <option value="stripe">Stripe</option>
+              <option value="midtrans">Midtrans</option>
+              <option value="xendit">Xendit</option>
+              <option value="doku">DOKU</option>
+              <option value="flip">Flip</option>
+              <option value="shopify">Shopify</option>
+              <option value="github">GitHub</option>
+              <option value="generic">Generic</option>
+            </select>
+          </div>
+
+          <div className="inline-flex items-center gap-1.5 h-7 px-2.5 bg-white border border-zinc-200/90 rounded-md text-xs shadow-2xs">
+            <span className="text-zinc-500">Kegagalan:</span>
+            <select
+              value={failureCodeFilter}
+              onChange={(e) => handleFailureCodeFilterChange(e.target.value)}
+              className="bg-transparent text-xs font-medium text-zinc-900 focus:outline-none cursor-pointer"
+              aria-label="Filter kode kegagalan event"
+            >
+              <option value="">Semua kode</option>
+              <option value="SIGNATURE_MISMATCH">SIGNATURE_MISMATCH</option>
+              <option value="HTTP_5XX">HTTP_5XX</option>
+              <option value="HTTP_4XX">HTTP_4XX</option>
+              <option value="TIMEOUT">TIMEOUT</option>
+              <option value="CONNECTION_REFUSED">CONNECTION_REFUSED</option>
+              <option value="DELIVERY_FAILED">DELIVERY_FAILED</option>
+            </select>
+          </div>
+
           {activeFilterCount > 0 && (
             <button
               type="button"
@@ -565,6 +619,8 @@ export const EventsView: React.FC<EventsViewProps> = ({
                 handleSearchChange('');
                 handleStatusFilterChange('');
                 handleEndpointFilterChange('');
+                handleProviderFilterChange('');
+                handleFailureCodeFilterChange('');
               }}
               className="inline-flex items-center gap-1 h-7 px-2 text-xs font-medium text-zinc-600 hover:text-zinc-950 transition-colors cursor-pointer"
             >

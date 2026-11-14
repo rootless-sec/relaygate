@@ -1,4 +1,4 @@
-import { Endpoint, OverviewData, StatsSummary, WebhookEvent } from './types';
+import { BackupResult, Endpoint, EndpointDestination, OverviewData, StatsSummary, WebhookEvent } from './types';
 
 const BASE_URL = '/api/v1';
 
@@ -40,6 +40,8 @@ export async function fetchEvents(params: {
   limit?: number;
   status?: string;
   endpoint_id?: string;
+  provider?: string;
+  failure_code?: string;
   search?: string;
 } = {}): Promise<{ events: WebhookEvent[]; total: number; page: number; limit: number }> {
   const query = new URLSearchParams();
@@ -47,6 +49,8 @@ export async function fetchEvents(params: {
   if (params.limit) query.set('limit', params.limit.toString());
   if (params.status) query.set('status', params.status);
   if (params.endpoint_id) query.set('endpoint_id', params.endpoint_id);
+  if (params.provider) query.set('provider', params.provider);
+  if (params.failure_code) query.set('failure_code', params.failure_code);
   if (params.search) query.set('search', params.search);
 
   const res = await fetch(`${BASE_URL}/events?${query.toString()}`);
@@ -116,6 +120,15 @@ export async function createEndpoint(data: {
   name: string;
   provider: string;
   target_url: string;
+  target_urls?: string[];
+  destinations?: EndpointDestination[];
+  wrap_envelope?: boolean;
+  notification_url?: string;
+  telegram_webhook?: string;
+  telegram_chat_id?: string;
+  discord_webhook?: string;
+  slack_webhook?: string;
+  notification_email?: string;
   secret_key?: string;
 }): Promise<Endpoint> {
   const res = await fetch(`${BASE_URL}/endpoints`, {
@@ -135,6 +148,15 @@ export async function updateEndpoint(
     name?: string;
     provider?: string;
     target_url?: string;
+    target_urls?: string[];
+    destinations?: EndpointDestination[];
+    wrap_envelope?: boolean;
+    notification_url?: string;
+    telegram_webhook?: string;
+    telegram_chat_id?: string;
+    discord_webhook?: string;
+    slack_webhook?: string;
+    notification_email?: string;
     secret_key?: string;
     is_active?: boolean;
   }
@@ -146,6 +168,21 @@ export async function updateEndpoint(
   });
   if (!res.ok) {
     throw await parseErrorResponse(res, `Gagal mengubah endpoint ${id}`);
+  }
+  return res.json();
+}
+
+export async function triggerSystemBackup(destinationPath?: string): Promise<BackupResult> {
+  const res = await fetch(`${BASE_URL}/system/backup`, {
+    method: 'POST',
+    headers: {
+      ...getAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(destinationPath ? { destination_path: destinationPath } : {}),
+  });
+  if (!res.ok) {
+    throw await parseErrorResponse(res, 'Gagal membuat hot backup database');
   }
   return res.json();
 }

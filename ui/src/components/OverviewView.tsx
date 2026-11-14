@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   CheckCircle,
   Webhook,
@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { OverviewData, WebhookEvent, NavTab } from '../types';
 import { analyzeEventError, formatRelativeTime } from '../utils/formatters';
+import { triggerSystemBackup } from '../api';
 
 interface OverviewViewProps {
   data: OverviewData | null;
@@ -18,6 +19,20 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
   onSelectEvent,
   onNavigate,
 }) => {
+  const [backupStatus, setBackupStatus] = useState<string | null>(null);
+
+  const handleHotBackup = async () => {
+    try {
+      setBackupStatus('Memproses...');
+      const res = await triggerSystemBackup();
+      setBackupStatus(`Backup tersimpan (${Math.max(1, Math.round(res.size_bytes / 1024))} KB)`);
+      setTimeout(() => setBackupStatus(null), 4000);
+    } catch {
+      setBackupStatus('Gagal backup');
+      setTimeout(() => setBackupStatus(null), 3000);
+    }
+  };
+
   if (!data) {
     return (
       <div className="flex-1 flex items-center justify-center p-8 bg-white">
@@ -53,6 +68,13 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
 
         {onNavigate && (
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleHotBackup}
+              className="h-8 px-3 rounded-md bg-white hover:bg-zinc-50 active:scale-[0.97] border border-zinc-200/90 text-zinc-800 text-xs font-medium shadow-2xs transition-transform cursor-pointer"
+            >
+              {backupStatus || 'Hot Backup DB'}
+            </button>
             <button
               type="button"
               onClick={() => onNavigate('events')}

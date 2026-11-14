@@ -76,6 +76,10 @@ export function getExpectedHeaderForProvider(provider?: string): string {
       return 'X-Callback-Token';
     case 'midtrans':
       return 'signature_key';
+    case 'doku':
+      return 'Signature (HMACSHA256)';
+    case 'flip':
+      return 'token (form-urlencoded)';
     default:
       return 'X-Signature-SHA256';
   }

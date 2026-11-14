@@ -2787,3 +2787,564 @@ func TestAPI_OAuthAvatarSanitizationAndAvatarCSP(t *testing.T) {
 
 
 
+
+
+func TestAPI_SystemBackup(t *testing.T) {
+	db, _, _, router, cleanup := setupTestAPI(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// 1. Viewer User & Session
+	viewerUser := &model.User{
+		ID:           "usr_viewer_backup",
+		Name:         "Viewer User",
+		Email:        "viewer.backup@relaygate.local",
+		PasswordHash: "dummyhash",
+		Role:         "viewer",
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := db.SaveUser(ctx, viewerUser); err != nil {
+		t.Fatalf("SaveUser viewer failed: %v", err)
+	}
+	viewerSession := &model.Session{
+		Token:     "sess_viewer_backup_token",
+		UserID:    viewerUser.ID,
+		UserEmail: viewerUser.Email,
+		Role:      "viewer",
+		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := db.SaveSession(ctx, viewerSession); err != nil {
+		t.Fatalf("SaveSession viewer failed: %v", err)
+	}
+
+	// 2. Admin User & Session
+	adminUser, err := db.GetUserByEmail(ctx, "admin@relaygate.local")
+	if err != nil || adminUser == nil {
+		t.Fatalf("admin user not found: %v", err)
+	}
+	adminSession := &model.Session{
+		Token:     "sess_admin_backup_token",
+		UserID:    adminUser.ID,
+		UserEmail: adminUser.Email,
+		Role:      "admin",
+		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := db.SaveSession(ctx, adminSession); err != nil {
+		t.Fatalf("SaveSession admin failed: %v", err)
+	}
+
+	// Case 1: Unauthenticated request must return 401 Unauthorized
+	reqUnauth := httptest.NewRequest(http.MethodPost, "/api/v1/system/backup", nil)
+	recUnauth := httptest.NewRecorder()
+	router.ServeHTTP(recUnauth, reqUnauth)
+	if recUnauth.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 Unauthorized without auth, got %d: %s", recUnauth.Code, recUnauth.Body.String())
+	}
+
+	// Case 2: Viewer role must return 403 Forbidden
+	reqViewer := httptest.NewRequest(http.MethodPost, "/api/v1/system/backup", nil)
+	reqViewer.Header.Set("Authorization", "Bearer "+viewerSession.Token)
+	recViewer := httptest.NewRecorder()
+	router.ServeHTTP(recViewer, reqViewer)
+	if recViewer.Code != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden for viewer role, got %d: %s", recViewer.Code, recViewer.Body.String())
+	}
+
+	// Case 3: Admin role with default path -> 200 OK
+	reqAdmin := httptest.NewRequest(http.MethodPost, "/api/v1/system/backup", nil)
+	reqAdmin.Header.Set("Authorization", "Bearer "+adminSession.Token)
+	recAdmin := httptest.NewRecorder()
+	router.ServeHTTP(recAdmin, reqAdmin)
+	if recAdmin.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for admin backup, got %d: %s", recAdmin.Code, recAdmin.Body.String())
+	}
+
+	var resDefault model.BackupResult
+	if err := json.Unmarshal(recAdmin.Body.Bytes(), &resDefault); err != nil {
+		t.Fatalf("failed to decode BackupResult: %v", err)
+	}
+	if resDefault.DestinationPath == "" {
+		t.Errorf("expected non-empty destination_path")
+	}
+	if resDefault.SizeBytes <= 0 {
+		t.Errorf("expected positive size_bytes, got %d", resDefault.SizeBytes)
+	}
+	defer os.Remove(resDefault.DestinationPath)
+
+	// Case 4: Admin role with explicit destination_path payload
+	customBackupDir, err := os.MkdirTemp("", "custom-backup-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(customBackupDir)
+	customDest := filepath.Join(customBackupDir, "custom_snapshot.db")
+
+	body := []byte(fmt.Sprintf(`{"destination_path": %q}`, customDest))
+	reqCustom := httptest.NewRequest(http.MethodPost, "/api/v1/system/backup", bytes.NewReader(body))
+	reqCustom.Header.Set("Authorization", "Bearer "+adminSession.Token)
+	reqCustom.Header.Set("Content-Type", "application/json")
+	recCustom := httptest.NewRecorder()
+	router.ServeHTTP(recCustom, reqCustom)
+
+	if recCustom.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for custom destination backup, got %d: %s", recCustom.Code, recCustom.Body.String())
+	}
+	var resCustom model.BackupResult
+	if err := json.Unmarshal(recCustom.Body.Bytes(), &resCustom); err != nil {
+		t.Fatalf("failed to decode custom BackupResult: %v", err)
+	}
+	if resCustom.DestinationPath != customDest {
+		t.Errorf("expected destination %s, got %s", customDest, resCustom.DestinationPath)
+	}
+	if resCustom.SizeBytes <= 0 {
+		t.Errorf("expected positive size_bytes, got %d", resCustom.SizeBytes)
+	}
+
+	// Case 5: Path traversal rejected with 400 Bad Request
+	bodyTraversal := []byte(`{"destination_path": "../../evil_backup.db"}`)
+	reqTraversal := httptest.NewRequest(http.MethodPost, "/api/v1/system/backup", bytes.NewReader(bodyTraversal))
+	reqTraversal.Header.Set("Authorization", "Bearer "+adminSession.Token)
+	reqTraversal.Header.Set("Content-Type", "application/json")
+	recTraversal := httptest.NewRecorder()
+	router.ServeHTTP(recTraversal, reqTraversal)
+	if recTraversal.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for traversal backup, got %d: %s", recTraversal.Code, recTraversal.Body.String())
+	}
+
+	// Case 6: System retention prune endpoint
+	pruneBody := []byte(`{"cutoff": "2020-01-01T00:00:00Z"}`)
+	reqPrune := httptest.NewRequest(http.MethodPost, "/api/v1/system/retention/prune", bytes.NewReader(pruneBody))
+	reqPrune.Header.Set("Authorization", "Bearer "+adminSession.Token)
+	reqPrune.Header.Set("Content-Type", "application/json")
+	recPrune := httptest.NewRecorder()
+	router.ServeHTTP(recPrune, reqPrune)
+	if recPrune.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for retention prune, got %d: %s", recPrune.Code, recPrune.Body.String())
+	}
+}
+
+func TestAPI_ListEvents_Filters(t *testing.T) {
+	db, _, _, router, cleanup := setupTestAPI(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	epStripe := &model.Endpoint{
+		ID: "ep-api-flt-stripe", Name: "Stripe Endpoint", SecretKey: "sec1", TargetURL: "https://stripe.com",
+		Provider: model.ProviderStripe, IsActive: true, CreatedAt: time.Now().UTC(),
+	}
+	epGithub := &model.Endpoint{
+		ID: "ep-api-flt-github", Name: "Github Endpoint", SecretKey: "sec2", TargetURL: "https://github.com",
+		Provider: model.ProviderGithub, IsActive: true, CreatedAt: time.Now().UTC(),
+	}
+	if err := db.SaveEndpoint(ctx, epStripe); err != nil {
+		t.Fatalf("SaveEndpoint stripe failed: %v", err)
+	}
+	if err := db.SaveEndpoint(ctx, epGithub); err != nil {
+		t.Fatalf("SaveEndpoint github failed: %v", err)
+	}
+
+	ev1 := &model.WebhookEvent{
+		ID: "ev-api-flt-1", EndpointID: epStripe.ID, Provider: model.ProviderStripe, SourceIP: "1.1.1.1",
+		Headers: map[string]string{}, Payload: []byte(`{}`), Status: model.StatusFailed,
+		FailureCode: "SIGNATURE_MISMATCH", MaxAttempts: 5, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	}
+	ev2 := &model.WebhookEvent{
+		ID: "ev-api-flt-2", EndpointID: epStripe.ID, Provider: model.ProviderStripe, SourceIP: "1.1.1.2",
+		Headers: map[string]string{}, Payload: []byte(`{}`), Status: model.StatusFailed,
+		FailureCode: "TIMEOUT", MaxAttempts: 5, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	}
+	ev3 := &model.WebhookEvent{
+		ID: "ev-api-flt-3", EndpointID: epGithub.ID, Provider: model.ProviderGithub, SourceIP: "1.1.1.3",
+		Headers: map[string]string{}, Payload: []byte(`{}`), Status: model.StatusFailed,
+		FailureCode: "SIGNATURE_MISMATCH", MaxAttempts: 5, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	}
+
+	for _, ev := range []*model.WebhookEvent{ev1, ev2, ev3} {
+		if err := db.SaveEvent(ctx, ev); err != nil {
+			t.Fatalf("SaveEvent failed: %v", err)
+		}
+	}
+
+	// 1. Filter by provider=stripe
+	reqStripe := httptest.NewRequest(http.MethodGet, "/api/v1/events?provider=stripe", nil)
+	recStripe := httptest.NewRecorder()
+	router.ServeHTTP(recStripe, reqStripe)
+	if recStripe.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", recStripe.Code)
+	}
+	var resStripe api.EventsListResponse
+	if err := json.Unmarshal(recStripe.Body.Bytes(), &resStripe); err != nil {
+		t.Fatalf("failed to decode resStripe: %v", err)
+	}
+	if resStripe.Total != 2 || len(resStripe.Events) != 2 {
+		t.Errorf("expected 2 stripe events, got total=%d len=%d", resStripe.Total, len(resStripe.Events))
+	}
+
+	// 2. Filter by failure_code=SIGNATURE_MISMATCH
+	reqSig := httptest.NewRequest(http.MethodGet, "/api/v1/events?failure_code=SIGNATURE_MISMATCH", nil)
+	recSig := httptest.NewRecorder()
+	router.ServeHTTP(recSig, reqSig)
+	if recSig.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", recSig.Code)
+	}
+	var resSig api.EventsListResponse
+	if err := json.Unmarshal(recSig.Body.Bytes(), &resSig); err != nil {
+		t.Fatalf("failed to decode resSig: %v", err)
+	}
+	if resSig.Total != 2 || len(resSig.Events) != 2 {
+		t.Errorf("expected 2 signature mismatch events, got total=%d len=%d", resSig.Total, len(resSig.Events))
+	}
+
+	// 3. Combined filter
+	reqComb := httptest.NewRequest(http.MethodGet, "/api/v1/events?provider=stripe&failure_code=SIGNATURE_MISMATCH", nil)
+	recComb := httptest.NewRecorder()
+	router.ServeHTTP(recComb, reqComb)
+	if recComb.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", recComb.Code)
+	}
+	var resComb api.EventsListResponse
+	if err := json.Unmarshal(recComb.Body.Bytes(), &resComb); err != nil {
+		t.Fatalf("failed to decode resComb: %v", err)
+	}
+	if resComb.Total != 1 || len(resComb.Events) != 1 || resComb.Events[0].ID != "ev-api-flt-1" {
+		t.Errorf("expected only ev-api-flt-1 for combined filter, got total=%d len=%d", resComb.Total, len(resComb.Events))
+	}
+}
+
+func TestAPI_GetEvent_WithDeliveryLogs(t *testing.T) {
+	db, _, _, router, cleanup := setupTestAPI(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	ep := &model.Endpoint{
+		ID:        "ep-api-logs",
+		Name:      "Delivery Log Endpoint",
+		SecretKey: "whsec_test",
+		TargetURL: "https://example.com/webhook",
+		Provider:  model.ProviderStripe,
+		IsActive:  true,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := db.SaveEndpoint(ctx, ep); err != nil {
+		t.Fatalf("SaveEndpoint failed: %v", err)
+	}
+
+	ev := &model.WebhookEvent{
+		ID:          "ev-api-logs-1",
+		EndpointID:  ep.ID,
+		Provider:    model.ProviderStripe,
+		SourceIP:    "127.0.0.1",
+		Headers:     map[string]string{"Content-Type": "application/json"},
+		Payload:     []byte(`{"test":true}`),
+		Status:      model.StatusRetrying,
+		Attempts:    2,
+		MaxAttempts: 5,
+		CreatedAt:   time.Now().UTC(),
+		UpdatedAt:   time.Now().UTC(),
+	}
+	if err := db.SaveEvent(ctx, ev); err != nil {
+		t.Fatalf("SaveEvent failed: %v", err)
+	}
+
+	// Save two delivery logs
+	log1 := &model.DeliveryLogEntry{
+		Attempt:    1,
+		StatusCode: 500,
+		DurationMs: 65,
+		Error:      "upstream 500",
+		CreatedAt:  time.Now().UTC().Add(-2 * time.Minute),
+	}
+	log2 := &model.DeliveryLogEntry{
+		Attempt:    2,
+		StatusCode: 429,
+		DurationMs: 32,
+		Error:      "rate limited 429",
+		CreatedAt:  time.Now().UTC().Add(-1 * time.Minute),
+	}
+	if err := db.SaveDeliveryLog(ctx, ev.ID, log1); err != nil {
+		t.Fatalf("SaveDeliveryLog 1 failed: %v", err)
+	}
+	if err := db.SaveDeliveryLog(ctx, ev.ID, log2); err != nil {
+		t.Fatalf("SaveDeliveryLog 2 failed: %v", err)
+	}
+
+	// Call GET /api/v1/events/:id
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/"+ev.ID, nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var res api.EventResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatalf("failed to decode EventResponse: %v", err)
+	}
+
+	if len(res.DeliveryLog) != 2 {
+		t.Fatalf("expected 2 delivery log entries in response, got %d", len(res.DeliveryLog))
+	}
+	if res.DeliveryLog[0].Attempt != 1 || res.DeliveryLog[0].StatusCode != 500 || res.DeliveryLog[0].DurationMs != 65 {
+		t.Errorf("unexpected delivery log 0: %+v", res.DeliveryLog[0])
+	}
+	if res.DeliveryLog[1].Attempt != 2 || res.DeliveryLog[1].StatusCode != 429 || res.DeliveryLog[1].DurationMs != 32 {
+		t.Errorf("unexpected delivery log 1: %+v", res.DeliveryLog[1])
+	}
+
+	// Verify GET /api/v1/events (ListEvents) also populates DeliveryLog for the UI InspectorDrawer
+	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/events?endpoint_id="+ep.ID, nil)
+	listRec := httptest.NewRecorder()
+	router.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from ListEvents, got %d", listRec.Code)
+	}
+	var listRes api.EventsListResponse
+	if err := json.Unmarshal(listRec.Body.Bytes(), &listRes); err != nil {
+		t.Fatalf("failed to decode EventsListResponse: %v", err)
+	}
+	if len(listRes.Events) != 1 || len(listRes.Events[0].DeliveryLog) != 2 {
+		t.Fatalf("expected ListEvents to populate 2 delivery_log entries, got %+v", listRes.Events)
+	}
+}
+
+func TestAPI_FanOut_MixedMaxAttempts_ReplayAndRetentionEdgeCases(t *testing.T) {
+	db, pool, _, router, cleanup := setupTestAPI(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	var target1Hits int
+	var target2Hits int
+	var mu sync.Mutex
+
+	srv1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		target1Hits++
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv1.Close()
+
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		target2Hits++
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv2.Close()
+
+	ep := &model.Endpoint{
+		ID:        "ep-fanout-edge",
+		Name:      "Fanout Edge Endpoint",
+		SecretKey: "whsec_fanout_edge",
+		TargetURL: srv1.URL,
+		Destinations: []model.EndpointDestination{
+			{URL: srv1.URL, MaxAttempts: 3},
+			{URL: srv2.URL, MaxAttempts: 7},
+		},
+		Provider:  model.ProviderGeneric,
+		IsActive:  true,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := db.SaveEndpoint(ctx, ep); err != nil {
+		t.Fatalf("SaveEndpoint failed: %v", err)
+	}
+
+	oldTime := time.Now().UTC().Add(-48 * time.Hour)
+
+	// Primary event (destination 1) is DELIVERED with MaxAttempts = 3
+	evPrimary := &model.WebhookEvent{
+		ID:             "ev-fanout-primary",
+		EndpointID:     ep.ID,
+		TargetURL:      srv1.URL,
+		ParentEventID:  "",
+		Provider:       model.ProviderGeneric,
+		SourceIP:       "127.0.0.1",
+		Headers:        map[string]string{"Content-Type": "application/json"},
+		Payload:        []byte(`{"fanout":true}`),
+		IsVerified:     1,
+		Status:         model.StatusDelivered,
+		HTTPStatusCode: 200,
+		Attempts:       1,
+		MaxAttempts:    3,
+		CreatedAt:      oldTime,
+		UpdatedAt:      oldTime,
+	}
+	// Child event (destination 2) is FAILED with custom MaxAttempts = 7
+	evChild := &model.WebhookEvent{
+		ID:             "ev-fanout-child",
+		EndpointID:     ep.ID,
+		TargetURL:      srv2.URL,
+		ParentEventID:  evPrimary.ID,
+		Provider:       model.ProviderGeneric,
+		SourceIP:       "127.0.0.1",
+		Headers:        map[string]string{"Content-Type": "application/json"},
+		Payload:        []byte(`{"fanout":true}`),
+		IsVerified:     1,
+		Status:         model.StatusFailed,
+		HTTPStatusCode: 502,
+		Attempts:       7,
+		MaxAttempts:    7,
+		LastError:      "HTTP 502 Bad Gateway",
+		FailureCode:    "HTTP_5XX",
+		CreatedAt:      oldTime,
+		UpdatedAt:      oldTime,
+	}
+
+	if err := db.SaveEvent(ctx, evPrimary); err != nil {
+		t.Fatalf("SaveEvent primary failed: %v", err)
+	}
+	if err := db.SaveEvent(ctx, evChild); err != nil {
+		t.Fatalf("SaveEvent child failed: %v", err)
+	}
+
+	pool.Start()
+
+	// 1. Replay via primary parent ID: should replay ONLY the failed child destination (srv2), NOT srv1,
+	// and preserve the child's custom MaxAttempts = 7!
+	replayReq := httptest.NewRequest(http.MethodPost, "/api/v1/events/"+evPrimary.ID+"/replay", nil)
+	replayRec := httptest.NewRecorder()
+	router.ServeHTTP(replayRec, replayReq)
+	if replayRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on parent fan-out replay, got %d: %s", replayRec.Code, replayRec.Body.String())
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		h2 := target2Hits
+		mu.Unlock()
+		if h2 >= 1 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	mu.Lock()
+	h1, h2 := target1Hits, target2Hits
+	mu.Unlock()
+	if h1 != 0 {
+		t.Errorf("expected already-delivered destination 1 to receive 0 replay calls, got %d", h1)
+	}
+	if h2 != 1 {
+		t.Errorf("expected failed child destination 2 to receive 1 replay call, got %d", h2)
+	}
+
+	childAfter, err := db.GetEventByID(ctx, evChild.ID)
+	if err != nil {
+		t.Fatalf("GetEventByID child failed: %v", err)
+	}
+	if childAfter.MaxAttempts != 7 {
+		t.Errorf("expected custom MaxAttempts 7 to be preserved after replay, got %d", childAfter.MaxAttempts)
+	}
+
+	// 2. Mark child event back to FAILED with old timestamp, then run PruneDeliveredEvents:
+	// Primary DELIVERED event should be pruned while FAILED child event survives and is still resolvable via GetEventByID(primaryID).
+	_ = db.UpdateEventFailure(ctx, evChild.ID, model.StatusFailed, 502, "HTTP 502", "HTTP_5XX", &oldTime)
+	pruned, err := db.PruneDeliveredEvents(ctx, time.Now().UTC().Add(-24*time.Hour))
+	if err != nil {
+		t.Fatalf("PruneDeliveredEvents failed: %v", err)
+	}
+	if pruned != 1 {
+		t.Errorf("expected 1 old delivered primary event pruned, got %d", pruned)
+	}
+
+	surviving, err := db.GetEventByID(ctx, evPrimary.ID)
+	if err != nil || surviving == nil {
+		t.Fatalf("expected GetEventByID(primaryID) to resolve surviving FAILED child event after primary was pruned, err: %v", err)
+	}
+	if surviving.ID != evChild.ID || surviving.Status != model.StatusFailed {
+		t.Errorf("expected surviving child event %s in FAILED status, got %+v", evChild.ID, surviving)
+	}
+}
+
+func TestAPI_GetOverview_SQLAggregations(t *testing.T) {
+	db, _, _, router, cleanup := setupTestAPI(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	ep := &model.Endpoint{
+		ID:        "ep-api-overview",
+		Name:      "Overview Endpoint",
+		SecretKey: "whsec_test",
+		TargetURL: "https://example.com/webhook",
+		Provider:  model.ProviderStripe,
+		IsActive:  true,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := db.SaveEndpoint(ctx, ep); err != nil {
+		t.Fatalf("SaveEndpoint failed: %v", err)
+	}
+
+	evDelivered := &model.WebhookEvent{
+		ID:          "ev-ovw-del",
+		EndpointID:  ep.ID,
+		Provider:    model.ProviderStripe,
+		SourceIP:    "127.0.0.1",
+		Headers:     map[string]string{},
+		Payload:     []byte(`{}`),
+		Status:      model.StatusDelivered,
+		MaxAttempts: 5,
+		CreatedAt:   time.Now().UTC(),
+		UpdatedAt:   time.Now().UTC(),
+	}
+	evFailed := &model.WebhookEvent{
+		ID:          "ev-ovw-fail",
+		EndpointID:  ep.ID,
+		Provider:    model.ProviderStripe,
+		SourceIP:    "127.0.0.1",
+		Headers:     map[string]string{},
+		Payload:     []byte(`{}`),
+		Status:      model.StatusFailed,
+		LastError:   "fatal error",
+		FailureCode: "UPSTREAM_5XX",
+		MaxAttempts: 5,
+		CreatedAt:   time.Now().UTC(),
+		UpdatedAt:   time.Now().UTC(),
+	}
+	if err := db.SaveEvent(ctx, evDelivered); err != nil {
+		t.Fatalf("SaveEvent evDelivered failed: %v", err)
+	}
+	if err := db.SaveEvent(ctx, evFailed); err != nil {
+		t.Fatalf("SaveEvent evFailed failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/overview", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for overview, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var res api.OverviewResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatalf("failed to decode OverviewResponse: %v", err)
+	}
+
+	if res.Stats == nil {
+		t.Fatalf("expected non-nil Stats")
+	}
+	if res.Stats.TotalEvents != 2 {
+		t.Errorf("expected 2 total events in stats, got %d", res.Stats.TotalEvents)
+	}
+	if len(res.Throughput) != 12 {
+		t.Errorf("expected 12 throughput buckets, got %d", len(res.Throughput))
+	}
+	if len(res.EndpointBreakdown) != 1 {
+		t.Errorf("expected 1 endpoint breakdown, got %d", len(res.EndpointBreakdown))
+	}
+	if len(res.RecentFailed) != 1 {
+		t.Errorf("expected 1 recent failed event, got %d", len(res.RecentFailed))
+	}
+	if res.RecentFailed[0].ID != evFailed.ID {
+		t.Errorf("expected recent failed ID %s, got %s", evFailed.ID, res.RecentFailed[0].ID)
+	}
+}

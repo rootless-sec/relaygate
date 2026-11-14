@@ -369,6 +369,10 @@ func NewRouter(repo storage.Repository, pool *worker.Pool, hub *Hub, mailerOpt .
 	mux.HandleFunc("GET /api/v1/overview", api.GetOverview)
 	mux.HandleFunc("GET /api/v1/stream", api.StreamSSE)
 
+	// System Endpoints
+	mux.HandleFunc("POST /api/v1/system/backup", api.AdminMiddleware(api.SystemBackup))
+	mux.HandleFunc("POST /api/v1/system/retention/prune", api.AdminMiddleware(api.SystemRetentionPrune))
+
 	// Auth Endpoints
 	mux.HandleFunc("POST /api/v1/auth/register", api.Register)
 	mux.HandleFunc("POST /api/v1/auth/verify", api.VerifyCode)
