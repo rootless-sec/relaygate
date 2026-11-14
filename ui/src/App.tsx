@@ -40,6 +40,7 @@ import {
   createEndpoint,
   updateEndpoint,
   rotateEndpointAgentToken,
+  deleteEndpoint,
   logoutUser,
   UserProfile,
 } from './api';
@@ -398,6 +399,17 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleDeleteEndpoint = async (ep: Endpoint) => {
+    await deleteEndpoint(ep.id);
+    setEndpoints((prev) => prev.filter((item) => item.id !== ep.id));
+    setEvents((prev) => prev.filter((ev) => ev.endpoint_id !== ep.id));
+    if (selectedEvent?.endpoint_id === ep.id) {
+      setSelectedEvent(null);
+    }
+    loadInitialData();
+    showToast(`Endpoint ${ep.name} berhasil dihapus`, 'success');
+  };
+
   // 5. Global Keyboard Shortcuts
   useEffect(() => {
     if (!userEmail) return;
@@ -754,6 +766,7 @@ export const App: React.FC = () => {
                 onAddEndpoint={handleAddEndpoint}
                 onToggleActive={handleToggleEndpointActive}
                 onRotateAgentToken={handleRotateAgentToken}
+                onDeleteEndpoint={currentUser && currentUser.role !== 'admin' ? undefined : handleDeleteEndpoint}
                 onToast={(msg) => showToast(msg, 'info')}
               />
             )}

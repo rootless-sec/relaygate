@@ -2671,6 +2671,23 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.doesNotMatch(epSrc, /[\u2014\u2013]/, 'EndpointsView must not contain unicode em or en dashes');
     assert.doesNotMatch(html, /\u2022\s*(Agent Online|Direct HTTP|Aktif|Nonaktif)|(Agent Online|Direct HTTP|Aktif|Nonaktif)\s*\u2022/, 'No decorative bullet dots in status pills');
     assert.doesNotMatch(html, /animate-pulse|animate-ping/, 'No pulse or ping animations in rendered output');
+
+    // R5: Delete Endpoint Action
+    assert.doesNotMatch(html, /Hapus endpoint Stripe Checkout/, 'Delete button must be omitted when onDeleteEndpoint is undefined');
+    const htmlWithDelete = renderToString(
+      React.createElement(EndpointsView, {
+        endpoints: mockEndpoints,
+        onAddEndpoint: async () => {},
+        onToggleActive: async () => {},
+        onDeleteEndpoint: async () => {},
+        onToast: () => {},
+      })
+    );
+    assert.match(
+      htmlWithDelete,
+      /aria-label="Hapus endpoint Stripe Checkout"[^>]*min-h-\[44px\]|min-h-\[44px\][^>]*aria-label="Hapus endpoint Stripe Checkout"/,
+      'Delete button must render accessible label and 44px mobile touch target when onDeleteEndpoint is provided'
+    );
   });
 
   // Cleanup temp files

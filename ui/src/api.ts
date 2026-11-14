@@ -185,6 +185,17 @@ export async function rotateEndpointAgentToken(
   return res.json();
 }
 
+export async function deleteEndpoint(id: string): Promise<{ message: string; id: string }> {
+  const res = await fetch(`${BASE_URL}/endpoints/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    throw await parseErrorResponse(res, `Gagal menghapus endpoint ${id}`);
+  }
+  return res.json();
+}
+
 export async function triggerSystemBackup(destinationPath?: string): Promise<BackupResult> {
   const res = await fetch(`${BASE_URL}/system/backup`, {
     method: 'POST',

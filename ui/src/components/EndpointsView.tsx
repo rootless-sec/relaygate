@@ -12,6 +12,7 @@ import {
   AlertCircle,
   Terminal,
   RotateCw,
+  Trash2,
 } from 'lucide-react';
 import { Endpoint, ProviderType } from '../types';
 
@@ -27,6 +28,7 @@ interface EndpointsViewProps {
   }) => Promise<void>;
   onToggleActive: (endpoint: Endpoint) => Promise<void>;
   onRotateAgentToken?: (endpoint: Endpoint) => Promise<void>;
+  onDeleteEndpoint?: (endpoint: Endpoint) => Promise<void>;
   onToast: (message: string) => void;
 }
 
@@ -35,6 +37,7 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
   onAddEndpoint,
   onToggleActive,
   onRotateAgentToken,
+  onDeleteEndpoint,
   onToast,
 }) => {
   const [showAddModal, setShowAddModal] = useState(false);
@@ -137,6 +140,58 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
       setAgentTokenVisible(false);
     } finally {
       setRotatingAgentId(null);
+    }
+  };
+
+  const [deleteTarget, setDeleteTarget] = useState<Endpoint | null>(null);
+  const [deletingEndpoint, setDeletingEndpoint] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const deleteTriggerBtnRef = useRef<HTMLButtonElement | null>(null);
+  const deleteModalRef = useRef<HTMLDivElement | null>(null);
+
+  const handleOpenDeleteModal = (ep: Endpoint, triggerBtn: HTMLButtonElement | null) => {
+    deleteTriggerBtnRef.current = triggerBtn;
+    setDeleteTarget(ep);
+    setDeleteError(null);
+  };
+
+  const handleCloseDeleteModal = () => {
+    if (deletingEndpoint) return;
+    setDeleteTarget(null);
+    setDeleteError(null);
+    setTimeout(() => {
+      deleteTriggerBtnRef.current?.focus();
+    }, 0);
+  };
+
+  useEffect(() => {
+    if (!deleteTarget) return;
+    const focusTimer = setTimeout(() => {
+      deleteModalRef.current?.focus();
+    }, 20);
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !deletingEndpoint) {
+        handleCloseDeleteModal();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      clearTimeout(focusTimer);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [deleteTarget, deletingEndpoint]);
+
+  const handleConfirmDelete = async () => {
+    if (!onDeleteEndpoint || !deleteTarget || deletingEndpoint) return;
+    setDeletingEndpoint(true);
+    setDeleteError(null);
+    try {
+      await onDeleteEndpoint(deleteTarget);
+      setDeleteTarget(null);
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Gagal menghapus endpoint.');
+    } finally {
+      setDeletingEndpoint(false);
     }
   };
 
@@ -423,7 +478,7 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                   </td>
 
                   <td className="py-3 px-3.5 text-right whitespace-nowrap">
-                    <div className="flex items-center justify-end">
+                    <div className="flex items-center justify-end gap-2">
                       <button
                         type="button"
                         role="switch"
@@ -455,6 +510,17 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                           />
                         </span>
                       </button>
+                      {onDeleteEndpoint && (
+                        <button
+                          type="button"
+                          onClick={(e) => handleOpenDeleteModal(ep, e.currentTarget)}
+                          className="inline-flex items-center justify-center min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] rounded-md border border-transparent text-zinc-400 hover:text-rose-700 hover:bg-rose-50 hover:border-rose-200/80 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:ring-offset-2"
+                          title={`Hapus endpoint ${ep.name}`}
+                          aria-label={`Hapus endpoint ${ep.name}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -613,6 +679,89 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                   className="h-9 px-4 bg-zinc-900 hover:bg-zinc-800 active:scale-[0.98] text-white rounded-lg text-xs font-medium shadow-2xs transition-all cursor-pointer"
                 >
                   Tutup
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Endpoint Confirmation Modal */}
+      {deleteTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-zinc-950/20 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-150"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              handleCloseDeleteModal();
+            }
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-endpoint-title"
+        >
+          <div
+            ref={deleteModalRef}
+            tabIndex={-1}
+            className="w-full max-w-md bg-white rounded-xl border border-zinc-200/80 shadow-xl overflow-hidden focus:outline-none my-auto"
+          >
+            <div className="px-6 py-4 border-b border-zinc-100 flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <h2 id="delete-endpoint-title" className="text-sm font-sans font-semibold text-zinc-900">
+                  Hapus Endpoint
+                </h2>
+                <p className="text-xs font-sans text-zinc-500">
+                  Tindakan ini menghapus rute ingest dan riwayat event yang telah selesai.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseDeleteModal}
+                disabled={deletingEndpoint}
+                className="p-2 -mr-1 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-md transition-colors cursor-pointer disabled:opacity-50 min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center"
+                aria-label="Tutup dialog hapus endpoint"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {deleteError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg flex items-start gap-2.5 text-rose-700">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" />
+                  <span className="text-xs font-sans leading-relaxed">{deleteError}</span>
+                </div>
+              )}
+
+              <div className="p-3.5 bg-zinc-50 border border-zinc-200/80 rounded-lg space-y-1.5">
+                <div className="text-xs font-sans font-semibold text-zinc-900">
+                  {deleteTarget.name}
+                </div>
+                <div className="text-xs font-mono text-zinc-500">
+                  {deleteTarget.id}
+                </div>
+              </div>
+
+              <p className="text-xs font-sans text-zinc-600 leading-relaxed">
+                Koneksi CLI agent yang masih aktif untuk endpoint ini akan diputuskan. Penghapusan akan ditolak jika masih ada event berstatus <span className="font-mono text-zinc-800">PENDING</span> atau <span className="font-mono text-zinc-800">RETRYING</span>.
+              </p>
+
+              <div className="pt-2 flex items-center justify-end gap-2.5 border-t border-zinc-100">
+                <button
+                  type="button"
+                  onClick={handleCloseDeleteModal}
+                  disabled={deletingEndpoint}
+                  className="min-h-[44px] sm:min-h-[36px] px-4 rounded-lg text-xs font-sans font-medium text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDelete}
+                  disabled={deletingEndpoint}
+                  className="inline-flex items-center justify-center gap-1.5 min-h-[44px] sm:min-h-[36px] px-4 bg-rose-600 hover:bg-rose-700 active:scale-[0.98] disabled:opacity-50 text-white rounded-lg text-xs font-sans font-medium shadow-2xs transition-all cursor-pointer"
+                >
+                  {deletingEndpoint && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  {deletingEndpoint ? 'Menghapus...' : 'Hapus Endpoint'}
                 </button>
               </div>
             </div>
