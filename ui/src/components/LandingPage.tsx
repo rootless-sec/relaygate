@@ -42,45 +42,45 @@ const WORKSPACE_STEPS = [
   {
     id: 'stream',
     label: 'Live event stream',
-    body: 'Watch inbound deliveries arrive over Server-Sent Events (SSE) in real time via /api/v1/stream. Pause the stream at any moment to inspect a burst without losing buffered frames.',
+    body: 'Watch incoming webhooks arrive in real time via Server-Sent Events (/api/v1/stream). Filter by provider, status, or time window, with automatic 24-hour upstream idempotency deduplication.',
     image: '/shots/stream.png',
   },
   {
     id: 'inspector',
     label: 'Payload & header inspector',
-    body: 'Open any delivery in a side drawer to examine raw JSON bodies, response status codes, and automatically masked credential headers.',
+    body: 'Inspect raw JSON payloads, headers with masked secrets (••••••••), and the real per-attempt delivery log timeline (HTTP status + latency in ms), or copy a sanitized cURL command with <TOKEN> placeholders.',
     image: '/shots/inspector.png',
   },
   {
     id: 'dlq',
     label: 'Dead-letter triage',
-    body: 'Filter failed deliveries by failure family. RelayGate separates unrecoverable signature defects from retryable downstream timeouts.',
+    body: 'Events that fail signature verification or exhaust 5 retry attempts land in the Dead-Letter Queue across 8 failure families, triggering instant alerts to Telegram, Discord, Slack, or SMTP email.',
     image: '/shots/dlq.png',
   },
   {
     id: 'endpoints',
     label: 'Endpoint routing',
-    body: 'Register target URLs, rotate signing secrets, and tune per-route concurrency and timeout budgets from one table.',
+    body: 'Register ingestion routes for Stripe, GitHub, Shopify, Xendit, Midtrans, DOKU, Flip, or generic HMAC. Configure multi-target fan-out, Standard Webhooks envelope signing, and 1-click SQLite hot backups.',
     image: '/shots/endpoints.png',
   },
 ];
 
 const FAQ_ITEMS = [
   {
-    q: 'What is RelayGate?',
-    a: 'RelayGate is a self-hosted webhook ingestion gateway and dispatch engine compiled into a single Go binary. It verifies cryptographic signatures at the edge, persists payloads in an embedded SQLite WAL queue, and fans out deliveries to downstream services with automatic exponential backoff.',
+    q: 'How does RelayGate work?',
+    a: 'Point your webhook sender (Stripe, GitHub, Shopify, Xendit, Midtrans, DOKU, Flip, or any HMAC/token service) to your RelayGate URL. RelayGate verifies the cryptographic signature at the edge, deduplicates upstream retries, commits the raw event to an embedded SQLite Write-Ahead Log (WAL) before returning HTTP 200 OK, and dispatches it asynchronously to one or more downstream targets with exponential backoff and circuit breaking.',
   },
   {
     q: 'Which webhook providers does RelayGate verify?',
-    a: 'Stripe (v1 timestamped HMAC-SHA256), GitHub (X-Hub-Signature-256), Shopify (Base64 HMAC-SHA256), Xendit (constant-time static callback token), Midtrans (SHA-512 order digest), and any standard HMAC-SHA256 or static token sender.',
+    a: 'Out of the box: Stripe (Stripe-Signature with 300s timestamp drift check), GitHub (X-Hub-Signature-256), Shopify (X-Shopify-Hmac-Sha256 Base64 digest), Xendit (X-Callback-Token), Midtrans (SHA-512 signature_key payload hash), DOKU (HMAC-SHA256 component digest over Client-Id, Request-Id, Request-Timestamp, Request-Target, and SHA-256 body Digest), Flip (X-Flip-Token header or urlencoded token field with JSON data extraction), and Generic HMAC/static token routes.',
   },
   {
-    q: 'Does RelayGate require Redis, Postgres, or Kafka?',
-    a: 'No. RelayGate embeds SQLite in Write-Ahead Logging (WAL) mode directly inside the binary. Every verified delivery is fsynced to local disk before returning HTTP 202 Accepted, eliminating external broker failure modes.',
+    q: 'What happens when a downstream server goes down?',
+    a: "Workers retry failed deliveries (5xx or network timeouts) up to 5 times using exponential backoff (1s to 60s) with ±15% random jitter, recording every attempt's HTTP status and latency in ms. If a target returns 429 or 503 with Retry-After, RelayGate defers without burning an attempt. Five consecutive failures trip a per-endpoint circuit breaker (OPEN for 30s), and terminal DLQ transitions dispatch alerts to Telegram, Discord, Slack, or SMTP across 8 canonical failure families.",
   },
   {
-    q: 'How does dead-letter replay distinguish request defects from downstream outages?',
-    a: 'RelayGate classifies every failure into one of 8 canonical failure families. Downstream 5xx errors and network timeouts can be replayed immediately with a reset 5-attempt quota, whereas missing signature headers or expired timestamps are flagged with clear remediation guidance.',
+    q: 'Does RelayGate need Redis, Kafka, or Postgres?',
+    a: 'No. RelayGate compiles into a single Go binary with a pure-Go embedded SQLite engine (modernc.org/sqlite) running in Write-Ahead Logging (WAL) mode. Every verified delivery is fsynced to local disk before returning HTTP 200 OK, and you can download a consistent online snapshot anytime via GET /api/v1/backup (SQLite VACUUM INTO) while background retention pruning keeps disk usage bounded.',
   },
   {
     q: 'How does email verification work if SMTP is not configured for local development?',
@@ -132,6 +132,20 @@ export function ProviderMark({ provider, size = 20 }: { provider: string; size?:
       return (
         <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <path d="M3 5h3.5v14H3V5zm7.25 3.5h3.5V19h-3.5V8.5zM17.5 5H21v14h-3.5V5z" />
+        </svg>
+      );
+    case 'doku':
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M5 4h6a8 8 0 0 1 0 16H5V4Z" stroke="currentColor" strokeWidth="2.2" strokeLinejoin="round" />
+          <circle cx="11" cy="12" r="2.2" fill="currentColor" />
+        </svg>
+      );
+    case 'flip':
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M6 5h12M6 12h9M6 5v14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M15 15l3 3-3 3" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       );
     default:
@@ -319,7 +333,7 @@ export function ProductDashboardPreview({ onOpenConsole }: ProductDashboardPrevi
         <div className="flex items-center gap-2 font-mono text-[11px] text-zinc-500 shrink-0">
           <RelayGateIcon size={14} className="text-zinc-900 shrink-0" />
           <span className="rg-engine-live-dot inline-block shrink-0" aria-hidden="true" />
-          <span className="text-zinc-700 font-medium">Engine Online (UID 1000) · SQLite WAL</span>
+          <span className="text-zinc-700 font-medium">8 Providers · Fan-Out · SQLite WAL</span>
         </div>
       </div>
 
@@ -656,7 +670,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
           </h1>
 
           <p className="mt-4 text-[15px] sm:text-[16px] leading-[1.55] text-zinc-600 max-w-[54ch]">
-            RelayGate verifies cryptographic signatures at the edge, buffers deliveries in an embedded SQLite WAL queue, and dispatches to downstream services with exponential backoff and dead-letter isolation.
+            RelayGate verifies 8 webhook signature standards at the edge, deduplicates upstream retries, persists payloads to an embedded SQLite WAL, and dispatches with multi-target fan-out, circuit breakers, and dead-letter replay.
           </p>
 
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
@@ -696,6 +710,8 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
               { id: 'shopify', name: 'Shopify HMAC' },
               { id: 'xendit', name: 'Xendit Token' },
               { id: 'midtrans', name: 'Midtrans SHA-512' },
+              { id: 'doku', name: 'DOKU HMAC' },
+              { id: 'flip', name: 'Flip Token' },
               { id: 'generic', name: 'Standard HMAC' },
             ].map((p) => (
               <span key={p.id} className="agent">
@@ -715,7 +731,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                 <span className="block">No Kafka.</span>
               </h2>
               <p className="lede native__lede">
-                Built on Go and embedded SQLite WAL. Your machine verifies signatures in constant time and persists every delivery on disk before returning 202 Accepted.
+                RelayGate compiles into a single static Go binary with embedded SQLite in Write-Ahead Log (WAL) mode. Incoming webhooks are fsynced to disk before returning HTTP 200 OK, deduplicated across upstream retries, and backed up live via VACUUM INTO with zero external brokers to provision.
               </p>
             </div>
 
@@ -795,7 +811,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                 Workers that retry and isolate automatically.
               </h2>
               <p className="lede feature__lede">
-                Every verified webhook lands in an append-only WAL queue before the sender disconnects. A bounded worker pool dispatches deliveries across your targets, scheduling exponential backoff with jitter whenever a downstream service times out.
+                Configure target routes per provider with multi-target fan-out and optional Standard Webhooks envelope wrapping. Background workers dispatch concurrently, honor Retry-After headers without burning attempts, trip per-endpoint circuit breakers during outages, and isolate permanently failing events in the Dead-Letter Queue.
               </p>
             </div>
 
@@ -868,7 +884,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                 Failures you can inspect and replay.
               </h2>
               <p className="lede feature__lede">
-                When a downstream service exhausts its retry budget or fails signature verification, RelayGate isolates the event with its raw payload, headers, and HTTP trace. Fix your downstream service, press Replay, and the delivery resumes with a fresh 5-attempt quota.
+                When a downstream service exhausts its retry budget or fails signature verification, RelayGate isolates the event with its raw payload, headers, and per-attempt delivery log (HTTP status code and latency in ms), while alerting Telegram, Discord, Slack, or SMTP. Fix your downstream service, press Replay, and the delivery resumes with a fresh 5-attempt quota.
               </p>
             </div>
 
@@ -1005,7 +1021,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                   <div className="lg:col-span-7 bg-zinc-950 text-zinc-100 rounded-xl p-4 sm:p-5 font-mono text-xs overflow-x-auto leading-relaxed border border-zinc-800">
                     <div className="flex items-center justify-between pb-3 mb-3 border-b border-zinc-800 text-zinc-400 text-[11px]">
                       <span>INBOUND WIRE PROTOCOL (HTTP POST)</span>
-                      <span className="text-zinc-300">202 ACCEPTED · 0.38ms</span>
+                      <span className="text-zinc-300">200 OK · 0.38ms</span>
                     </div>
                     <p className="text-zinc-400">POST /api/v1/ingest/stripe HTTP/1.1</p>
                     <p className="text-zinc-400">Host: api.relaygate.internal</p>
@@ -1022,21 +1038,21 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
 
                   <div className="lg:col-span-5 space-y-4">
                     <h3 className="text-base font-semibold text-zinc-900 tracking-tight">
-                      Edge signature validation &amp; zero credential leakage
+                      Edge signature validation &amp; 24h idempotency gate
                     </h3>
                     <p className="text-xs sm:text-sm text-zinc-600 leading-relaxed">
-                      Every inbound delivery is validated against declared endpoint secrets using constant-time cryptographic digests. Signatures outside the 300s window are rejected, and sensitive headers are redacted before persistence or UI rendering.
+                      Every inbound delivery is validated against declared endpoint secrets using constant-time digests across 8 providers. Duplicate upstream retries are filtered through a 24-hour idempotency_keys window, while sensitive headers are masked before persistence or UI rendering.
                     </p>
                     <div className="space-y-2 pt-2 border-t border-zinc-200 text-xs font-mono">
-                      <div className="flex justify-between py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
-                        <span className="text-zinc-500">HMAC Verification</span>
-                        <span className="font-semibold text-zinc-900">Constant-time SHA-256 (0.09ms)</span>
+                      <div className="flex justify-between gap-2 py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
+                        <span className="text-zinc-500">Supported Providers</span>
+                        <span className="font-semibold text-zinc-900 text-right">Stripe, GitHub, Shopify, Xendit, Midtrans, DOKU, Flip, Generic</span>
                       </div>
-                      <div className="flex justify-between py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
-                        <span className="text-zinc-500">Timestamp Drift</span>
-                        <span className="font-semibold text-zinc-900">Δt = +0.4s (within 300s window)</span>
+                      <div className="flex justify-between gap-2 py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
+                        <span className="text-zinc-500">Idempotency Window</span>
+                        <span className="font-semibold text-zinc-900">24h deduplication (idempotency_keys)</span>
                       </div>
-                      <div className="flex justify-between py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
+                      <div className="flex justify-between gap-2 py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
                         <span className="text-zinc-500">Header Redaction</span>
                         <span className="font-semibold text-zinc-900">Auth, Tokens, Secrets &amp; Signatures</span>
                       </div>
@@ -1052,35 +1068,35 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                       <span>EMBEDDED SQLITE WRITE-AHEAD LOG (WAL)</span>
                       <span className="text-zinc-300">FSYNC BARRIER · 0.18ms</span>
                     </div>
-                    <p className="text-zinc-500">-- Immediate fsync commit to disk before returning HTTP 202</p>
+                    <p className="text-zinc-500">-- Immediate fsync commit to disk before returning HTTP 200 OK</p>
                     <p className="text-zinc-300">PRAGMA journal_mode = WAL;</p>
                     <p className="text-zinc-300">PRAGMA synchronous = NORMAL;</p>
                     <p className="text-zinc-400 mt-2">BEGIN IMMEDIATE;</p>
                     <p className="text-zinc-300 ml-4">INSERT INTO events (</p>
-                    <p className="text-zinc-400 ml-8">id, endpoint_id, provider, payload, headers, status, attempts</p>
+                    <p className="text-zinc-400 ml-8">id, endpoint_id, target_url, provider, payload, status, attempts</p>
                     <p className="text-zinc-300 ml-4">) VALUES (</p>
-                    <p className="text-zinc-400 ml-8">&apos;evt_01J8F9&apos;, &apos;ep_prod_billing&apos;, &apos;stripe&apos;, :payload, :sanitized_headers, &apos;PENDING&apos;, 0</p>
+                    <p className="text-zinc-400 ml-8">&apos;evt_01J8F9&apos;, &apos;ep_prod_billing&apos;, &apos;https://billing.internal/wh&apos;, &apos;doku&apos;, :payload, &apos;PENDING&apos;, 0</p>
                     <p className="text-zinc-300 ml-4">);</p>
-                    <p className="text-zinc-400">COMMIT; <span className="text-zinc-500">-- Flushed to disk. Safe against process crashes.</span></p>
+                    <p className="text-zinc-400">COMMIT; <span className="text-zinc-500">-- Online snapshot anytime: VACUUM INTO &apos;/tmp/backup.db&apos;;</span></p>
                   </div>
 
                   <div className="lg:col-span-5 space-y-4">
                     <h3 className="text-base font-semibold text-zinc-900 tracking-tight">
-                      Zero broker failure modes &amp; crash-proof disk barrier
+                      Crash-proof WAL, fan-out queueing &amp; VACUUM INTO backups
                     </h3>
                     <p className="text-xs sm:text-sm text-zinc-600 leading-relaxed">
-                      RelayGate eliminates external message brokers like Redis or Kafka. Inbound webhooks are committed to an embedded SQLite database in WAL mode before acknowledging the sender, ensuring zero dropped events across restarts.
+                      RelayGate eliminates external message brokers like Redis or Kafka. Payloads commit to SQLite WAL before HTTP 200 acknowledgment, fan-out targets spawn isolated child queue rows, live hot backups run via VACUUM INTO, and retention pruning clears stale records on schedule.
                     </p>
                     <div className="space-y-2 pt-2 border-t border-zinc-200 text-xs font-mono">
-                      <div className="flex justify-between py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
-                        <span className="text-zinc-500">Persistence Architecture</span>
-                        <span className="font-semibold text-zinc-900">Embedded SQLite (WAL Mode)</span>
+                      <div className="flex justify-between gap-2 py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
+                        <span className="text-zinc-500">Hot Backup Engine</span>
+                        <span className="font-semibold text-zinc-900">GET /api/v1/backup (VACUUM INTO)</span>
                       </div>
-                      <div className="flex justify-between py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
-                        <span className="text-zinc-500">External Dependencies</span>
-                        <span className="font-semibold text-zinc-900">0 (Single compiled Go binary)</span>
+                      <div className="flex justify-between gap-2 py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
+                        <span className="text-zinc-500">Retention Pruning</span>
+                        <span className="font-semibold text-zinc-900">Configurable -retention-days cleanup</span>
                       </div>
-                      <div className="flex justify-between py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
+                      <div className="flex justify-between gap-2 py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
                         <span className="text-zinc-500">Disk Commit Latency</span>
                         <span className="font-semibold text-zinc-900">0.18ms synchronous fsync</span>
                       </div>
@@ -1093,38 +1109,38 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                   <div className="lg:col-span-7 bg-zinc-950 text-zinc-100 rounded-xl p-4 sm:p-5 font-mono text-xs overflow-x-auto leading-relaxed border border-zinc-800">
                     <div className="flex items-center justify-between pb-3 mb-3 border-b border-zinc-800 text-zinc-400 text-[11px]">
-                      <span>DISPATCH RETRY &amp; EXPONENTIAL BACKOFF</span>
+                      <span>DISPATCH RETRY, CIRCUIT BREAKER &amp; TELEMETRY</span>
                       <span className="text-zinc-300">5 ATTEMPTS · ±15% JITTER</span>
                     </div>
-                    <p className="text-zinc-500">-- Downstream: https://billing.internal/webhooks</p>
-                    <p className="text-zinc-300">Attempt 1: delay 1.0s (actual 1.12s)  -&gt;  HTTP 503 [Downstream Outage]</p>
-                    <p className="text-zinc-300">Attempt 2: delay 2.0s (actual 1.94s)  -&gt;  HTTP 502 [Bad Gateway]</p>
-                    <p className="text-zinc-300">Attempt 3: delay 4.0s (actual 4.15s)  -&gt;  HTTP 200 [Delivered Successfully]</p>
+                    <p className="text-zinc-500">-- Target: https://billing.internal/webhooks (wrap_envelope: true)</p>
+                    <p className="text-zinc-300">Attempt 1: delay 1.0s (48ms)  -&gt;  HTTP 429 [Retry-After: 5s, Attempt Not Burned]</p>
+                    <p className="text-zinc-300">Attempt 1: delay 5.0s (31ms)  -&gt;  HTTP 502 [Bad Gateway · CB 1/5]</p>
+                    <p className="text-zinc-300">Attempt 2: delay 2.1s (19ms)  -&gt;  HTTP 200 [Delivered · Standard Webhooks Signed]</p>
                     <div className="mt-3 pt-3 border-t border-zinc-800 text-zinc-400 text-[11px] flex justify-between">
-                      <span>Status: DELIVERED</span>
-                      <span>Delivery Duration: 7.21s total</span>
+                      <span>Circuit: CLOSED -&gt; OPEN (30s) -&gt; HALF_OPEN</span>
+                      <span>Delivery Logs: 3 rows recorded</span>
                     </div>
                   </div>
 
                   <div className="lg:col-span-5 space-y-4">
                     <h3 className="text-base font-semibold text-zinc-900 tracking-tight">
-                      8 canonical failure families with honest retry quotas
+                      Per-attempt telemetry, circuit breakers &amp; incident alerts
                     </h3>
                     <p className="text-xs sm:text-sm text-zinc-600 leading-relaxed">
-                      Errors are classified into 8 explicit failure families. Downstream timeouts receive exponential backoff and can be replayed with a reset 5-attempt budget, while signature and format defects are isolated immediately in the dead-letter queue.
+                      Every delivery attempt persists measured HTTP latency in delivery_logs. Targets returning Retry-After defer without burning retry budget, 5 consecutive outages trip a 30s per-endpoint circuit breaker, and DLQ transitions alert Telegram, Discord, Slack, or SMTP (5-minute cooldown).
                     </p>
                     <div className="space-y-2 pt-2 border-t border-zinc-200 text-xs font-mono">
-                      <div className="flex justify-between py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
-                        <span className="text-zinc-500">Backoff Formula</span>
-                        <span className="font-semibold text-zinc-900">delay = min(1s * 2^n, 60s) ± 15%</span>
+                      <div className="flex justify-between gap-2 py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
+                        <span className="text-zinc-500">Circuit Breaker</span>
+                        <span className="font-semibold text-zinc-900">CLOSED -&gt; OPEN (30s) -&gt; HALF_OPEN</span>
                       </div>
-                      <div className="flex justify-between py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
-                        <span className="text-zinc-500">DLQ Isolation</span>
-                        <span className="font-semibold text-zinc-900">Signature defects quarantined</span>
+                      <div className="flex justify-between gap-2 py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
+                        <span className="text-zinc-500">Rate Limit Backpressure</span>
+                        <span className="font-semibold text-zinc-900">Honors Retry-After without attempt loss</span>
                       </div>
-                      <div className="flex justify-between py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
-                        <span className="text-zinc-500">Bulk Replay Audit</span>
-                        <span className="font-semibold text-zinc-900">Auto-excludes defective items</span>
+                      <div className="flex justify-between gap-2 py-1.5 px-2.5 rounded bg-zinc-50 border border-zinc-200">
+                        <span className="text-zinc-500">Incident Channels</span>
+                        <span className="font-semibold text-zinc-900">Telegram, Discord, Slack, SMTP</span>
                       </div>
                     </div>
                   </div>
@@ -1177,7 +1193,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                     <GitBranch className="w-[18px] h-[18px]" />
                   </span>
                   <h3 className="tile__title">Multi-provider routes</h3>
-                  <p className="tile__body">Stripe, GitHub, Shopify, Xendit, Midtrans, and generic HMAC with per-route secrets.</p>
+                  <p className="tile__body">Stripe, GitHub, Shopify, Xendit, Midtrans, DOKU, Flip, and generic HMAC with per-route secrets.</p>
                 </div>
               </li>
               <li>
@@ -1225,6 +1241,24 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                   <p className="tile__body">Compiled into the Go binary via embed.FS with zero external runtime assets.</p>
                 </div>
               </li>
+              <li>
+                <div className="tile">
+                  <span className="tile__icon">
+                    <GitBranch className="w-[18px] h-[18px]" />
+                  </span>
+                  <h3 className="tile__title">Multi-target fan-out</h3>
+                  <p className="tile__body">Clone one inbound webhook into N independent downstream deliveries with optional Standard Webhooks signing.</p>
+                </div>
+              </li>
+              <li>
+                <div className="tile">
+                  <span className="tile__icon">
+                    <Shield className="w-[18px] h-[18px]" />
+                  </span>
+                  <h3 className="tile__title">Circuit breaker &amp; alerts</h3>
+                  <p className="tile__body">Trip unhealthy targets for 30s, honor Retry-After headers, and alert Telegram, Discord, Slack, or SMTP.</p>
+                </div>
+              </li>
             </ul>
 
             <button
@@ -1254,7 +1288,7 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                 <Shield className="w-[18px] h-[18px] shrink-0 text-zinc-700" />
                 <span>
                   <strong>Webhook Senders</strong>
-                  <small>Stripe · GitHub · Xendit</small>
+                  <small>Stripe · Xendit · DOKU · Flip</small>
                 </span>
               </li>
               <li className="mach__client">
@@ -1295,6 +1329,8 @@ export function LandingPage({ onOpenLogin, onOpenRegister }: LandingPageProps) {
                   { id: 'shopify', label: 'Shopify' },
                   { id: 'xendit', label: 'Xendit' },
                   { id: 'midtrans', label: 'Midtrans' },
+                  { id: 'doku', label: 'DOKU' },
+                  { id: 'flip', label: 'Flip' },
                   { id: 'generic', label: 'Generic HMAC' },
                 ].map((item) => (
                   <li key={item.id}>

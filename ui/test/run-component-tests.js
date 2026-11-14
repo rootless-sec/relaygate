@@ -2205,6 +2205,11 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(html, /Any server becomes the ingestion edge\./, 'Must render environment statement');
     assert.match(html, /Run RelayGate\./, 'Must render download/quickstart display heading');
     assert.match(html, /class="footer__word">relaygate<\/div>/, 'Must render giant footer wordmark relaygate');
+    assert.match(html, /DOKU HMAC/, 'Must render DOKU HMAC in #agents provider strip');
+    assert.match(html, /Flip Token/, 'Must render Flip Token in #agents provider strip');
+    assert.match(html, /Multi-target fan-out/, 'Must render Multi-target fan-out feature tile');
+    assert.match(html, /Circuit breaker/, 'Must render Circuit breaker feature tile');
+    assert.match(html, /VACUUM INTO/, 'Must document VACUUM INTO SQLite online hot backup');
 
     // 3. Zero green/yellow/red rainbow slop classes in LandingPage.tsx
     assert.doesNotMatch(
