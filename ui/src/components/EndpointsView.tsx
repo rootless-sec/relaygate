@@ -255,10 +255,10 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
       </div>
 
       {/* Navattic Bordered Grid Table for Endpoints */}
-      <div className="border border-zinc-200/90 rounded-lg bg-white overflow-auto">
+      <div className="border border-zinc-200/90 rounded-lg bg-white overflow-auto font-sans">
         <table className="w-full text-left text-xs border-collapse">
           <thead className="bg-zinc-50/95 border-b border-zinc-200/90 text-xs font-medium text-zinc-600 select-none">
-            <tr className="divide-x divide-zinc-200/60">
+            <tr className="divide-x divide-zinc-200/60 font-sans">
               <th className="py-2.5 px-3.5 whitespace-nowrap">Endpoint</th>
               <th className="py-2.5 px-3.5 whitespace-nowrap">Provider</th>
               <th className="py-2.5 px-3.5 whitespace-nowrap">URL Ingest Webhook</th>
@@ -297,7 +297,7 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                         <Webhook className="w-3.5 h-3.5" />
                       </div>
                       <div className="flex flex-col min-w-0">
-                        <span className="font-medium text-zinc-900 text-xs">
+                        <span className="font-sans font-medium text-zinc-900 text-xs">
                           {ep.name}
                         </span>
                         <span className="text-[11px] font-mono text-zinc-500">
@@ -308,7 +308,7 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                   </td>
 
                   <td className="py-3 px-3.5 whitespace-nowrap">
-                    <span className="px-2 py-0.5 rounded bg-zinc-100 border border-zinc-200/80 font-mono text-[11px] font-medium uppercase text-zinc-700">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-zinc-100 border border-zinc-200/90 font-sans text-[11px] font-medium uppercase text-zinc-700 tracking-wide">
                       {ep.provider}
                     </span>
                   </td>
@@ -321,7 +321,7 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                       <button
                         type="button"
                         onClick={() => copyText(ingestUrl, `URL Ingest ${ep.name}`)}
-                        className="p-1 text-zinc-400 hover:text-zinc-900 rounded transition-colors cursor-pointer"
+                        className="p-1 text-zinc-400 hover:text-zinc-900 rounded-md transition-colors cursor-pointer"
                         title="Salin URL Ingest"
                         aria-label={`Salin URL Ingest ${ep.name}`}
                       >
@@ -334,16 +334,16 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                     </div>
                   </td>
 
-                  <td className="py-3 px-3.5 font-mono text-zinc-700 whitespace-nowrap">
+                  <td className="py-3 px-3.5 whitespace-nowrap">
                     <div className="flex items-center gap-1.5">
-                      <span>{ep.target_url}</span>
+                      <span className="font-mono text-xs text-zinc-700">{ep.target_url}</span>
                       {ep.target_urls && ep.target_urls.length > 1 && (
-                        <span className="px-1.5 py-0.5 rounded bg-zinc-100 border border-zinc-200 text-[10px] font-sans font-medium text-zinc-600">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-zinc-100 border border-zinc-200/90 text-[10px] font-sans font-medium text-zinc-700">
                           +{ep.target_urls.length - 1} fan-out
                         </span>
                       )}
                       {ep.wrap_envelope && (
-                        <span className="px-1.5 py-0.5 rounded bg-zinc-100 border border-zinc-200 text-[10px] font-sans font-medium text-zinc-700">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-zinc-100 border border-zinc-200/90 text-[10px] font-sans font-medium text-zinc-700">
                           Canonical
                         </span>
                       )}
@@ -352,19 +352,21 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
 
                   <td className="py-3 px-3.5 whitespace-nowrap">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-zinc-700">
-                        {ep.secret_key
-                          ? isSecretVisible
-                            ? ep.secret_key
-                            : '••••••••••••••••'
-                          : '(tidak diatur)'}
-                      </span>
+                      {ep.secret_key ? (
+                        <span className="font-mono text-xs text-zinc-700">
+                          {isSecretVisible ? ep.secret_key : '••••••••••••••••'}
+                        </span>
+                      ) : (
+                        <span className="font-sans text-xs text-zinc-400 italic">
+                          (tidak diatur)
+                        </span>
+                      )}
                       {ep.secret_key && (
                         <div className="flex items-center gap-1">
                           <button
                             type="button"
                             onClick={() => toggleShowSecret(ep.id)}
-                            className="inline-flex items-center gap-1 text-[11px] font-medium text-zinc-600 hover:text-zinc-950 px-1.5 py-0.5 rounded hover:bg-zinc-100 cursor-pointer"
+                            className="inline-flex items-center gap-1 font-sans text-[11px] font-medium text-zinc-600 hover:text-zinc-950 px-1.5 py-0.5 rounded-md hover:bg-zinc-100 transition-colors cursor-pointer"
                             title={isSecretVisible ? 'Sembunyikan secret' : 'Tampilkan secret'}
                             aria-label={
                               isSecretVisible
@@ -381,7 +383,7 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                           <button
                             type="button"
                             onClick={() => copyText(ep.secret_key!, `Secret Key ${ep.name}`)}
-                            className="p-1 text-zinc-400 hover:text-zinc-900 rounded transition-colors cursor-pointer"
+                            className="p-1 text-zinc-400 hover:text-zinc-900 rounded-md transition-colors cursor-pointer"
                             title="Salin Secret Key"
                             aria-label={`Salin Secret Key ${ep.name}`}
                           >
@@ -399,10 +401,10 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                   <td className="py-3 px-3.5 whitespace-nowrap">
                     <div className="flex items-center gap-2">
                       <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium border ${
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full font-sans text-[11px] font-medium border ${
                           ep.agent_connected
                             ? 'bg-emerald-50 text-emerald-700 border-emerald-200/80'
-                            : 'bg-zinc-100 text-zinc-600 border-zinc-200'
+                            : 'bg-zinc-100 text-zinc-700 border-zinc-200/90'
                         }`}
                       >
                         {ep.agent_connected ? 'Agent Online' : 'Direct HTTP'}
@@ -410,7 +412,7 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                       <button
                         type="button"
                         onClick={(e) => handleOpenAgentModal(ep, e.currentTarget)}
-                        className="inline-flex items-center gap-1 min-h-[44px] sm:min-h-[28px] px-2 rounded border border-zinc-200/90 bg-white hover:bg-zinc-50 text-[11px] font-medium text-zinc-700 hover:text-zinc-950 transition-colors cursor-pointer"
+                        className="inline-flex items-center gap-1 min-h-[44px] sm:min-h-[28px] px-2 rounded-md border border-zinc-200/90 bg-white hover:bg-zinc-50 font-sans text-[11px] font-medium text-zinc-700 hover:text-zinc-950 transition-colors cursor-pointer"
                         title="Lihat perintah CLI relaygate-agent"
                         aria-label={`Konfigurasi CLI Agent ${ep.name}`}
                       >
@@ -421,17 +423,39 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                   </td>
 
                   <td className="py-3 px-3.5 text-right whitespace-nowrap">
-                    <button
-                      type="button"
-                      onClick={() => onToggleActive(ep)}
-                      className={`px-2.5 py-0.5 rounded text-[11px] font-medium border transition-colors cursor-pointer ${
-                        ep.is_active
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200/80'
-                          : 'bg-zinc-100 text-zinc-600 border-zinc-200'
-                      }`}
-                    >
-                      {ep.is_active ? 'Aktif' : 'Nonaktif'}
-                    </button>
+                    <div className="flex items-center justify-end">
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={ep.is_active}
+                        onClick={() => onToggleActive(ep)}
+                        className="inline-flex items-center gap-2 cursor-pointer group rounded-full py-1 px-2 transition-colors hover:bg-zinc-100/80 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:ring-offset-2"
+                        title={ep.is_active ? `Nonaktifkan endpoint ${ep.name}` : `Aktifkan endpoint ${ep.name}`}
+                        aria-label={`Status endpoint ${ep.name}: ${ep.is_active ? 'Aktif' : 'Nonaktif'}`}
+                      >
+                        <span
+                          className={`text-xs font-sans font-medium select-none transition-colors ${
+                            ep.is_active ? 'text-zinc-900' : 'text-zinc-500'
+                          }`}
+                        >
+                          {ep.is_active ? 'Aktif' : 'Nonaktif'}
+                        </span>
+                        <span
+                          aria-hidden="true"
+                          className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition-colors duration-200 ease-in-out border border-transparent ${
+                            ep.is_active
+                              ? 'bg-emerald-600 group-hover:bg-emerald-500'
+                              : 'bg-zinc-300 group-hover:bg-zinc-400'
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition duration-200 ease-in-out ${
+                              ep.is_active ? 'translate-x-4' : 'translate-x-0'
+                            }`}
+                          />
+                        </span>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -465,10 +489,10 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                     RelayGate CLI Agent
                   </h2>
                   <span
-                    className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium border ${
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full font-sans text-[11px] font-medium border ${
                       activeAgentEndpoint.agent_connected
                         ? 'bg-emerald-50 text-emerald-700 border-emerald-200/80'
-                        : 'bg-zinc-100 text-zinc-600 border-zinc-200'
+                        : 'bg-zinc-100 text-zinc-700 border-zinc-200/90'
                     }`}
                   >
                     {activeAgentEndpoint.agent_connected ? 'Agent Online' : 'Direct HTTP'}

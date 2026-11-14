@@ -2599,6 +2599,79 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.doesNotMatch(epSrc, /[\u2014\u2013]/, 'EndpointsView.tsx must not contain unicode em or en dashes');
   });
 
+  await suite.test('EndpointsView interactive switch toggle, unified table typography, and oval pills', () => {
+    const mockEndpoints = [
+      {
+        id: 'ep_active_stripe',
+        name: 'Stripe Checkout',
+        provider: 'stripe',
+        secret_key: 'whsec_prod123',
+        target_url: 'https://api.internal.id/checkout',
+        target_urls: ['https://api.internal.id/checkout', 'https://audit.internal.id/checkout'],
+        wrap_envelope: true,
+        is_active: true,
+        agent_connected: true,
+      },
+      {
+        id: 'ep_inactive_github',
+        name: 'GitHub Webhook',
+        provider: 'github',
+        secret_key: '',
+        target_url: 'https://api.internal.id/github',
+        is_active: false,
+        agent_connected: false,
+      },
+    ];
+
+    const html = renderToString(
+      React.createElement(EndpointsView, {
+        endpoints: mockEndpoints,
+        onAddEndpoint: async () => {},
+        onToggleActive: async () => {},
+        onToast: () => {},
+      })
+    );
+
+    // R1: Interactive Switch Toggle
+    assert.match(html, /role="switch"/, 'Status column must render switch element with role="switch"');
+    assert.match(html, /aria-checked="true"/, 'Active endpoint switch toggle must render aria-checked="true"');
+    assert.match(html, /aria-checked="false"/, 'Inactive endpoint switch toggle must render aria-checked="false"');
+    assert.match(html, />Aktif<\/span>/, 'Active switch toggle must display "Aktif" text label');
+    assert.match(html, />Nonaktif<\/span>/, 'Inactive switch toggle must display "Nonaktif" text label');
+    assert.match(html, /translate-x-4/, 'Active switch knob must translate right with translate-x-4');
+    assert.match(html, /translate-x-0/, 'Inactive switch knob must remain on left with translate-x-0');
+    assert.match(html, /bg-emerald-600/, 'Active switch track must use bg-emerald-600');
+    assert.match(html, /bg-zinc-300/, 'Inactive switch track must use bg-zinc-300');
+    assert.match(html, /focus:ring-zinc-900/, 'Switch button must have accessible focus ring');
+
+    // R2: Typography Consistency
+    assert.match(html, /font-sans/, 'Table must enforce primary UI sans-serif font');
+    assert.match(html, /<span[^>]*font-sans[^>]*>\s*Stripe Checkout\s*<\/span>/, 'Endpoint name must use sans-serif font');
+    assert.match(html, /<span[^>]*font-mono[^>]*>\s*ep_active_stripe\s*<\/span>/, 'Endpoint ID technical value must use font-mono');
+    assert.match(html, /<span[^>]*font-mono[^>]*>[^<]*\/ingest\/ep_active_stripe\s*<\/span>/, 'Ingest URL technical value must use font-mono');
+    assert.match(html, /<span[^>]*font-mono[^>]*>\s*https:\/\/api\.internal\.id\/checkout\s*<\/span>/, 'Target URL technical value must use font-mono');
+    assert.match(html, /<span[^>]*font-sans[^>]*>\s*\(tidak diatur\)\s*<\/span>/, 'Unset secret key notice must use sans-serif font, not monospace');
+
+    // R3: Elongated Oval Pill Styling (rounded-full)
+    assert.match(html, /<span[^>]*rounded-full[^>]*>\s*stripe\s*<\/span>/, 'Provider badge must use rounded-full elongated pill');
+    assert.match(html, /<span[^>]*rounded-full[^>]*>\+(?:<!-- -->)?1(?:<!-- -->)?\s*fan-out<\/span>/, 'Fan-out indicator must use rounded-full elongated pill');
+    assert.match(html, /<span[^>]*rounded-full[^>]*>Canonical<\/span>/, 'Canonical mode indicator must use rounded-full elongated pill');
+    assert.match(html, /<span[^>]*rounded-full[^>]*>Agent Online<\/span>/, 'Agent Online indicator must use rounded-full elongated pill');
+    assert.match(html, /<span[^>]*rounded-full[^>]*>Direct HTTP<\/span>/, 'Direct HTTP indicator must use rounded-full elongated pill');
+
+    // R4: Invariants
+    const epSrcPath = fs.existsSync('src/components/EndpointsView.tsx')
+      ? 'src/components/EndpointsView.tsx'
+      : 'ui/src/components/EndpointsView.tsx';
+    const epSrc = fs.readFileSync(epSrcPath, 'utf8');
+
+    assert.match(epSrc, /onClick=\{\(\)\s*=>\s*onToggleActive\(ep\)\}/, 'Switch toggle button must trigger onToggleActive(ep) on click');
+    assert.doesNotMatch(epSrc.replace(/\/\/.*$/gm, ''), /#[0-9a-fA-F]{3,8}\b/, 'EndpointsView must not contain raw hex color literals');
+    assert.doesNotMatch(epSrc, /[\u2014\u2013]/, 'EndpointsView must not contain unicode em or en dashes');
+    assert.doesNotMatch(html, /\u2022\s*(Agent Online|Direct HTTP|Aktif|Nonaktif)|(Agent Online|Direct HTTP|Aktif|Nonaktif)\s*\u2022/, 'No decorative bullet dots in status pills');
+    assert.doesNotMatch(html, /animate-pulse|animate-ping/, 'No pulse or ping animations in rendered output');
+  });
+
   // Cleanup temp files
   try {
     fs.rmSync(outDir, { recursive: true, force: true, maxRetries: 0 });
