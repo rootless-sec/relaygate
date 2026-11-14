@@ -429,7 +429,7 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                         role="switch"
                         aria-checked={ep.is_active}
                         onClick={() => onToggleActive(ep)}
-                        className="inline-flex items-center gap-2 cursor-pointer group rounded-full py-1 px-2 transition-colors hover:bg-zinc-100/80 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:ring-offset-2"
+                        className="inline-flex items-center gap-2 min-h-[44px] sm:min-h-[32px] cursor-pointer group rounded-full py-1 px-2 transition-colors hover:bg-zinc-100/80 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:ring-offset-2"
                         title={ep.is_active ? `Nonaktifkan endpoint ${ep.name}` : `Aktifkan endpoint ${ep.name}`}
                         aria-label={`Status endpoint ${ep.name}: ${ep.is_active ? 'Aktif' : 'Nonaktif'}`}
                       >

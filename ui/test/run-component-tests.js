@@ -2643,6 +2643,7 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     assert.match(html, /bg-emerald-600/, 'Active switch track must use bg-emerald-600');
     assert.match(html, /bg-zinc-300/, 'Inactive switch track must use bg-zinc-300');
     assert.match(html, /focus:ring-zinc-900/, 'Switch button must have accessible focus ring');
+    assert.match(html, /role="switch"[^>]*min-h-\[44px\]/, 'Switch toggle must meet 44px mobile touch target height');
 
     // R2: Typography Consistency
     assert.match(html, /font-sans/, 'Table must enforce primary UI sans-serif font');
