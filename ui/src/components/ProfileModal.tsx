@@ -23,7 +23,7 @@ interface ProfileModalProps {
   onClose: () => void;
   currentUser: UserProfile | null;
   onProfileUpdated: (updated: UserProfile) => void;
-  onToast: (message: string, type?: 'success' | 'error' | 'info') => void;
+  onToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
 }
 
 type ProfileTab = 'profile' | 'security';

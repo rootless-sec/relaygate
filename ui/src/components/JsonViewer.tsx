@@ -5,7 +5,7 @@ interface JsonViewerProps {
   jsonString: string;
   rawString?: string;
   curlCommand?: string;
-  onToast?: (message: string) => void;
+  onToast?: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
 }
 
 export const JsonViewer: React.FC<JsonViewerProps> = ({
@@ -22,9 +22,9 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
       navigator.clipboard.writeText(text);
       setCopiedKey(label);
       setTimeout(() => setCopiedKey(null), 1500);
-      onToast?.(`${label} disalin ke clipboard`);
+      onToast?.(`${label} disalin ke clipboard`, 'success');
     } catch {
-      onToast?.(`Gagal menyalin ${label}`);
+      onToast?.(`Gagal menyalin ${label}`, 'error');
     }
   };
 

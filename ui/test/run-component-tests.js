@@ -93,6 +93,18 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     loader: { '.tsx': 'tsx', '.ts': 'ts' },
   });
 
+  const toastFile = path.join(outDir, 'toast-bundle.mjs');
+
+  await build({
+    entryPoints: [path.join(__dirname, '../src/components/Toast.tsx')],
+    bundle: true,
+    format: 'esm',
+    outfile: toastFile,
+    external: ['react', 'react-dom', 'lucide-react'],
+    jsx: 'transform',
+    loader: { '.tsx': 'tsx', '.ts': 'ts' },
+  });
+
   const { InspectorDrawer } = await import(`file://${drawerFile.replace(/\\/g, '/')}`);
   const { 
     isSensitiveHeader, 
@@ -109,6 +121,7 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
   const { EventsView } = await import(`file://${eventsFile.replace(/\\/g, '/')}`);
   const { ProfileModal } = await import(`file://${profileFile.replace(/\\/g, '/')}`);
   const { EndpointsView } = await import(`file://${endpointsFile.replace(/\\/g, '/')}`);
+  const { Toast } = await import(`file://${toastFile.replace(/\\/g, '/')}`);
   const React = (await import('react')).default;
   const { renderToString } = await import('react-dom/server');
 
@@ -862,6 +875,177 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     const toastSource = fs.readFileSync(path.join(__dirname, '../src/components/Toast.tsx'), 'utf8');
     assert.match(toastSource, /setTimeout\([^,]+,\s*3000\)/, 'Toast must auto-dismiss after 3000ms');
     assert.match(toastSource, /bottom-24/, 'Toast must be positioned at bottom-24 above action bar');
+  });
+
+  await suite.test('C6: Toast notification UX redesign, symmetry, accessibility & light-theme zinc tokens', () => {
+    const toastSource = fs.readFileSync(path.join(__dirname, '../src/components/Toast.tsx'), 'utf8');
+
+    // 1. Anti-asymmetry & anti-dark-pill invariants
+    assert.doesNotMatch(toastSource, /left-1\/2\s+-translate-x-1\/2/, 'Toast must NOT center across full viewport causing sidebar skew');
+    assert.doesNotMatch(toastSource, /bg-zinc-900\s+text-white/, 'Toast must NOT use unpolished dark pill background');
+
+    // 2. Symmetrical placement accounting for sidebar and mobile
+    assert.match(toastSource, /sm:right-6/, 'Toast must dock cleanly to bottom-right (right-6) on desktop');
+    assert.match(toastSource, /left-4\s+right-4/, 'Toast must collapse symmetrically to left-4 right-4 on mobile');
+    assert.match(toastSource, /justify-center\s+sm:justify-end/, 'Toast container must center on mobile and justify-end on desktop for symmetry');
+    assert.match(toastSource, /sm:w-96/, 'Toast must use standard sm:w-96 card width on desktop');
+
+    // 3. Accessibility & interaction patterns
+    assert.match(toastSource, /role="region"/, 'Toast container must have role="region"');
+    assert.match(toastSource, /aria-label="Notifikasi"/, 'Toast container must have aria-label="Notifikasi"');
+    assert.match(toastSource, /min-h-\[44px\]\s+min-w-\[44px\]/, 'Close button must provide 44px minimum touch target');
+    assert.match(toastSource, /aria-label="Tutup notifikasi"/, 'Close button must have aria-label="Tutup notifikasi"');
+    assert.match(toastSource, /onMouseEnter/, 'Toast must support hover pause on mouse enter');
+    assert.match(toastSource, /onMouseLeave/, 'Toast must resume dismiss on mouse leave');
+    assert.match(toastSource, /Escape/, 'Toast must dismiss on Escape key press');
+    assert.match(toastSource, /key=\{toast\.id\}/, 'Toast card must use key={toast.id} for smooth transition remounting');
+    assert.match(toastSource, /setIsPaused\(false\)/, 'Toast must reset paused state on toast ID change and dismiss');
+    assert.match(toastSource, /toast\.duration/, 'Toast must support custom duration override');
+
+    // 4. Render testing for semantic statuses (success, error, warning, info)
+    const successHtml = renderToString(
+      React.createElement(Toast, {
+        toast: { id: 't-1', type: 'success', message: 'Endpoint berhasil ditambahkan' },
+        onClose: () => {},
+      })
+    );
+    assert.match(successHtml, /role="status"/, 'Success toast must have role="status"');
+    assert.match(successHtml, /aria-live="polite"/, 'Success toast must have aria-live="polite"');
+    assert.match(successHtml, /bg-emerald-50/, 'Success toast must render emerald-50 icon container');
+    assert.match(successHtml, /text-emerald-600/, 'Success toast must render emerald-600 icon');
+    assert.match(successHtml, /bg-white/, 'Toast card must use crisp white surface');
+    assert.match(successHtml, /border-zinc-200/, 'Toast card must use neutral zinc border');
+
+    const errorHtml = renderToString(
+      React.createElement(Toast, {
+        toast: {
+          id: 't-2',
+          type: 'error',
+          message: 'Sesi Anda telah berakhir demi keamanan. Silakan masuk kembali.',
+          action: { label: 'Masuk Kembali', onClick: () => {} },
+        },
+        onClose: () => {},
+      })
+    );
+    assert.match(errorHtml, /role="alert"/, 'Error toast must have role="alert"');
+    assert.match(errorHtml, /aria-live="assertive"/, 'Error toast must have aria-live="assertive"');
+    assert.match(errorHtml, /bg-rose-50/, 'Error toast must render rose-50 icon container');
+    assert.match(errorHtml, /text-rose-600/, 'Error toast must render rose-600 icon');
+    assert.match(errorHtml, /Sesi Berakhir/, 'Session notice toast must automatically render "Sesi Berakhir" heading');
+    assert.match(errorHtml, /Masuk Kembali/, 'Action button must be rendered when provided');
+
+    const warningHtml = renderToString(
+      React.createElement(Toast, {
+        toast: { id: 't-3', type: 'warning', title: 'Peringatan Kuota', message: 'Kapasitas webhook tersisa 10%' },
+        onClose: () => {},
+      })
+    );
+    assert.match(warningHtml, /role="alert"/, 'Warning toast must have role="alert"');
+    assert.match(warningHtml, /bg-amber-50/, 'Warning toast must render amber-50 icon container');
+    assert.match(warningHtml, /Peringatan Kuota/, 'Custom toast title must be rendered when provided');
+
+    const infoHtml = renderToString(
+      React.createElement(Toast, {
+        toast: { id: 't-4', type: 'info', message: 'Token disalin ke clipboard' },
+        onClose: () => {},
+      })
+    );
+    assert.match(infoHtml, /role="status"/, 'Info toast must have role="status"');
+    assert.match(infoHtml, /bg-sky-50/, 'Info toast must render sky-50 icon container');
+    assert.match(infoHtml, /text-sky-600/, 'Info toast must render sky-600 icon');
+  });
+
+  await suite.test('C6b: Toast adversarial edge cases: timer pause resilience, key remounting, symmetry & clipboard semantics', () => {
+    const toastSource = fs.readFileSync(path.join(__dirname, '../src/components/Toast.tsx'), 'utf8');
+    const epSource = fs.readFileSync(path.join(__dirname, '../src/components/EndpointsView.tsx'), 'utf8');
+    const drawerSource = fs.readFileSync(path.join(__dirname, '../src/components/InspectorDrawer.tsx'), 'utf8');
+    const jsonSource = fs.readFileSync(path.join(__dirname, '../src/components/JsonViewer.tsx'), 'utf8');
+    const appSource = fs.readFileSync(path.join(__dirname, '../src/App.tsx'), 'utf8');
+
+    // 1. Timer pause resilience & stuck state prevention
+    assert.match(
+      toastSource,
+      /useEffect\(\(\)\s*=>\s*\{\s*setIsPaused\(false\);\s*\},?\s*\[toast\?\.id\]\)/,
+      'Toast must reset paused state on toast ID change to prevent stuck timers'
+    );
+    assert.match(
+      toastSource,
+      /setIsPaused\(false\);\s*onClose\(\);/,
+      'Dismiss handler must reset isPaused state'
+    );
+    assert.match(
+      toastSource,
+      /setIsPaused\(false\);\s*toast\.action\?\.onClick\(\);/,
+      'Toast action button must reset paused state'
+    );
+
+    // 2. Smooth transition & re-animation on rapid toast dispatch
+    assert.match(
+      toastSource,
+      /<div\b[^>]*\bkey=\{toast\.id\}/,
+      'Card div must have key={toast.id} to trigger entrance animation on successive notifications'
+    );
+
+    // 3. Symmetrical mobile alignment invariant
+    assert.match(
+      toastSource,
+      /justify-center\s+sm:justify-end/,
+      'Toast container must center on mobile screens between 448px and 640px'
+    );
+
+    // 4. Custom duration support
+    assert.match(
+      toastSource,
+      /toast\.duration\s*\?\s*setTimeout\([^,]+,\s*toast\.duration\)\s*:\s*setTimeout\([^,]+,\s*3000\)/,
+      'Toast must honor custom duration while preserving 3000ms default'
+    );
+
+    // 5. Semantic statuses on clipboard actions across Endpoints, Drawer, and JsonViewer
+    assert.match(epSource, /disalin ke clipboard`,\s*'success'\)/, 'EndpointsView must dispatch success toast on copy');
+    assert.match(epSource, /Gagal menyalin \$\{label\}`,\s*'error'\)/, 'EndpointsView must dispatch error toast on copy failure');
+    assert.match(drawerSource, /disalin ke clipboard`,\s*'success'\)/, 'InspectorDrawer must dispatch success toast on copy');
+    assert.match(drawerSource, /Gagal menyalin \$\{label\}`,\s*'error'\)/, 'InspectorDrawer must dispatch error toast on copy failure');
+    assert.match(jsonSource, /disalin ke clipboard`,\s*'success'\)/, 'JsonViewer must dispatch success toast on copy');
+    assert.match(jsonSource, /Gagal menyalin \$\{label\}`,\s*'error'\)/, 'JsonViewer must dispatch error toast on copy failure');
+
+    // 6. Defensive fallback test: toast with unknown type renders safely as info fallback
+    const fallbackHtml = renderToString(
+      React.createElement(Toast, {
+        toast: { id: 't-fallback', type: 'unknown_type', message: 'Pesan kustom' },
+        onClose: () => {},
+      })
+    );
+    assert.match(fallbackHtml, /bg-sky-50/, 'Unknown toast type must safely fall back to sky info style');
+    assert.match(fallbackHtml, /Pesan kustom/, 'Fallback toast must render message');
+
+    // 7. Ref-stabilized onCloseRef preventing timer resets on parent re-renders
+    assert.match(
+      toastSource,
+      /const\s+onCloseRef\s*=\s*useRef\(onClose\);/,
+      'Toast must use onCloseRef to avoid timer resets on parent re-render'
+    );
+    assert.match(
+      toastSource,
+      /onCloseRef\.current\(\)/,
+      'Toast timer must invoke onCloseRef.current'
+    );
+    assert.match(
+      appSource,
+      /handleCloseToast\s*=\s*useCallback/,
+      'App.tsx must memoize handleCloseToast callback'
+    );
+    assert.match(
+      appSource,
+      /toastSeqRef\.current\s*\+=\s*1/,
+      'App.tsx must use monotonic counter for toast IDs'
+    );
+
+    // 8. Long token wrapping without horizontal scroll
+    assert.match(
+      toastSource,
+      /break-words/,
+      'Toast text must include break-words to wrap long URLs and tokens'
+    );
   });
 
   await suite.test('C7: Responsive design classes (overlay + backdrop on < 1280, side-by-side on >= 1280 without horizontal scroll)', () => {

@@ -29,7 +29,7 @@ interface EndpointsViewProps {
   onToggleActive: (endpoint: Endpoint) => Promise<void>;
   onRotateAgentToken?: (endpoint: Endpoint) => Promise<void>;
   onDeleteEndpoint?: (endpoint: Endpoint) => Promise<void>;
-  onToast: (message: string) => void;
+  onToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
 }
 
 export const EndpointsView: React.FC<EndpointsViewProps> = ({
@@ -210,9 +210,9 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
       navigator.clipboard.writeText(text);
       setCopiedKey(label);
       setTimeout(() => setCopiedKey(null), 1500);
-      onToast(`${label} disalin ke clipboard`);
+      onToast(`${label} disalin ke clipboard`, 'success');
     } catch {
-      onToast(`Gagal menyalin ${label}`);
+      onToast(`Gagal menyalin ${label}`, 'error');
     }
   };
 
@@ -274,7 +274,7 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
       setWrapEnvelope(false);
       setSecretKey('');
       setShowAddModal(false);
-      onToast('Endpoint berhasil ditambahkan');
+      onToast('Endpoint berhasil ditambahkan', 'success');
       setTimeout(() => {
         openAddModalBtnRef.current?.focus();
       }, 40);

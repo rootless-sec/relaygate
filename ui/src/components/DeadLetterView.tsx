@@ -38,7 +38,7 @@ interface DeadLetterViewProps {
     allFailed: boolean
   ) => Promise<{ replayed_count: number; skipped_count?: number } | void> | void;
   onNavigateToEndpoint?: (endpointId: string) => void;
-  onToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
+  onToast?: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
   isLoading?: boolean;
 }
 

@@ -62,6 +62,7 @@ export const App: React.FC = () => {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
   const mobileMenuBtnRef = useRef<HTMLButtonElement | null>(null);
   const prevMobileSidebarOpen = useRef<boolean>(mobileSidebarOpen);
+  const toastSeqRef = useRef<number>(0);
 
   useEffect(() => {
     if (prevMobileSidebarOpen.current && !mobileSidebarOpen) {
@@ -102,7 +103,13 @@ export const App: React.FC = () => {
       setSelectedEvent(null);
       setShowAuthView(true);
       setSessionExpiredMessage(msg);
-      setToast({ id: Date.now().toString(), message: msg, type: 'error' });
+      toastSeqRef.current += 1;
+      setToast({
+        id: `${Date.now()}-${toastSeqRef.current}`,
+        message: msg,
+        type: 'error',
+        title: 'Sesi Berakhir',
+      });
     };
     window.addEventListener('relaygate_session_expired', handleExpired);
     return () => window.removeEventListener('relaygate_session_expired', handleExpired);
@@ -163,9 +170,23 @@ export const App: React.FC = () => {
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
-    setToast({ id: Date.now().toString(), message, type });
+  const showToast = (
+    message: string,
+    type: 'success' | 'error' | 'info' | 'warning' = 'info',
+    title?: string
+  ) => {
+    toastSeqRef.current += 1;
+    setToast({
+      id: `${Date.now()}-${toastSeqRef.current}`,
+      message,
+      type,
+      title,
+    });
   };
+
+  const handleCloseToast = useCallback(() => {
+    setToast(null);
+  }, []);
 
   // 1. Initial Data Loading
   const loadInitialData = useCallback(async () => {
@@ -767,7 +788,7 @@ export const App: React.FC = () => {
                 onToggleActive={handleToggleEndpointActive}
                 onRotateAgentToken={handleRotateAgentToken}
                 onDeleteEndpoint={currentUser && currentUser.role !== 'admin' ? undefined : handleDeleteEndpoint}
-                onToast={(msg) => showToast(msg, 'info')}
+                onToast={(msg, type) => showToast(msg, type || 'info')}
               />
             )}
           </div>
@@ -779,7 +800,7 @@ export const App: React.FC = () => {
               endpoints={endpoints}
               onClose={() => setSelectedEvent(null)}
               onReplay={handleReplaySingle}
-              onToast={(msg) => showToast(msg, 'info')}
+              onToast={(msg, type) => showToast(msg, type || 'info')}
               onNavigateToEndpoint={() => {
                 handleTabChange('endpoints');
               }}
@@ -812,7 +833,7 @@ export const App: React.FC = () => {
       )}
 
       {/* Toast Feedback */}
-      <Toast toast={toast} onClose={() => setToast(null)} />
+      <Toast toast={toast} onClose={handleCloseToast} />
     </div>
   );
 };

@@ -35,7 +35,7 @@ interface InspectorDrawerProps {
   endpoints?: Endpoint[];
   onClose: () => void;
   onReplay: (event: WebhookEvent, fromDrawer?: boolean) => void;
-  onToast: (message: string) => void;
+  onToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
   onNavigateToEndpoint?: (endpointId: string) => void;
   isSplitView?: boolean;
 }
@@ -149,9 +149,9 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
       navigator.clipboard.writeText(text);
       setCopiedKey(label);
       setTimeout(() => setCopiedKey(null), 1500);
-      onToast(`${label} disalin ke clipboard`);
+      onToast(`${label} disalin ke clipboard`, 'success');
     } catch {
-      onToast(`Gagal menyalin ${label}`);
+      onToast(`Gagal menyalin ${label}`, 'error');
     }
   };
 
