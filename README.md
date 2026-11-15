@@ -66,6 +66,10 @@ npm --prefix ui test
 * [Configuration & Deployment](docs/configuration.md) - Server and `relaygate-agent` CLI flags, environment variables (`RELAYGATE_RETENTION_DAYS`, `RELAYGATE_AGENT_*`, `SMTP_*` vs `RELAYGATE_SMTP_*`), Nginx/Caddy configs, and systemd units.
 * [Architecture & Internals](docs/architecture.md) - Ingestion pipeline, SQLite WAL schema (`delivery_logs`, `idempotency_keys`), verification engines, circuit breakers, and `relaygate-agent` tunnel internals.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for prerequisites, repository layout, local build steps, test commands, and pull request conventions.
+
 ## License
 
 Apache-2.0. Built by [Rootless Security](https://github.com/rootless-sec).
