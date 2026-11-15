@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install UI dependencies
+        run: npm --prefix ui ci
+
+      - name: Run UI component tests
+        run: npm --prefix ui test
+
+      - name: Build UI bundle
+        run: npm --prefix ui run build
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run Go test suite
+        env:
+          CGO_ENABLED: '0'
+        run: go test -count=1 ./...
+
+      - name: Build RelayGate binaries
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          go build -o /tmp/relaygate ./cmd/relaygate
+          go build -o /tmp/relaygate-agent ./cmd/relaygate-agent
