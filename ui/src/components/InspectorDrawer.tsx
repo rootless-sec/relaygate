@@ -35,7 +35,7 @@ interface InspectorDrawerProps {
   endpoints?: Endpoint[];
   onClose: () => void;
   onReplay: (event: WebhookEvent, fromDrawer?: boolean) => void;
-  onToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
+  onToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning', title?: string) => void;
   onNavigateToEndpoint?: (endpointId: string) => void;
   isSplitView?: boolean;
 }
@@ -126,16 +126,22 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
     }
   };
 
-  // Keyboard shortcut: Escape to close
+  // Keyboard shortcut: Escape to close (isolated so reverify dialog closes first)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && event) {
-        handleClose();
+      if (e.key === 'Escape') {
+        if (showReverifyConfirm) {
+          setShowReverifyConfirm(false);
+          return;
+        }
+        if (event) {
+          handleClose();
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [event, onClose]);
+  }, [event, showReverifyConfirm, onClose]);
 
   if (!event) return null;
 
@@ -326,7 +332,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
             <button
               type="button"
               onClick={handleClose}
-              className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded-md transition-colors cursor-pointer"
+              className="min-h-[44px] min-w-[44px] -mr-2 p-2.5 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg transition-colors cursor-pointer flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
               title="Tutup panel (Esc)"
               aria-label="Tutup panel detail"
             >
@@ -388,7 +394,11 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
 
         {/* Inline Replay In-Flight / Result Banner */}
         {replayInProgress && (
-          <div className="px-5 py-2.5 bg-zinc-50 border-b border-zinc-200/80 text-xs text-zinc-900 flex items-center gap-2 animate-in fade-in duration-150 shrink-0">
+          <div
+            role="status"
+            aria-live="polite"
+            className="px-5 py-2.5 bg-zinc-50 border-b border-zinc-200/80 text-xs text-zinc-900 flex items-center gap-2 animate-in fade-in duration-150 shrink-0"
+          >
             <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-900 shrink-0" />
             <span>Sedang memproses pengiriman ulang...</span>
           </div>
@@ -401,6 +411,8 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
           event.status !== 'DELIVERED' &&
           replayInlineResult.status !== 'still_failed' && (
             <div
+              role={replayInlineResult.status === 'info' ? 'status' : 'alert'}
+              aria-live={replayInlineResult.status === 'info' ? 'polite' : 'assertive'}
               className={`px-5 py-2.5 border-b text-xs flex items-center justify-between gap-2 animate-in fade-in duration-150 shrink-0 ${
                 replayInlineResult.status === 'info'
                   ? 'bg-blue-50 border-blue-200 text-blue-900'
@@ -418,10 +430,10 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               <button
                 type="button"
                 onClick={() => setReplayInlineResult(null)}
-                className="p-0.5 text-zinc-500 hover:text-zinc-800"
+                className="min-h-[44px] min-w-[44px] -mr-2 -my-2.5 p-2.5 rounded-lg text-zinc-500 hover:text-zinc-800 flex items-center justify-center cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
                 aria-label="Tutup notifikasi"
               >
-                <X className="w-3 h-3" />
+                <X className="w-3.5 h-3.5" />
               </button>
             </div>
           )}
@@ -903,13 +915,28 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
 
       {/* Re-verify & Replay Confirmation Modal */}
       {showReverifyConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-xs">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="drawer-reverify-title"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-xs"
+        >
           <div className="w-full max-w-sm bg-white border border-zinc-200 rounded-xl p-5 shadow-xl animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center gap-2.5 mb-2">
-              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
-              <h3 className="text-sm font-bold text-zinc-900">
-                Konfirmasi Verifikasi Ulang
-              </h3>
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <div className="flex items-center gap-2.5">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+                <h3 id="drawer-reverify-title" className="text-sm font-bold text-zinc-900">
+                  Konfirmasi Verifikasi Ulang
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowReverifyConfirm(false)}
+                className="min-h-[44px] min-w-[44px] -mr-2 -mt-2 p-2.5 rounded-lg flex items-center justify-center text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 shrink-0"
+                aria-label="Tutup dialog verifikasi ulang"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
             <p className="text-xs text-zinc-600 mb-4 leading-relaxed">
               Verifikasi akan dijalankan ulang terhadap konfigurasi secret endpoint saat ini.
@@ -919,14 +946,14 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
               <button
                 type="button"
                 onClick={() => setShowReverifyConfirm(false)}
-                className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-zinc-100 border border-zinc-200 text-zinc-900 rounded-lg transition-colors cursor-pointer"
+                className="min-h-[44px] px-3.5 py-2 text-xs font-semibold bg-white hover:bg-zinc-100 border border-zinc-200 text-zinc-900 rounded-lg transition-colors cursor-pointer flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
               >
                 Batal
               </button>
               <button
                 type="button"
                 onClick={triggerReplayAction}
-                className="px-3.5 py-1.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg transition-colors shadow-xs cursor-pointer"
+                className="min-h-[44px] px-4 py-2 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg transition-colors shadow-xs cursor-pointer flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
               >
                 Verifikasi Ulang & Kirim
               </button>

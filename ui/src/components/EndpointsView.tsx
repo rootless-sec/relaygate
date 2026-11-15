@@ -29,7 +29,7 @@ interface EndpointsViewProps {
   onToggleActive: (endpoint: Endpoint) => Promise<void>;
   onRotateAgentToken?: (endpoint: Endpoint) => Promise<void>;
   onDeleteEndpoint?: (endpoint: Endpoint) => Promise<void>;
-  onToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
+  onToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning', title?: string) => void;
 }
 
 export const EndpointsView: React.FC<EndpointsViewProps> = ({
@@ -571,7 +571,7 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
               <button
                 type="button"
                 onClick={handleCloseAgentModal}
-                className="min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 sm:size-7 -mr-1 -mt-1 rounded-md flex items-center justify-center text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 active:scale-[0.98] transition-all cursor-pointer shrink-0"
+                className="min-h-[44px] min-w-[44px] -mr-2 -mt-2 p-2.5 rounded-lg flex items-center justify-center text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 active:scale-[0.98] transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 shrink-0"
                 aria-label="Tutup modal CLI Agent"
               >
                 <X className="w-4 h-4" />
@@ -676,7 +676,7 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                 <button
                   type="button"
                   onClick={handleCloseAgentModal}
-                  className="h-9 px-4 bg-zinc-900 hover:bg-zinc-800 active:scale-[0.98] text-white rounded-lg text-xs font-medium shadow-2xs transition-all cursor-pointer"
+                  className="min-h-[44px] px-4 py-2 bg-zinc-900 hover:bg-zinc-800 active:scale-[0.98] text-white rounded-lg text-xs font-medium shadow-2xs transition-all cursor-pointer flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
                 >
                   Tutup
                 </button>
@@ -717,7 +717,7 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                 type="button"
                 onClick={handleCloseDeleteModal}
                 disabled={deletingEndpoint}
-                className="p-2 -mr-1 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-md transition-colors cursor-pointer disabled:opacity-50 min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center"
+                className="p-2 -mr-1 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-md transition-colors cursor-pointer disabled:opacity-50 min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
                 aria-label="Tutup dialog hapus endpoint"
               >
                 <X className="w-4 h-4" />
@@ -726,7 +726,11 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
 
             <div className="p-6 space-y-4">
               {deleteError && (
-                <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg flex items-start gap-2.5 text-rose-700">
+                <div
+                  role="alert"
+                  aria-live="assertive"
+                  className="p-3 bg-rose-50 border border-rose-200 rounded-lg flex items-start gap-2.5 text-rose-700 animate-in fade-in"
+                >
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" />
                   <span className="text-xs font-sans leading-relaxed">{deleteError}</span>
                 </div>
@@ -750,7 +754,7 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                   type="button"
                   onClick={handleCloseDeleteModal}
                   disabled={deletingEndpoint}
-                  className="min-h-[44px] sm:min-h-[36px] px-4 rounded-lg text-xs font-sans font-medium text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 transition-colors cursor-pointer disabled:opacity-50"
+                  className="min-h-[44px] px-4 rounded-lg text-xs font-sans font-medium text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
                 >
                   Batal
                 </button>
@@ -758,7 +762,7 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                   type="button"
                   onClick={handleConfirmDelete}
                   disabled={deletingEndpoint}
-                  className="inline-flex items-center justify-center gap-1.5 min-h-[44px] sm:min-h-[36px] px-4 bg-rose-600 hover:bg-rose-700 active:scale-[0.98] disabled:opacity-50 text-white rounded-lg text-xs font-sans font-medium shadow-2xs transition-all cursor-pointer"
+                  className="inline-flex items-center justify-center gap-1.5 min-h-[44px] px-4 bg-rose-600 hover:bg-rose-700 active:scale-[0.98] disabled:opacity-50 text-white rounded-lg text-xs font-sans font-medium shadow-2xs transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600"
                 >
                   {deletingEndpoint && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   {deletingEndpoint ? 'Menghapus...' : 'Hapus Endpoint'}
@@ -800,7 +804,7 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
               <button
                 type="button"
                 onClick={handleCloseModal}
-                className="size-7 -mr-1 -mt-1 rounded-md flex items-center justify-center text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 active:scale-[0.98] transition-all cursor-pointer"
+                className="min-h-[44px] min-w-[44px] -mr-2 -mt-2 p-2.5 rounded-lg flex items-center justify-center text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 active:scale-[0.98] transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
                 aria-label="Tutup modal tambah endpoint"
               >
                 <X className="w-4 h-4" />
@@ -810,7 +814,11 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
             {/* Modal Form Scrollable Area */}
             <div className="p-5 sm:p-6 pt-4 overflow-y-auto">
               {error && (
-                <div className="mb-4 p-3 rounded-lg bg-rose-50 border border-rose-200/80 text-xs text-rose-700 flex items-center gap-2">
+                <div
+                  role="alert"
+                  aria-live="assertive"
+                  className="mb-4 p-3 rounded-lg bg-rose-50 border border-rose-200/80 text-xs text-rose-700 flex items-center gap-2 animate-in fade-in"
+                >
                   <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
                   <span>{error}</span>
                 </div>
@@ -948,14 +956,14 @@ export const EndpointsView: React.FC<EndpointsViewProps> = ({
                   <button
                     type="button"
                     onClick={handleCloseModal}
-                    className="h-9 px-4 bg-white hover:bg-zinc-50 active:scale-[0.98] border border-zinc-200/90 text-zinc-700 hover:text-zinc-950 rounded-lg text-xs font-medium shadow-2xs transition-all cursor-pointer"
+                    className="min-h-[44px] px-4 py-2 bg-white hover:bg-zinc-50 active:scale-[0.98] border border-zinc-200/90 text-zinc-700 hover:text-zinc-950 rounded-lg text-xs font-medium shadow-2xs transition-all cursor-pointer flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
                   >
                     Batal
                   </button>
                   <button
                     type="submit"
                     disabled={loading}
-                    className="h-9 px-4 bg-zinc-900 hover:bg-zinc-800 active:scale-[0.98] text-white rounded-lg text-xs font-medium shadow-2xs transition-all disabled:opacity-50 disabled:pointer-events-none cursor-pointer flex items-center gap-1.5"
+                    className="min-h-[44px] px-4 py-2 bg-zinc-900 hover:bg-zinc-800 active:scale-[0.98] text-white rounded-lg text-xs font-medium shadow-2xs transition-all disabled:opacity-50 disabled:pointer-events-none cursor-pointer flex items-center justify-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
                   >
                     {loading ? (
                       <>

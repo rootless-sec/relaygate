@@ -1,5 +1,5 @@
-import React from 'react';
-import { AlertTriangle, AlertOctagon, CheckCircle, Loader2 } from 'lucide-react';
+import React, { useEffect } from 'react';
+import { AlertTriangle, AlertOctagon, CheckCircle, Loader2, X } from 'lucide-react';
 
 export interface BulkResultData {
   deliveredCount: number;
@@ -37,16 +37,44 @@ export const BulkReplayModal: React.FC<BulkReplayModalProps> = ({
   onClose,
   onConfirm,
 }) => {
+  useEffect(() => {
+    if (!bulkModal.open) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !bulkModal.inProgress) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [bulkModal.open, bulkModal.inProgress, onClose]);
+
   if (!bulkModal.open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-xs">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="bulk-replay-title"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-xs"
+    >
       <div className="w-full max-w-md bg-white border border-zinc-200 rounded-xl p-5 shadow-xl animate-in fade-in zoom-in-95 duration-150">
-        <div className="flex items-center gap-2.5 mb-2">
-          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
-          <h3 className="text-sm font-bold text-zinc-900">
-            {bulkModal.resultData ? 'Hasil replay' : 'Konfirmasi Replay Massal'}
-          </h3>
+        <div className="flex items-start justify-between gap-3 mb-2">
+          <div className="flex items-center gap-2.5">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+            <h3 id="bulk-replay-title" className="text-sm font-bold text-zinc-900">
+              {bulkModal.resultData ? 'Hasil replay' : 'Konfirmasi Replay Massal'}
+            </h3>
+          </div>
+          {!bulkModal.inProgress && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="min-h-[44px] min-w-[44px] -mr-2 -mt-2 p-2.5 rounded-lg flex items-center justify-center text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 shrink-0"
+              aria-label="Tutup dialog replay massal"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
         {bulkModal.resultData ? (
@@ -169,7 +197,7 @@ export const BulkReplayModal: React.FC<BulkReplayModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-3.5 py-1.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg transition-colors cursor-pointer"
+                className="min-h-[44px] px-4 py-2 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg transition-colors cursor-pointer flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
               >
                 Tutup
               </button>
@@ -223,7 +251,7 @@ export const BulkReplayModal: React.FC<BulkReplayModalProps> = ({
                 type="button"
                 disabled={bulkModal.inProgress}
                 onClick={onClose}
-                className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-zinc-100 border border-zinc-200 text-zinc-900 rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
+                className="min-h-[44px] px-3.5 py-2 text-xs font-semibold bg-white hover:bg-zinc-100 border border-zinc-200 text-zinc-900 rounded-lg transition-colors disabled:opacity-50 cursor-pointer flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
               >
                 Batal
               </button>
@@ -231,7 +259,7 @@ export const BulkReplayModal: React.FC<BulkReplayModalProps> = ({
                 type="button"
                 disabled={bulkModal.inProgress || bulkModal.eligibleIds.length === 0}
                 onClick={onConfirm}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg transition-colors shadow-xs disabled:opacity-50 cursor-pointer"
+                className="min-h-[44px] flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg transition-colors shadow-xs disabled:opacity-50 cursor-pointer justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
               >
                 {bulkModal.inProgress ? (
                   <>

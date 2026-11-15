@@ -38,7 +38,7 @@ interface DeadLetterViewProps {
     allFailed: boolean
   ) => Promise<{ replayed_count: number; skipped_count?: number } | void> | void;
   onNavigateToEndpoint?: (endpointId: string) => void;
-  onToast?: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
+  onToast?: (message: string, type?: 'success' | 'error' | 'info' | 'warning', title?: string) => void;
   isLoading?: boolean;
 }
 
@@ -124,6 +124,18 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
   });
 
   const [reverifySingleConfirm, setReverifySingleConfirm] = useState<WebhookEvent | null>(null);
+
+  // Close confirmation on Escape key
+  useEffect(() => {
+    if (!reverifySingleConfirm) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setReverifySingleConfirm(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [reverifySingleConfirm]);
 
   const selectAllCheckboxRef = useRef<HTMLInputElement>(null);
 
@@ -1331,13 +1343,28 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
 
       {/* 7. Re-verify Confirmation Modal for Single Action */}
       {reverifySingleConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-xs">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reverify-single-title"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-xs"
+        >
           <div className="w-full max-w-sm bg-white border border-zinc-200 rounded-xl p-5 shadow-xl animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center gap-2.5 mb-2">
-              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
-              <h3 className="text-sm font-bold text-zinc-900">
-                Konfirmasi Verifikasi Ulang
-              </h3>
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <div className="flex items-center gap-2.5">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+                <h3 id="reverify-single-title" className="text-sm font-bold text-zinc-900">
+                  Konfirmasi Verifikasi Ulang
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReverifySingleConfirm(null)}
+                className="min-h-[44px] min-w-[44px] -mr-2 -mt-2 p-2.5 rounded-lg flex items-center justify-center text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 shrink-0"
+                aria-label="Tutup dialog verifikasi ulang"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
             <p className="text-xs text-zinc-600 mb-4 leading-relaxed">
               Event <b className="font-mono text-zinc-900">{reverifySingleConfirm.id.slice(0, 8)}...</b> ditolak saat verifikasi.
@@ -1347,7 +1374,7 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
               <button
                 type="button"
                 onClick={() => setReverifySingleConfirm(null)}
-                className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-zinc-100 border border-zinc-200 text-zinc-900 rounded-lg transition-colors cursor-pointer"
+                className="min-h-[44px] px-3.5 py-2 text-xs font-semibold bg-white hover:bg-zinc-100 border border-zinc-200 text-zinc-900 rounded-lg transition-colors cursor-pointer flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
               >
                 Batal
               </button>
@@ -1358,7 +1385,7 @@ export const DeadLetterView: React.FC<DeadLetterViewProps> = ({
                   setReverifySingleConfirm(null);
                   onReplaySingle(ev);
                 }}
-                className="px-3.5 py-1.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg transition-colors shadow-xs cursor-pointer"
+                className="min-h-[44px] px-4 py-2 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg transition-colors shadow-xs cursor-pointer flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
               >
                 Verifikasi Ulang & Kirim
               </button>

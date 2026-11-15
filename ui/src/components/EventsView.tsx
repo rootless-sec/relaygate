@@ -32,6 +32,7 @@ interface EventsViewProps {
   bufferedCount: number;
   onFlushBuffer: () => void;
   searchInputRef: React.RefObject<HTMLInputElement>;
+  onToast?: (message: string, type?: 'success' | 'error' | 'info' | 'warning', title?: string) => void;
 }
 
 export const EventsView: React.FC<EventsViewProps> = ({
@@ -46,6 +47,7 @@ export const EventsView: React.FC<EventsViewProps> = ({
   bufferedCount,
   onFlushBuffer,
   searchInputRef,
+  onToast,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -61,8 +63,11 @@ export const EventsView: React.FC<EventsViewProps> = ({
     try {
       navigator.clipboard.writeText(id);
       setCopiedId(id);
+      onToast?.(`Event ID ${id.slice(0, 8)} disalin ke clipboard`, 'success');
       setTimeout(() => setCopiedId(null), 1500);
-    } catch {}
+    } catch {
+      onToast?.('Gagal menyalin Event ID', 'error');
+    }
   };
 
   const [bulkModal, setBulkModal] = useState<BulkModalState>({
@@ -633,15 +638,21 @@ export const EventsView: React.FC<EventsViewProps> = ({
 
       {/* Buffered Real-time Notification Banner */}
       {bufferedCount > 0 && (
-        <div className="mb-3 shrink-0">
+        <aside
+          role="status"
+          aria-live="polite"
+          aria-label="Pembaruan antrean event"
+          className="mb-3 shrink-0"
+        >
           <button
+            type="button"
             onClick={onFlushBuffer}
-            className="w-full py-1.5 px-3 bg-sky-50 border border-sky-200 text-sky-800 text-xs font-medium rounded-md hover:bg-sky-100 transition-colors flex items-center justify-center gap-2 cursor-pointer"
+            className="w-full min-h-[44px] py-2 px-3.5 bg-sky-50 border border-sky-200 text-sky-900 text-xs font-medium rounded-xl hover:bg-sky-100 transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600"
           >
-            <Radio className="w-3.5 h-3.5 text-sky-600" />
+            <Radio className="w-4 h-4 text-sky-600 shrink-0" />
             <span>{bufferedCount} event baru masuk antrean, klik untuk memuat ke tampilan</span>
           </button>
-        </div>
+        </aside>
       )}
 
       {/* Navattic Bordered Grid Table */}

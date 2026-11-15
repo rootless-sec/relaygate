@@ -210,6 +210,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     onDismissNotice?.();
   };
 
+  // Close session notice on Escape key
+  useEffect(() => {
+    if (!sessionNoticeState) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleDismissNotice();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [sessionNoticeState]);
+
   // OAuth Account Chooser Modal state
   const [activeOAuthModal, setActiveOAuthModal] = useState<'google' | 'github' | 'gitlab' | null>(null);
   const [oauthLoading, setOauthLoading] = useState(false);

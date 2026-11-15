@@ -23,7 +23,7 @@ interface ProfileModalProps {
   onClose: () => void;
   currentUser: UserProfile | null;
   onProfileUpdated: (updated: UserProfile) => void;
-  onToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
+  onToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning', title?: string) => void;
 }
 
 type ProfileTab = 'profile' | 'security';
@@ -229,7 +229,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="size-7 rounded-md flex items-center justify-center text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 transition-colors cursor-pointer"
+            className="min-h-[44px] min-w-[44px] -mr-2 -mt-2 p-2.5 rounded-lg flex items-center justify-center text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
             aria-label="Tutup modal profil"
           >
             <X className="w-4 h-4" />
@@ -332,8 +332,12 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 </div>
 
                 {avatarError && (
-                  <div className="p-2.5 rounded-lg bg-rose-50/80 border border-rose-200/80 text-xs text-rose-700 flex items-center gap-2">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <div
+                    role="alert"
+                    aria-live="assertive"
+                    className="p-2.5 rounded-lg bg-rose-50/80 border border-rose-200/80 text-xs text-rose-700 flex items-center gap-2 animate-in fade-in"
+                  >
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-600" />
                     <span>{avatarError}</span>
                   </div>
                 )}
@@ -435,8 +439,12 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 </div>
 
                 {passwordError && (
-                  <div className="p-2.5 rounded-lg bg-rose-50/80 border border-rose-200/80 text-xs text-rose-700 flex items-center gap-2">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <div
+                    role="alert"
+                    aria-live="assertive"
+                    className="p-2.5 rounded-lg bg-rose-50/80 border border-rose-200/80 text-xs text-rose-700 flex items-center gap-2 animate-in fade-in"
+                  >
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-600" />
                     <span>{passwordError}</span>
                   </div>
                 )}

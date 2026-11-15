@@ -5,7 +5,7 @@ interface JsonViewerProps {
   jsonString: string;
   rawString?: string;
   curlCommand?: string;
-  onToast?: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
+  onToast?: (message: string, type?: 'success' | 'error' | 'info' | 'warning', title?: string) => void;
 }
 
 export const JsonViewer: React.FC<JsonViewerProps> = ({

@@ -512,6 +512,7 @@ export const App: React.FC = () => {
     setCurrentUser(null);
     setShowProfileModal(false);
     setSelectedEvent(null);
+    setToast(null);
     setShowAuthView(true);
     setAuthMode('login');
     try {
@@ -573,6 +574,7 @@ export const App: React.FC = () => {
           initialMode={authMode}
           onLoginSuccess={(email) => {
             setSessionExpiredMessage(null);
+            setToast(null);
             setShowAuthView(false);
             setUserEmail(email);
             try {
@@ -763,6 +765,7 @@ export const App: React.FC = () => {
                 bufferedCount={bufferedEvents.length}
                 onFlushBuffer={handleFlushBuffer}
                 searchInputRef={searchInputRef}
+                onToast={(msg, type, title) => showToast(msg, type, title)}
               />
             )}
 
@@ -777,7 +780,7 @@ export const App: React.FC = () => {
                 onNavigateToEndpoint={() => {
                   handleTabChange('endpoints');
                 }}
-                onToast={(msg, type) => showToast(msg, type)}
+                onToast={(msg, type, title) => showToast(msg, type, title)}
               />
             )}
 
@@ -788,7 +791,7 @@ export const App: React.FC = () => {
                 onToggleActive={handleToggleEndpointActive}
                 onRotateAgentToken={handleRotateAgentToken}
                 onDeleteEndpoint={currentUser && currentUser.role !== 'admin' ? undefined : handleDeleteEndpoint}
-                onToast={(msg, type) => showToast(msg, type || 'info')}
+                onToast={(msg, type, title) => showToast(msg, type || 'info', title)}
               />
             )}
           </div>
@@ -800,7 +803,7 @@ export const App: React.FC = () => {
               endpoints={endpoints}
               onClose={() => setSelectedEvent(null)}
               onReplay={handleReplaySingle}
-              onToast={(msg, type) => showToast(msg, type || 'info')}
+              onToast={(msg, type, title) => showToast(msg, type || 'info', title)}
               onNavigateToEndpoint={() => {
                 handleTabChange('endpoints');
               }}
@@ -828,7 +831,7 @@ export const App: React.FC = () => {
               }
             } catch {}
           }}
-          onToast={(msg, type) => showToast(msg, type)}
+          onToast={(msg, type, title) => showToast(msg, type, title)}
         />
       )}
 

@@ -2874,6 +2874,89 @@ test('RelayGate DLQ Revamp Test Suite', async (suite) => {
     );
   });
 
+  await suite.test('R1 & R2: Comprehensive Notification, Alert, and Feedback System Invariants across RelayGate', async () => {
+    const srcDir = path.join(__dirname, '../src');
+    const toastSource = fs.readFileSync(path.join(srcDir, 'components', 'Toast.tsx'), 'utf8');
+    const loginSource = fs.readFileSync(path.join(srcDir, 'components', 'LoginPage.tsx'), 'utf8');
+    const bulkSource = fs.readFileSync(path.join(srcDir, 'components', 'BulkReplayModal.tsx'), 'utf8');
+    const drawerSource = fs.readFileSync(path.join(srcDir, 'components', 'InspectorDrawer.tsx'), 'utf8');
+    const dlqSource = fs.readFileSync(path.join(srcDir, 'components', 'DeadLetterView.tsx'), 'utf8');
+    const epSource = fs.readFileSync(path.join(srcDir, 'components', 'EndpointsView.tsx'), 'utf8');
+    const profileSource = fs.readFileSync(path.join(srcDir, 'components', 'ProfileModal.tsx'), 'utf8');
+    const eventsSource = fs.readFileSync(path.join(srcDir, 'components', 'EventsView.tsx'), 'utf8');
+
+    // 1. Toast Structure & Accessible Controls
+    assert.match(toastSource, /role="region"/, 'Toast must define role="region"');
+    assert.match(toastSource, /min-h-\[44px\]\s+min-w-\[44px\]/, 'Toast close button must have 44px touch target');
+    assert.match(toastSource, /sm:right-6/, 'Toast must dock cleanly to bottom-right on desktop');
+    assert.match(toastSource, /left-4\s+right-4/, 'Toast must collapse symmetrically on mobile');
+    assert.match(toastSource, /bg-white\s+border\s+border-zinc-200/, 'Toast must use light zinc card surface');
+
+    // 2. LoginPage Floating Session Notice & Inline Alert Roles
+    assert.match(loginSource, /aria-label="Pemberitahuan sesi"/, 'Session notice must declare accessible label');
+    assert.match(loginSource, /min-h-\[44px\]\s+min-w-\[44px\]/, 'Session notice close button must have 44px touch target');
+    assert.match(loginSource, /Escape/, 'Session notice must listen for Escape key');
+    assert.match(loginSource, /role="alert"/, 'Form validation errors must have role="alert"');
+
+    // 3. BulkReplayModal Dialog ARIA & Escape Listener
+    assert.match(bulkSource, /role="dialog"/, 'BulkReplayModal must have role="dialog"');
+    assert.match(bulkSource, /aria-modal="true"/, 'BulkReplayModal must declare aria-modal="true"');
+    assert.match(bulkSource, /aria-labelledby="bulk-replay-title"/, 'BulkReplayModal must link to title ID');
+    assert.match(bulkSource, /Escape/, 'BulkReplayModal must handle Escape key');
+
+    // 4. InspectorDrawer Replay Banner & Confirm Dialog
+    assert.match(drawerSource, /role="status"|role=\{replayInlineResult/, 'Drawer replay banner must declare status role');
+    assert.match(drawerSource, /min-h-\[44px\]\s+min-w-\[44px\]/, 'Drawer close controls must enforce 44px touch target');
+    assert.match(drawerSource, /role="dialog"/, 'Drawer reverify modal must have role="dialog"');
+
+    // 5. DeadLetterView Single Re-verify Dialog
+    assert.match(dlqSource, /role="dialog"/, 'DeadLetterView reverify modal must have role="dialog"');
+    assert.match(dlqSource, /Escape/, 'DeadLetterView reverify modal must listen for Escape key');
+
+    // 6. EndpointsView Modal Errors & Close Controls
+    assert.match(epSource, /deleteError\s*&&\s*\([\s\S]*?role="alert"/, 'EndpointsView deleteError must have role="alert"');
+    assert.match(epSource, /error\s*&&\s*\([\s\S]*?role="alert"/, 'EndpointsView create error must have role="alert"');
+    assert.match(epSource, /aria-label="Tutup modal tambah endpoint"[\s\S]*?min-h-\[44px\]|min-h-\[44px\][\s\S]*?aria-label="Tutup modal tambah endpoint"/, 'Add endpoint modal close button must enforce 44px touch target');
+
+    // 7. ProfileModal Inline Errors & Close Control
+    assert.match(profileSource, /avatarError\s*&&\s*\([\s\S]*?role="alert"/, 'ProfileModal avatar error must have role="alert"');
+    assert.match(profileSource, /passwordError\s*&&\s*\([\s\S]*?role="alert"/, 'ProfileModal password error must have role="alert"');
+    assert.match(profileSource, /aria-label="Tutup modal profil"[\s\S]*?min-h-\[44px\]|min-h-\[44px\][\s\S]*?aria-label="Tutup modal profil"/, 'ProfileModal close button must enforce 44px touch target');
+
+    // 8. EventsView Buffered Banner & Anti-Pulsing Invariant (Rule 3)
+    assert.match(eventsSource, /role="status"/, 'EventsView buffered banner must declare role="status"');
+    assert.match(eventsSource, /min-h-\[44px\]/, 'EventsView buffered banner button must enforce 44px touch target');
+    assert.doesNotMatch(eventsSource, /Radio[\s\S]*?animate-pulse/, 'EventsView buffered banner icon must not use infinite pulsing animation');
+
+    // 9. InspectorDrawer Reverify Escape Isolation
+    assert.match(drawerSource, /showReverifyConfirm\s*\)\s*\{\s*setShowReverifyConfirm\(false\);\s*return;/, 'InspectorDrawer must isolate reverify modal from closing drawer on Escape');
+
+    // 10. BulkReplayModal Close Controls & Accessible Touch Targets
+    assert.match(bulkSource, /aria-label="Tutup dialog replay massal"/, 'BulkReplayModal must provide header close button');
+    assert.match(bulkSource, /min-h-\[44px\][\s\S]*?Tutup/, 'BulkReplayModal Tutup button must enforce 44px touch target');
+
+    // 11. EndpointsView Agent CLI Modal Touch Targets
+    assert.match(epSource, /aria-label="Tutup modal CLI Agent"[\s\S]*?min-h-\[44px\]|min-h-\[44px\][\s\S]*?aria-label="Tutup modal CLI Agent"/, 'Agent CLI modal close button must enforce 44px touch target');
+    assert.doesNotMatch(epSource, /sm:min-h-0[\s\S]*?aria-label="Tutup modal CLI Agent"/, 'Agent CLI modal close button must not shrink on desktop');
+    assert.match(epSource, /handleCloseAgentModal[\s\S]*?min-h-\[44px\][\s\S]*?Tutup/, 'Agent CLI modal Tutup button must enforce 44px touch target');
+
+    // 12. EndpointsView Delete Modal Action Button Touch Targets
+    assert.match(epSource, /min-h-\[44px\][\s\S]*?Hapus Endpoint/, 'EndpointsView delete modal action button must enforce 44px touch target');
+    assert.doesNotMatch(epSource, /sm:min-h-\[36px\][\s\S]*?Hapus Endpoint/, 'EndpointsView delete modal action button must not shrink on desktop viewports');
+
+    // 13. EndpointsView Add Endpoint Modal Action Button Touch Targets
+    assert.match(epSource, /min-h-\[44px\][\s\S]*?Simpan Endpoint/, 'EndpointsView add modal submit button must enforce 44px touch target');
+    assert.doesNotMatch(epSource, /h-9\s+px-4[\s\S]*?Simpan Endpoint/, 'EndpointsView add modal submit button must not use 36px (h-9) height');
+
+    // 14. Single Re-verify Modal Header Close Controls (DeadLetterView & InspectorDrawer)
+    assert.match(dlqSource, /reverify-single-title[\s\S]*?aria-label="Tutup dialog verifikasi ulang"[\s\S]*?min-h-\[44px\]|reverify-single-title[\s\S]*?min-h-\[44px\][\s\S]*?aria-label="Tutup dialog verifikasi ulang"/, 'DeadLetterView reverify modal must provide accessible 44px header close button');
+    assert.match(drawerSource, /drawer-reverify-title[\s\S]*?aria-label="Tutup dialog verifikasi ulang"[\s\S]*?min-h-\[44px\]|drawer-reverify-title[\s\S]*?min-h-\[44px\][\s\S]*?aria-label="Tutup dialog verifikasi ulang"/, 'InspectorDrawer reverify modal must provide accessible 44px header close button');
+
+    // 15. App.tsx onToast Title Parameter Forwarding
+    const appSource = fs.readFileSync(path.join(srcDir, 'App.tsx'), 'utf8');
+    assert.match(appSource, /onToast=\{\(msg,\s*type,\s*title\)\s*=>\s*showToast\(msg,\s*type,\s*title\)\}/, 'App.tsx must forward title parameter in onToast callbacks');
+  });
+
   // Cleanup temp files
   try {
     fs.rmSync(outDir, { recursive: true, force: true, maxRetries: 0 });

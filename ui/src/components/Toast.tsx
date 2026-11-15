@@ -159,7 +159,7 @@ export const Toast: React.FC<ToastProps> = ({
                 toast.action?.onClick();
                 onClose();
               }}
-              className="mt-2 text-xs font-medium text-zinc-900 hover:text-zinc-700 underline underline-offset-2 transition-colors cursor-pointer"
+              className="mt-2 text-xs font-medium text-zinc-900 hover:text-zinc-700 underline underline-offset-2 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 rounded-xs"
             >
               {toast.action.label}
             </button>
