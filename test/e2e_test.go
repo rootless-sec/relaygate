@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -3384,7 +3385,10 @@ func TestEndToEnd_HotBackup_InvalidDestinationPath(t *testing.T) {
 	h := SetupTestHarness(t)
 	defer h.Cleanup()
 
-	invalidPath := "Z:\\nonexistent_drive_xyz\\impossible_directory\\backup.db"
+	invalidPath := "/etc/impossible_directory/backup.db"
+	if runtime.GOOS == "windows" {
+		invalidPath = "Z:\\nonexistent_drive_xyz\\impossible_directory\\backup.db"
+	}
 	status, _, err := h.TriggerBackupAPI(invalidPath)
 	if err != nil {
 		t.Fatalf("TriggerBackupAPI failed: %v", err)
